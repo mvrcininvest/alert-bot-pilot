@@ -573,15 +573,44 @@ serve(async (req) => {
     }
 
     // Calculate quantities for partial TP closing
-    const tp1Quantity = tp1_price && settings.tp_strategy === 'partial_close' 
-      ? quantity * (settings.tp1_close_percent / 100) 
-      : quantity;
-    const tp2Quantity = tp2_price && settings.tp_strategy === 'partial_close'
-      ? quantity * (settings.tp2_close_percent / 100)
-      : 0;
-    const tp3Quantity = tp3_price && settings.tp_strategy === 'partial_close'
-      ? quantity * (settings.tp3_close_percent / 100)
-      : 0;
+    // CRITICAL: Ensure each TP quantity meets Bitget's minimum (minQuantity)
+    // If tp_strategy is partial_close but the split would be below minimum,
+    // place full position size on each TP instead
+    let tp1Quantity = quantity;
+    let tp2Quantity = 0;
+    let tp3Quantity = 0;
+    
+    if (settings.tp_strategy === 'partial_close' && settings.tp_levels >= 2) {
+      const potentialTp1Qty = quantity * (settings.tp1_close_percent / 100);
+      const potentialTp2Qty = quantity * (settings.tp2_close_percent / 100);
+      
+      // Check if both TP1 and TP2 would meet minimum quantity
+      if (potentialTp1Qty >= minQuantity && potentialTp2Qty >= minQuantity) {
+        tp1Quantity = potentialTp1Qty;
+        tp2Quantity = potentialTp2Qty;
+        
+        if (settings.tp_levels >= 3) {
+          const potentialTp3Qty = quantity * (settings.tp3_close_percent / 100);
+          if (potentialTp3Qty >= minQuantity) {
+            tp3Quantity = potentialTp3Qty;
+          }
+        }
+        
+        console.log(`✓ Using partial close strategy: TP1=${tp1Quantity}, TP2=${tp2Quantity}, TP3=${tp3Quantity}`);
+      } else {
+        // Quantities too small - use full position for each TP level
+        console.warn(`⚠️ Partial close quantities below minimum (${minQuantity}), using full position for each TP`);
+        console.warn(`   Would be: TP1=${potentialTp1Qty}, TP2=${potentialTp2Qty}`);
+        tp1Quantity = quantity;
+        tp2Quantity = tp2_price ? quantity : 0;
+        tp3Quantity = tp3_price ? quantity : 0;
+      }
+    } else if (settings.tp_strategy === 'main_tp_only') {
+      // Only one TP with full quantity
+      tp1Quantity = quantity;
+      tp2Quantity = 0;
+      tp3Quantity = 0;
+    }
 
     // Place TP orders
     let tp1OrderId, tp2OrderId, tp3OrderId;

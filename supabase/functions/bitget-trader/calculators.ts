@@ -80,22 +80,29 @@ export function calculateSLTP(
   let tp2Price: number | undefined;
   let tp3Price: number | undefined;
 
-  // Calculate SL based on method
-  switch (settings.sl_method) {
-    case 'percent_entry':
-      slPrice = calculateSLByPercentEntry(alertData, settings);
-      break;
-    case 'percent_margin':
-      slPrice = calculateSLByPercentMargin(alertData, settings, positionSize);
-      break;
-    case 'fixed_usdt':
-      slPrice = calculateSLByFixedUSDT(alertData, settings, positionSize);
-      break;
-    case 'atr_based':
-      slPrice = calculateSLByATR(alertData, settings);
-      break;
-    default:
-      slPrice = alertData.sl;
+  // Calculate SL based on method AND calculator type
+  // CRITICAL: When using risk_reward calculator, use rr_sl_percent_margin
+  if (settings.calculator_type === 'risk_reward' && settings.sl_method === 'percent_entry') {
+    // For risk_reward: use rr_sl_percent_margin (e.g., 10% margin = 1% from entry at 10x leverage)
+    slPrice = calculateSLByPercentMargin(alertData, settings, positionSize);
+  } else {
+    // For other calculators or methods, use the specified sl_method
+    switch (settings.sl_method) {
+      case 'percent_entry':
+        slPrice = calculateSLByPercentEntry(alertData, settings);
+        break;
+      case 'percent_margin':
+        slPrice = calculateSLByPercentMargin(alertData, settings, positionSize);
+        break;
+      case 'fixed_usdt':
+        slPrice = calculateSLByFixedUSDT(alertData, settings, positionSize);
+        break;
+      case 'atr_based':
+        slPrice = calculateSLByATR(alertData, settings);
+        break;
+      default:
+        slPrice = alertData.sl;
+    }
   }
 
   // Calculate TP based on calculator type
