@@ -98,31 +98,46 @@ Deno.serve(async (req) => {
 
     const positions = await fetchBitgetHistory(startTime, endTime);
     console.log(`Fetched ${positions.length} positions from Bitget`);
+    
+    if (positions.length > 0) {
+      console.log('Sample position:', JSON.stringify(positions[0]));
+    }
 
     // Map Bitget positions to our database format
-    const dbPositions = positions.map(pos => ({
-      symbol: pos.symbol.replace('USDT', ''),
-      side: pos.holdSide === 'long' ? 'BUY' : 'SELL',
-      entry_price: parseFloat(pos.openAvgPrice),
-      close_price: parseFloat(pos.closeAvgPrice),
-      quantity: parseFloat(pos.closeTotalPos),
-      leverage: parseInt(pos.leverage) || 10,
-      realized_pnl: parseFloat(pos.netProfit),
-      status: 'closed',
-      created_at: new Date(parseInt(pos.cTime)).toISOString(),
-      closed_at: new Date(parseInt(pos.uTime)).toISOString(),
-      close_reason: 'imported_from_bitget',
-      sl_price: 0,
-      metadata: {
-        imported: true,
-        import_date: new Date().toISOString(),
-        bitget_position_id: pos.positionId,
-        margin_mode: pos.marginMode,
-        pnl: pos.pnl,
-        total_fee: pos.totalFee,
-        open_total_pos: pos.openTotalPos,
+    const dbPositions = positions.map(pos => {
+      // Validate and parse timestamps
+      const createdTime = pos.cTime ? parseInt(pos.cTime) : Date.now();
+      const updatedTime = pos.uTime ? parseInt(pos.uTime) : Date.now();
+      
+      // Check if timestamps are valid
+      if (isNaN(createdTime) || isNaN(updatedTime)) {
+        console.error('Invalid timestamps for position:', pos.positionId, 'cTime:', pos.cTime, 'uTime:', pos.uTime);
       }
-    }));
+
+      return {
+        symbol: pos.symbol.replace('USDT', ''),
+        side: pos.holdSide === 'long' ? 'BUY' : 'SELL',
+        entry_price: parseFloat(pos.openAvgPrice),
+        close_price: parseFloat(pos.closeAvgPrice),
+        quantity: parseFloat(pos.closeTotalPos),
+        leverage: parseInt(pos.leverage) || 10,
+        realized_pnl: parseFloat(pos.netProfit),
+        status: 'closed',
+        created_at: new Date(createdTime).toISOString(),
+        closed_at: new Date(updatedTime).toISOString(),
+        close_reason: 'imported_from_bitget',
+        sl_price: 0,
+        metadata: {
+          imported: true,
+          import_date: new Date().toISOString(),
+          bitget_position_id: pos.positionId,
+          margin_mode: pos.marginMode,
+          pnl: pos.pnl,
+          total_fee: pos.totalFee,
+          open_total_pos: pos.openTotalPos,
+        }
+      };
+    });
 
     // Check for existing positions to avoid duplicates
     const existingSymbols = dbPositions.map(p => p.symbol);
