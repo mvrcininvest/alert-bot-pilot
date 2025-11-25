@@ -191,18 +191,22 @@ async function checkPositionFullVerification(supabase: any, position: any, autoR
   const currentPrice = Number(tickerResult.data[0].lastPr);
   console.log(`Current price for ${position.symbol}: ${currentPrice}`);
 
-  // 3. Get all open orders for this symbol (to check SL/TP)
+  // Get all open orders for this symbol (to check SL/TP)
   const { data: ordersResult } = await supabase.functions.invoke('bitget-api', {
     body: {
       action: 'get_plan_orders',
       params: { 
-        symbol: position.symbol,
-        productType: 'USDT-FUTURES'
+        symbol: position.symbol
       }
     }
   });
 
-  const planOrders = ordersResult?.success ? (ordersResult.data || []) : [];
+  const planOrders = ordersResult?.success && ordersResult.data?.entrustedList
+    ? ordersResult.data.entrustedList.filter((o: any) => 
+        o.symbol.toLowerCase() === position.symbol.toLowerCase() && 
+        o.planStatus === 'live'
+      )
+    : [];
   console.log(`Found ${planOrders.length} plan orders for ${position.symbol}`);
 
   // 4. Check quantity match
@@ -221,7 +225,9 @@ async function checkPositionFullVerification(supabase: any, position: any, autoR
 
   // 5. Check if SL order exists
   const slOrders = planOrders.filter((order: any) => 
-    order.planType === 'loss_plan' && order.state === 'live'
+    (order.planType === 'loss_plan' || 
+     (order.planType === 'profit_loss' && order.stopLossTriggerPrice)) &&
+    order.planStatus === 'live'
   );
   
   if (slOrders.length === 0) {
@@ -263,7 +269,9 @@ async function checkPositionFullVerification(supabase: any, position: any, autoR
 
   // 6. Check if TP orders exist (if configured)
   const tpOrders = planOrders.filter((order: any) => 
-    order.planType === 'profit_plan' && order.state === 'live'
+    (order.planType === 'profit_plan' || 
+     (order.planType === 'profit_loss' && order.stopSurplusTriggerPrice)) &&
+    order.planStatus === 'live'
   );
   
   const expectedTPs = [position.tp1_price, position.tp2_price, position.tp3_price].filter(Boolean).length;

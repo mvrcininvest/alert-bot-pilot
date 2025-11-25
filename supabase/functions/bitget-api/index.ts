@@ -255,8 +255,15 @@ serve(async (req) => {
 
       case 'get_plan_orders':
         // Get all plan orders (SL/TP) for a symbol - v2 API
-        result = await bitgetRequest(config, 'GET', 
-          `/api/v2/mix/order/orders-plan-pending?symbol=${params.symbol}&productType=${params.productType || 'USDT-FUTURES'}`);
+        // planType is REQUIRED: profit_loss gets all SL/TP orders
+        const planOrdersParams = new URLSearchParams({
+          productType: 'USDT-FUTURES',
+          planType: 'profit_loss'
+        });
+        if (params.symbol) {
+          planOrdersParams.append('symbol', params.symbol);
+        }
+        result = await bitgetRequest(config, 'GET', `/api/v2/mix/order/orders-plan-pending?${planOrdersParams.toString()}`);
         break;
 
       case 'set_leverage':
