@@ -7,6 +7,28 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
+// Helper function to get price precision from Bitget API
+async function getPricePrecision(supabase: any, symbol: string): Promise<number> {
+  const { data: symbolInfoResult } = await supabase.functions.invoke('bitget-api', {
+    body: {
+      action: 'get_symbol_info',
+      params: { symbol }
+    }
+  });
+  
+  let pricePlace = 2; // Default to 2 decimal places
+  if (symbolInfoResult?.success && symbolInfoResult.data?.[0]) {
+    pricePlace = parseInt(symbolInfoResult.data[0].pricePlace || '2');
+  }
+  
+  return pricePlace;
+}
+
+// Helper function to round price to correct precision
+function roundPrice(price: number, places: number): string {
+  return price.toFixed(places);
+}
+
 serve(async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response(null, { headers: corsHeaders });
@@ -144,6 +166,10 @@ async function checkPositionFullVerification(supabase: any, position: any, autoR
 
   const issues: any[] = [];
   const actions: string[] = [];
+  
+  // Get price precision for this symbol
+  const pricePlace = await getPricePrecision(supabase, position.symbol);
+  console.log(`📏 Price precision for ${position.symbol}: ${pricePlace} decimals`);
 
   // 1. Get current position from Bitget
   const { data: positionResult } = await supabase.functions.invoke('bitget-api', {
@@ -242,6 +268,7 @@ async function checkPositionFullVerification(supabase: any, position: any, autoR
     if (autoRepair) {
       console.log(`🔧 Auto-repairing: Placing SL order`);
       const holdSide = position.side === 'BUY' ? 'long' : 'short';
+      const roundedSlPrice = roundPrice(position.sl_price, pricePlace);
       
       const { data: slResult, error: slError } = await supabase.functions.invoke('bitget-api', {
         body: {
@@ -249,7 +276,7 @@ async function checkPositionFullVerification(supabase: any, position: any, autoR
           params: {
             symbol: position.symbol,
             planType: 'pos_loss',
-            triggerPrice: position.sl_price.toString(),
+            triggerPrice: roundedSlPrice,
             triggerType: 'mark_price',
             holdSide: holdSide,
             executePrice: 0, // Market order
@@ -312,6 +339,7 @@ async function checkPositionFullVerification(supabase: any, position: any, autoR
       
       if (position.tp1_price) {
         const tp1Qty = bitgetQuantity * (settings?.tp1_close_percent || 100) / 100;
+        const roundedTp1Price = roundPrice(position.tp1_price, pricePlace);
         
         const { data: tp1Result, error: tp1Error } = await supabase.functions.invoke('bitget-api', {
           body: {
@@ -319,7 +347,7 @@ async function checkPositionFullVerification(supabase: any, position: any, autoR
             params: {
               symbol: position.symbol,
               planType: 'pos_profit',
-              triggerPrice: position.tp1_price.toString(),
+              triggerPrice: roundedTp1Price,
               triggerType: 'mark_price',
               holdSide: holdSide,
               executePrice: 0, // Market order
@@ -362,13 +390,15 @@ async function checkPositionFullVerification(supabase: any, position: any, autoR
       if (position.tp2_price) {
         const tp2Qty = bitgetQuantity * (settings?.tp2_close_percent || 0) / 100;
         if (tp2Qty > 0) {
+          const roundedTp2Price = roundPrice(position.tp2_price, pricePlace);
+          
           const { data: tp2Result, error: tp2Error } = await supabase.functions.invoke('bitget-api', {
             body: {
               action: 'place_tpsl_order',
               params: {
                 symbol: position.symbol,
                 planType: 'pos_profit',
-                triggerPrice: position.tp2_price.toString(),
+                triggerPrice: roundedTp2Price,
                 triggerType: 'mark_price',
                 holdSide: holdSide,
                 executePrice: 0,
