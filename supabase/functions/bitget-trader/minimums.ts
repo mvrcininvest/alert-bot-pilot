@@ -12,24 +12,24 @@ export const SYMBOL_MINIMUMS: SymbolMinimums = {
   'ETHUSDT': 80,
   'BNBUSDT': 80,
   'SOLUSDT': 80,
-  'XRPUSDT': 6,
-  'ADAUSDT': 6,
-  'DOGEUSDT': 6,
-  'MATICUSDT': 6,
-  'DOTUSDT': 6,
-  'AVAXUSDT': 6,
-  'LINKUSDT': 6,
-  'UNIUSDT': 6,
-  'LTCUSDT': 6,
-  'ATOMUSDT': 6,
-  'ETCUSDT': 6,
-  'XLMUSDT': 6,
-  'NEARUSDT': 6,
-  'ALGOUSDT': 6,
-  'TRXUSDT': 6,
-  'FILUSDT': 6,
+  'XRPUSDT': 5,
+  'ADAUSDT': 5,
+  'DOGEUSDT': 5,
+  'MATICUSDT': 5,
+  'DOTUSDT': 5,
+  'AVAXUSDT': 5,
+  'LINKUSDT': 5,
+  'UNIUSDT': 5,
+  'LTCUSDT': 5,
+  'ATOMUSDT': 5,
+  'ETCUSDT': 5,
+  'XLMUSDT': 5,
+  'NEARUSDT': 5,
+  'ALGOUSDT': 5,
+  'TRXUSDT': 5,
+  'FILUSDT': 5,
   // Default minimum for unlisted symbols
-  'DEFAULT': 6
+  'DEFAULT': 5
 };
 
 export function getMinimumPositionSize(symbol: string): number {
@@ -45,11 +45,12 @@ export function adjustPositionSizeToMinimum(
   const calculatedNotional = calculatedSize * price;
   
   if (calculatedNotional < minNotional) {
-    // Need to adjust up to minimum
-    const adjustedQuantity = minNotional / price;
+    // Add 1% buffer to avoid rounding issues with Bitget minimum
+    const safeMinimum = minNotional * 1.01;
+    const adjustedQuantity = safeMinimum / price;
     return {
       adjustedQuantity,
-      adjustedNotional: minNotional,
+      adjustedNotional: safeMinimum,
       wasAdjusted: true
     };
   }
