@@ -519,14 +519,14 @@ export default function Settings() {
                   </div>
                   <div className="space-y-1">
                     <div className="text-xs text-muted-foreground">Filtrowanie po tier</div>
-                    <div className="font-medium">{localSettings.filter_by_tier ? "✓" : "✗"}</div>
+                    <div className="font-medium">{localSettings.filter_by_tier ? "✓ Włączone" : "✗ Wyłączone"}</div>
                   </div>
-                  {localSettings.filter_by_tier && localSettings.allowed_tiers && (
+                  {localSettings.filter_by_tier && localSettings.excluded_tiers && localSettings.excluded_tiers.length > 0 && (
                     <div className="col-span-2">
-                      <div className="text-xs text-muted-foreground mb-1">Dozwolone tier:</div>
+                      <div className="text-xs text-muted-foreground mb-1">Wykluczone tier:</div>
                       <div className="flex flex-wrap gap-1">
-                        {localSettings.allowed_tiers.map((tier: string) => (
-                          <Badge key={tier} variant="outline" className="text-xs">{tier}</Badge>
+                        {localSettings.excluded_tiers.map((tier: string) => (
+                          <Badge key={tier} variant="destructive" className="text-xs">{tier}</Badge>
                         ))}
                       </div>
                     </div>
