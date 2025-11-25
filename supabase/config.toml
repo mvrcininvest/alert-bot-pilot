@@ -14,3 +14,6 @@ verify_jwt = true
 
 [functions.close-position]
 verify_jwt = true
+
+[functions.import-history]
+verify_jwt = true

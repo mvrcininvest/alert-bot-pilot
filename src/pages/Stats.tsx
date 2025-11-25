@@ -1,9 +1,48 @@
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { BarChart3 } from "lucide-react";
+import { BarChart3, Download } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { useToast } from "@/hooks/use-toast";
+import { useState } from "react";
 
 export default function Stats() {
+  const { toast } = useToast();
+  const queryClient = useQueryClient();
+  const [isImporting, setIsImporting] = useState(false);
+
+  const importMutation = useMutation({
+    mutationFn: async (days: number) => {
+      const { data, error } = await supabase.functions.invoke('import-history', {
+        body: { days }
+      });
+      
+      if (error) throw error;
+      return data;
+    },
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ["all-positions-stats"] });
+      toast({
+        title: "Import zakończony",
+        description: `Zaimportowano ${data.imported} pozycji (${data.skipped} pominiętych duplikatów)`,
+      });
+      setIsImporting(false);
+    },
+    onError: (error: Error) => {
+      toast({
+        title: "Błąd importu",
+        description: error.message,
+        variant: "destructive",
+      });
+      setIsImporting(false);
+    },
+  });
+
+  const handleImport = (days: number) => {
+    setIsImporting(true);
+    importMutation.mutate(days);
+  };
+
   const { data: allPositions } = useQuery({
     queryKey: ["all-positions-stats"],
     queryFn: async () => {
@@ -68,9 +107,36 @@ export default function Stats() {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-3xl font-bold">Statystyki Wydajności</h1>
-        <p className="text-muted-foreground">Szczegółowa analiza wyników tradingowych</p>
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-3xl font-bold">Statystyki Wydajności</h1>
+          <p className="text-muted-foreground">Szczegółowa analiza wyników tradingowych</p>
+        </div>
+        <div className="flex gap-2">
+          <Button
+            onClick={() => handleImport(7)}
+            disabled={isImporting}
+            variant="outline"
+          >
+            <Download className="h-4 w-4 mr-2" />
+            Import 7 dni
+          </Button>
+          <Button
+            onClick={() => handleImport(30)}
+            disabled={isImporting}
+            variant="outline"
+          >
+            <Download className="h-4 w-4 mr-2" />
+            Import 30 dni
+          </Button>
+          <Button
+            onClick={() => handleImport(90)}
+            disabled={isImporting}
+          >
+            <Download className="h-4 w-4 mr-2" />
+            Import 90 dni
+          </Button>
+        </div>
       </div>
 
       {stats && (
