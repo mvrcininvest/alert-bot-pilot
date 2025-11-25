@@ -5,7 +5,7 @@ import { cn } from "@/lib/utils";
 const navigation = [
   { name: "Dashboard", href: "/", icon: Home },
   { name: "Alerty", href: "/alerts", icon: AlertCircle },
-  { name: "Otwarte Pozycje", href: "/positions", icon: TrendingUp },
+  { name: "Diagnostyka", href: "/diagnostics", icon: AlertCircle },
   { name: "Historia", href: "/history", icon: History },
   { name: "Statystyki", href: "/stats", icon: BarChart3 },
   { name: "Logi", href: "/logs", icon: FileText },

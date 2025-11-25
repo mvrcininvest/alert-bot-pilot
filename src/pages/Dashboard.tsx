@@ -1,7 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { TrendingUp, Activity, DollarSign, Wallet, AlertCircle } from "lucide-react";
+import { TrendingUp, Activity, DollarSign, Wallet } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
 
@@ -77,21 +77,6 @@ export default function Dashboard() {
     refetchInterval: 5000,
   });
 
-  const { data: diagnostics } = useQuery({
-    queryKey: ["bot-diagnostics"],
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from("bot_logs")
-        .select("*")
-        .in("level", ["error", "warn"])
-        .order("created_at", { ascending: false })
-        .limit(10);
-      
-      if (error) throw error;
-      return data || [];
-    },
-    refetchInterval: 5000,
-  });
 
   const kpis = [
     {
@@ -150,40 +135,41 @@ export default function Dashboard() {
       </div>
 
       <div className="grid gap-6 lg:grid-cols-2">
-        {/* Diagnostyka */}
+        {/* Otwarte Pozycje */}
         <Card>
           <CardHeader>
-            <CardTitle>Diagnostyka</CardTitle>
+            <CardTitle>Otwarte Pozycje</CardTitle>
           </CardHeader>
           <CardContent>
             <ScrollArea className="h-[300px]">
-              <div className="space-y-3">
-                {diagnostics && diagnostics.length > 0 ? (
-                  diagnostics.map((log) => (
-                    <div key={log.id} className="flex items-start gap-3 border-b border-border pb-3 last:border-0 last:pb-0">
-                      <div className="mt-0.5">
-                        {log.level === "error" ? (
-                          <AlertCircle className="h-4 w-4 text-destructive" />
-                        ) : (
-                          <AlertCircle className="h-4 w-4 text-yellow-500" />
-                        )}
+              <div className="space-y-4">
+                {positions && positions.length > 0 ? (
+                  positions.map((pos) => (
+                    <div key={pos.id} className="border-b border-border pb-3 last:border-0 last:pb-0">
+                      <div className="flex items-center justify-between mb-2">
+                        <div className="font-medium">{pos.symbol}</div>
+                        <Badge variant={pos.side === "BUY" ? "default" : "destructive"}>
+                          {pos.side} {pos.leverage}x
+                        </Badge>
                       </div>
-                      <div className="flex-1 space-y-1">
-                        <div className="flex items-center gap-2">
-                          <Badge variant={log.level === "error" ? "destructive" : "secondary"}>
-                            {log.level.toUpperCase()}
-                          </Badge>
-                          <span className="text-xs text-muted-foreground">
-                            {new Date(log.created_at).toLocaleTimeString()}
-                          </span>
+                      <div className="grid grid-cols-2 gap-2 text-sm">
+                        <div>
+                          <span className="text-muted-foreground">Entry:</span> ${Number(pos.entry_price).toFixed(4)}
                         </div>
-                        <p className="text-sm">{log.message}</p>
-                        <p className="text-xs text-muted-foreground">{log.function_name}</p>
+                        <div>
+                          <span className="text-muted-foreground">Current:</span> ${Number(pos.current_price || pos.entry_price).toFixed(4)}
+                        </div>
+                        <div>
+                          <span className="text-muted-foreground">Quantity:</span> {Number(pos.quantity).toFixed(4)}
+                        </div>
+                        <div className={Number(pos.unrealized_pnl || 0) >= 0 ? "text-profit" : "text-loss"}>
+                          <span className="text-muted-foreground">PnL:</span> ${Number(pos.unrealized_pnl || 0).toFixed(2)}
+                        </div>
                       </div>
                     </div>
                   ))
                 ) : (
-                  <p className="text-center text-muted-foreground py-8">Brak błędów i ostrzeżeń</p>
+                  <p className="text-center text-muted-foreground py-8">Brak otwartych pozycji</p>
                 )}
               </div>
             </ScrollArea>
