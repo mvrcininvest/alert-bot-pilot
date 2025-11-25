@@ -374,18 +374,6 @@ export default function Settings() {
                         Odległość SL od ceny wejścia w %
                       </p>
                     </div>
-                    <div className="space-y-2">
-                      <Label>Take Profit Bazowy (%)</Label>
-                      <Input
-                        type="number"
-                        step="0.1"
-                        value={localSettings.simple_tp_percent}
-                        onChange={(e) => updateLocal("simple_tp_percent", parseFloat(e.target.value))}
-                      />
-                      <p className="text-xs text-muted-foreground">
-                        Bazowa odległość TP. Multiple poziomy: TP1=1x, TP2=1.5x, TP3=2x tej wartości
-                      </p>
-                    </div>
                   </div>
 
                   <Separator />
@@ -402,40 +390,79 @@ export default function Settings() {
                       />
                     </div>
 
-                    <div className="space-y-2">
-                      <Label>TP1 - Zamknij % pozycji</Label>
-                      <Input
-                        type="number"
-                        min="0"
-                        max="100"
-                        value={localSettings.tp1_close_percent || 100}
-                        onChange={(e) => updateLocal("tp1_close_percent", parseFloat(e.target.value))}
-                      />
-                    </div>
-
-                    {localSettings.tp_levels >= 2 && (
+                    {/* TP1 */}
+                    <div className="space-y-3 p-3 border rounded-lg">
+                      <div className="font-medium">TP1</div>
                       <div className="space-y-2">
-                        <Label>TP2 - Zamknij % pozycji</Label>
+                        <Label>TP1 - Odległość od entry (%)</Label>
+                        <Input
+                          type="number"
+                          step="0.1"
+                          value={localSettings.simple_tp_percent}
+                          onChange={(e) => updateLocal("simple_tp_percent", parseFloat(e.target.value))}
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <Label>TP1 - Zamknij % pozycji</Label>
                         <Input
                           type="number"
                           min="0"
                           max="100"
-                          value={localSettings.tp2_close_percent || 0}
-                          onChange={(e) => updateLocal("tp2_close_percent", parseFloat(e.target.value))}
+                          value={localSettings.tp1_close_percent || 100}
+                          onChange={(e) => updateLocal("tp1_close_percent", parseFloat(e.target.value))}
                         />
+                      </div>
+                    </div>
+
+                    {/* TP2 */}
+                    {localSettings.tp_levels >= 2 && (
+                      <div className="space-y-3 p-3 border rounded-lg">
+                        <div className="font-medium">TP2</div>
+                        <div className="space-y-2">
+                          <Label>TP2 - Odległość od entry (%)</Label>
+                          <Input
+                            type="number"
+                            step="0.1"
+                            value={localSettings.simple_tp2_percent || (localSettings.simple_tp_percent * 1.5)}
+                            onChange={(e) => updateLocal("simple_tp2_percent", parseFloat(e.target.value))}
+                          />
+                        </div>
+                        <div className="space-y-2">
+                          <Label>TP2 - Zamknij % pozycji</Label>
+                          <Input
+                            type="number"
+                            min="0"
+                            max="100"
+                            value={localSettings.tp2_close_percent || 0}
+                            onChange={(e) => updateLocal("tp2_close_percent", parseFloat(e.target.value))}
+                          />
+                        </div>
                       </div>
                     )}
 
+                    {/* TP3 */}
                     {localSettings.tp_levels >= 3 && (
-                      <div className="space-y-2">
-                        <Label>TP3 - Zamknij % pozycji</Label>
-                        <Input
-                          type="number"
-                          min="0"
-                          max="100"
-                          value={localSettings.tp3_close_percent || 0}
-                          onChange={(e) => updateLocal("tp3_close_percent", parseFloat(e.target.value))}
-                        />
+                      <div className="space-y-3 p-3 border rounded-lg">
+                        <div className="font-medium">TP3</div>
+                        <div className="space-y-2">
+                          <Label>TP3 - Odległość od entry (%)</Label>
+                          <Input
+                            type="number"
+                            step="0.1"
+                            value={localSettings.simple_tp3_percent || (localSettings.simple_tp_percent * 2)}
+                            onChange={(e) => updateLocal("simple_tp3_percent", parseFloat(e.target.value))}
+                          />
+                        </div>
+                        <div className="space-y-2">
+                          <Label>TP3 - Zamknij % pozycji</Label>
+                          <Input
+                            type="number"
+                            min="0"
+                            max="100"
+                            value={localSettings.tp3_close_percent || 0}
+                            onChange={(e) => updateLocal("tp3_close_percent", parseFloat(e.target.value))}
+                          />
+                        </div>
                       </div>
                     )}
                   </div>
