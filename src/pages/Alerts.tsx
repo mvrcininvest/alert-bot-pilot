@@ -148,7 +148,54 @@ export default function Alerts() {
           <CardTitle>Alerty ({alerts?.length || 0})</CardTitle>
         </CardHeader>
         <CardContent>
-          <div className="overflow-x-auto">
+          <div className="space-y-2">
+            {/* Top scrollbar */}
+            <div 
+              className="overflow-x-auto overflow-y-hidden h-4"
+              onScroll={(e) => {
+                const bottomScroll = document.getElementById('alerts-table-container');
+                if (bottomScroll) {
+                  bottomScroll.scrollLeft = e.currentTarget.scrollLeft;
+                }
+              }}
+            >
+              <div style={{ width: 'max-content', height: '1px' }}>
+                {/* Invisible spacer matching table width */}
+                <div className="invisible">
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Data</TableHead>
+                        <TableHead>Symbol</TableHead>
+                        <TableHead>Side</TableHead>
+                        <TableHead>Entry</TableHead>
+                        <TableHead>SL</TableHead>
+                        <TableHead>TP</TableHead>
+                        <TableHead>Tier</TableHead>
+                        <TableHead>Strength</TableHead>
+                        <TableHead>Leverage</TableHead>
+                        <TableHead>Latencja</TableHead>
+                        <TableHead>Status</TableHead>
+                        <TableHead>Test</TableHead>
+                        <TableHead>Akcje</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                  </Table>
+                </div>
+              </div>
+            </div>
+            
+            {/* Main table with bottom scrollbar synced */}
+            <div 
+              id="alerts-table-container"
+              className="overflow-x-auto"
+              onScroll={(e) => {
+                const topScroll = e.currentTarget.previousElementSibling as HTMLElement;
+                if (topScroll) {
+                  topScroll.scrollLeft = e.currentTarget.scrollLeft;
+                }
+              }}
+            >
             <Table>
               <TableHeader>
                 <TableRow>
@@ -363,6 +410,7 @@ export default function Alerts() {
                 )}
               </TableBody>
             </Table>
+          </div>
           </div>
         </CardContent>
       </Card>
