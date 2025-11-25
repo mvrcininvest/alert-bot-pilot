@@ -5,13 +5,15 @@ interface SymbolMinimums {
   [key: string]: number;
 }
 
-// Common minimums for popular symbols
-// These should be updated periodically as exchanges change their requirements
+// Minimum notional values (USDT) for each symbol on Bitget
+// These are REAL minimums from Bitget API, not arbitrary values!
+// Updated: 2025-11-25
 export const SYMBOL_MINIMUMS: SymbolMinimums = {
-  'BTCUSDT': 80,
-  'ETHUSDT': 80,
-  'BNBUSDT': 80,
-  'SOLUSDT': 80,
+  // Major coins - minimum 5 USDT notional
+  'BTCUSDT': 5,
+  'ETHUSDT': 5,
+  'BNBUSDT': 5,
+  'SOLUSDT': 5,
   'XRPUSDT': 5,
   'ADAUSDT': 5,
   'DOGEUSDT': 5,

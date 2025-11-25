@@ -238,35 +238,35 @@ async function checkPositionFullVerification(supabase: any, position: any, autoR
     });
     console.log(`❌ CRITICAL: No SL order found for ${position.symbol}`);
     
-    // Auto-repair: Place SL order
+    // Auto-repair: Place SL order using TPSL endpoint
     if (autoRepair) {
       console.log(`🔧 Auto-repairing: Placing SL order`);
-      const slSide = position.side === 'BUY' ? 'close_long' : 'close_short';
+      const holdSide = position.side === 'BUY' ? 'long' : 'short';
       
-      // Direct fetch to bitget-api edge function
-      const slResponse = await fetch(`${Deno.env.get('SUPABASE_URL')}/functions/v1/bitget-api`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')}`
-        },
-        body: JSON.stringify({
-          action: 'place_plan_order',
+      const { data: slResult, error: slError } = await supabase.functions.invoke('bitget-api', {
+        body: {
+          action: 'place_tpsl_order',
           params: {
             symbol: position.symbol,
-            size: bitgetQuantity.toString(),
-            side: slSide,
-            orderType: 'market',
-            triggerPrice: position.sl_price.toString(),
-            executePrice: position.sl_price.toString(),
             planType: 'pos_loss',
+            triggerPrice: position.sl_price.toString(),
+            triggerType: 'mark_price',
+            holdSide: holdSide,
+            executePrice: 0, // Market order
           }
-        })
+        }
       });
       
-      const slResult = await slResponse.json();
-      
-      if (slResult?.success) {
+      if (slError) {
+        console.error(`❌ Supabase invoke error for SL:`, slError);
+        await log({
+          functionName: 'position-monitor',
+          message: 'Failed to invoke bitget-api for SL',
+          level: 'error',
+          positionId: position.id,
+          metadata: { error: slError }
+        });
+      } else if (slResult?.success) {
         await supabase
           .from('positions')
           .update({ sl_order_id: slResult.data.orderId })
@@ -305,38 +305,39 @@ async function checkPositionFullVerification(supabase: any, position: any, autoR
     });
     console.log(`⚠️ No TP orders found for ${position.symbol}, expected ${expectedTPs}`);
     
-    // Auto-repair: Place TP orders
+    // Auto-repair: Place TP orders using TPSL endpoint
     if (autoRepair) {
       console.log(`🔧 Auto-repairing: Placing TP orders`);
-      const tpSide = position.side === 'BUY' ? 'close_long' : 'close_short';
+      const holdSide = position.side === 'BUY' ? 'long' : 'short';
       
       if (position.tp1_price) {
         const tp1Qty = bitgetQuantity * (settings?.tp1_close_percent || 100) / 100;
         
-        // Direct fetch to bitget-api edge function
-        const tp1Response = await fetch(`${Deno.env.get('SUPABASE_URL')}/functions/v1/bitget-api`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')}`
-          },
-          body: JSON.stringify({
-            action: 'place_plan_order',
+        const { data: tp1Result, error: tp1Error } = await supabase.functions.invoke('bitget-api', {
+          body: {
+            action: 'place_tpsl_order',
             params: {
               symbol: position.symbol,
-              size: tp1Qty.toString(),
-              side: tpSide,
-              orderType: 'market',
-              triggerPrice: position.tp1_price.toString(),
-              executePrice: position.tp1_price.toString(),
               planType: 'pos_profit',
+              triggerPrice: position.tp1_price.toString(),
+              triggerType: 'mark_price',
+              holdSide: holdSide,
+              executePrice: 0, // Market order
+              size: tp1Qty.toString(), // Partial TP
             }
-          })
+          }
         });
         
-        const tp1Result = await tp1Response.json();
-        
-        if (tp1Result?.success) {
+        if (tp1Error) {
+          console.error(`❌ Supabase invoke error for TP1:`, tp1Error);
+          await log({
+            functionName: 'position-monitor',
+            message: 'Failed to invoke bitget-api for TP1',
+            level: 'error',
+            positionId: position.id,
+            metadata: { error: tp1Error }
+          });
+        } else if (tp1Result?.success) {
           await supabase
             .from('positions')
             .update({ 
@@ -363,15 +364,15 @@ async function checkPositionFullVerification(supabase: any, position: any, autoR
         if (tp2Qty > 0) {
           const { data: tp2Result, error: tp2Error } = await supabase.functions.invoke('bitget-api', {
             body: {
-              action: 'place_plan_order',
+              action: 'place_tpsl_order',
               params: {
                 symbol: position.symbol,
-                size: tp2Qty.toString(),
-                side: tpSide,
-                orderType: 'market',
-                triggerPrice: position.tp2_price.toString(),
-                executePrice: position.tp2_price.toString(),
                 planType: 'pos_profit',
+                triggerPrice: position.tp2_price.toString(),
+                triggerType: 'mark_price',
+                holdSide: holdSide,
+                executePrice: 0,
+                size: tp2Qty.toString(),
               }
             }
           });

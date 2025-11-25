@@ -202,6 +202,35 @@ serve(async (req) => {
         result = await bitgetRequest(config, 'POST', '/api/v2/mix/order/place-plan-order', planOrderBody);
         break;
 
+      case 'place_tpsl_order':
+        // Place SL/TP for existing position - v2 API
+        // This is the CORRECT endpoint for setting SL/TP on positions in hedge mode
+        const tpslOrderBody: any = {
+          symbol: params.symbol,
+          productType: 'USDT-FUTURES',
+          marginCoin: 'USDT',
+          planType: params.planType, // pos_loss or pos_profit
+          triggerPrice: params.triggerPrice.toString(),
+          triggerType: params.triggerType || 'mark_price',
+          holdSide: params.holdSide, // 'long' or 'short'
+        };
+
+        // executePrice: 0 = market order, >0 = limit order
+        if (params.executePrice && params.executePrice > 0) {
+          tpslOrderBody.executePrice = params.executePrice.toString();
+        } else {
+          tpslOrderBody.executePrice = '0'; // Market order
+        }
+
+        // size is NOT required for pos_loss/pos_profit (affects entire position)
+        // but CAN be provided for partial TP
+        if (params.size) {
+          tpslOrderBody.size = params.size.toString();
+        }
+
+        result = await bitgetRequest(config, 'POST', '/api/v2/mix/order/place-tpsl-order', tpslOrderBody);
+        break;
+
       case 'cancel_plan_order':
         // Cancel plan order (SL/TP) - v2 API
         result = await bitgetRequest(config, 'POST', '/api/v2/mix/order/cancel-plan-order', {
