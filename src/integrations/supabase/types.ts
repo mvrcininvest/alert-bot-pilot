@@ -301,6 +301,8 @@ export type Database = {
           allowed_tiers: string[] | null
           atr_sl_multiplier: number | null
           atr_tp_multiplier: number | null
+          atr_tp2_multiplier: number | null
+          atr_tp3_multiplier: number | null
           auto_repair: boolean | null
           bot_active: boolean | null
           breakeven_trigger_tp: number | null
@@ -357,6 +359,8 @@ export type Database = {
           allowed_tiers?: string[] | null
           atr_sl_multiplier?: number | null
           atr_tp_multiplier?: number | null
+          atr_tp2_multiplier?: number | null
+          atr_tp3_multiplier?: number | null
           auto_repair?: boolean | null
           bot_active?: boolean | null
           breakeven_trigger_tp?: number | null
@@ -413,6 +417,8 @@ export type Database = {
           allowed_tiers?: string[] | null
           atr_sl_multiplier?: number | null
           atr_tp_multiplier?: number | null
+          atr_tp2_multiplier?: number | null
+          atr_tp3_multiplier?: number | null
           auto_repair?: boolean | null
           bot_active?: boolean | null
           breakeven_trigger_tp?: number | null
