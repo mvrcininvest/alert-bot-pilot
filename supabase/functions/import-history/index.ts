@@ -16,14 +16,13 @@ interface BitgetHistoricalPosition {
   closeTotalPos: string;
   pnl: string;
   netProfit: string;
-  totalFee: string;
+  totalFee?: string;
   openFee: string;
   closeFee: string;
-  cTime: string;
-  uTime: string;
+  ctime: string;
+  utime: string;
   marginMode: string;
   marginCoin: string;
-  leverage: string;
 }
 
 async function signBitgetRequest(
@@ -105,13 +104,13 @@ Deno.serve(async (req) => {
 
     // Map Bitget positions to our database format
     const dbPositions = positions.map(pos => {
-      // Validate and parse timestamps
-      const createdTime = pos.cTime ? parseInt(pos.cTime) : Date.now();
-      const updatedTime = pos.uTime ? parseInt(pos.uTime) : Date.now();
+      // Validate and parse timestamps - ctime and utime are in milliseconds
+      const createdTime = pos.ctime ? parseInt(pos.ctime) : Date.now();
+      const updatedTime = pos.utime ? parseInt(pos.utime) : Date.now();
       
       // Check if timestamps are valid
       if (isNaN(createdTime) || isNaN(updatedTime)) {
-        console.error('Invalid timestamps for position:', pos.positionId, 'cTime:', pos.cTime, 'uTime:', pos.uTime);
+        console.error('Invalid timestamps for position:', pos.positionId, 'ctime:', pos.ctime, 'utime:', pos.utime);
       }
 
       return {
@@ -120,7 +119,7 @@ Deno.serve(async (req) => {
         entry_price: parseFloat(pos.openAvgPrice),
         close_price: parseFloat(pos.closeAvgPrice),
         quantity: parseFloat(pos.closeTotalPos),
-        leverage: parseInt(pos.leverage) || 10,
+        leverage: 10, // Default for imported positions
         realized_pnl: parseFloat(pos.netProfit),
         status: 'closed',
         created_at: new Date(createdTime).toISOString(),
@@ -133,7 +132,7 @@ Deno.serve(async (req) => {
           bitget_position_id: pos.positionId,
           margin_mode: pos.marginMode,
           pnl: pos.pnl,
-          total_fee: pos.totalFee,
+          total_fee: pos.totalFee || '0',
           open_total_pos: pos.openTotalPos,
         }
       };
