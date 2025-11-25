@@ -518,7 +518,12 @@ export default function Settings() {
             </CardHeader>
             <CardContent className="space-y-4">
               <div className="flex items-center justify-between">
-                <Label>Włącz Adaptive TP Spacing</Label>
+                <div className="space-y-0.5">
+                  <Label>Włącz Adaptive TP Spacing</Label>
+                  <div className="text-sm text-muted-foreground">
+                    Rozszerz TP przy wysokiej zmienności, zmniejsz przy niskiej
+                  </div>
+                </div>
                 <Switch
                   checked={localSettings.adaptive_tp_spacing}
                   onCheckedChange={(checked) => updateLocal("adaptive_tp_spacing", checked)}
@@ -527,6 +532,7 @@ export default function Settings() {
 
               {localSettings.adaptive_tp_spacing && (
                 <>
+                  <Separator />
                   <div className="space-y-2">
                     <Label>Wysoka zmienność - Multiplier</Label>
                     <Input
@@ -535,6 +541,9 @@ export default function Settings() {
                       value={localSettings.adaptive_tp_high_volatility_multiplier}
                       onChange={(e) => updateLocal("adaptive_tp_high_volatility_multiplier", parseFloat(e.target.value))}
                     />
+                    <p className="text-xs text-muted-foreground">
+                      Domyślnie 1.3 (TP 30% dalej). Gdy ATR &gt; 0.01 lub volume_ratio &gt; 1.5
+                    </p>
                   </div>
                   <div className="space-y-2">
                     <Label>Niska zmienność - Multiplier</Label>
@@ -544,6 +553,14 @@ export default function Settings() {
                       value={localSettings.adaptive_tp_low_volatility_multiplier}
                       onChange={(e) => updateLocal("adaptive_tp_low_volatility_multiplier", parseFloat(e.target.value))}
                     />
+                    <p className="text-xs text-muted-foreground">
+                      Domyślnie 0.9 (TP 10% bliżej). Gdy ATR i volume są niskie
+                    </p>
+                  </div>
+                  <div className="p-3 bg-muted rounded-lg text-sm">
+                    <strong>Jak to działa:</strong> System analizuje ATR i volume_ratio z alertu.
+                    Przy silnych ruchach (wysoka zmienność) TP są dalej, aby uchwycić większy ruch.
+                    Przy spokojnym rynku TP są bliżej dla szybszego realizowania zysków.
                   </div>
                 </>
               )}
@@ -557,7 +574,12 @@ export default function Settings() {
             </CardHeader>
             <CardContent className="space-y-4">
               <div className="flex items-center justify-between">
-                <Label>Włącz Momentum-Based TP</Label>
+                <div className="space-y-0.5">
+                  <Label>Włącz Momentum-Based TP</Label>
+                  <div className="text-sm text-muted-foreground">
+                    Rozszerz TP gdy momentum jest silne
+                  </div>
+                </div>
                 <Switch
                   checked={localSettings.momentum_based_tp}
                   onCheckedChange={(checked) => updateLocal("momentum_based_tp", checked)}
@@ -566,32 +588,47 @@ export default function Settings() {
 
               {localSettings.momentum_based_tp && (
                 <>
+                  <Separator />
                   <div className="space-y-2">
-                    <Label>Słabe momentum - Multiplier</Label>
+                    <Label>Słabe momentum - Multiplier (strength &lt; 0.3)</Label>
                     <Input
                       type="number"
                       step="0.1"
                       value={localSettings.momentum_weak_multiplier}
                       onChange={(e) => updateLocal("momentum_weak_multiplier", parseFloat(e.target.value))}
                     />
+                    <p className="text-xs text-muted-foreground">
+                      Domyślnie 0.9 - bliższe TP dla słabych sygnałów
+                    </p>
                   </div>
                   <div className="space-y-2">
-                    <Label>Umiarkowane momentum - Multiplier</Label>
+                    <Label>Umiarkowane momentum - Multiplier (0.3-0.6)</Label>
                     <Input
                       type="number"
                       step="0.1"
                       value={localSettings.momentum_moderate_multiplier}
                       onChange={(e) => updateLocal("momentum_moderate_multiplier", parseFloat(e.target.value))}
                     />
+                    <p className="text-xs text-muted-foreground">
+                      Domyślnie 1.1 - lekko dalej dla standardowych sygnałów
+                    </p>
                   </div>
                   <div className="space-y-2">
-                    <Label>Silne momentum - Multiplier</Label>
+                    <Label>Silne momentum - Multiplier (strength &gt; 0.6)</Label>
                     <Input
                       type="number"
                       step="0.1"
                       value={localSettings.momentum_strong_multiplier}
                       onChange={(e) => updateLocal("momentum_strong_multiplier", parseFloat(e.target.value))}
                     />
+                    <p className="text-xs text-muted-foreground">
+                      Domyślnie 1.3 - znacznie dalej dla bardzo silnych sygnałów
+                    </p>
+                  </div>
+                  <div className="p-3 bg-muted rounded-lg text-sm">
+                    <strong>Jak to działa:</strong> Pole 'strength' z alertu (0-1) określa siłę momentum.
+                    Im wyższa wartość, tym dalej ustawiamy TP, bo ruch może być silniejszy.
+                    Przykład: strength=0.8 (silny) = TP 30% dalej od bazowego.
                   </div>
                 </>
               )}
@@ -605,7 +642,12 @@ export default function Settings() {
             </CardHeader>
             <CardContent className="space-y-4">
               <div className="flex items-center justify-between">
-                <Label>Włącz Adaptive R:R</Label>
+                <div className="space-y-0.5">
+                  <Label>Włącz Adaptive R:R</Label>
+                  <div className="text-sm text-muted-foreground">
+                    Lepszy R:R dla silniejszych sygnałów
+                  </div>
+                </div>
                 <Switch
                   checked={localSettings.adaptive_rr}
                   onCheckedChange={(checked) => updateLocal("adaptive_rr", checked)}
@@ -614,41 +656,60 @@ export default function Settings() {
 
               {localSettings.adaptive_rr && (
                 <>
+                  <Separator />
                   <div className="space-y-2">
-                    <Label>Słaby sygnał (0-3) - Multiplier</Label>
+                    <Label>Słaby sygnał - Multiplier (score 0-3)</Label>
                     <Input
                       type="number"
                       step="0.1"
                       value={localSettings.adaptive_rr_weak_signal}
                       onChange={(e) => updateLocal("adaptive_rr_weak_signal", parseFloat(e.target.value))}
                     />
+                    <p className="text-xs text-muted-foreground">
+                      Domyślnie 0.8x - niższy R:R, bierzemy szybszy zysk
+                    </p>
                   </div>
                   <div className="space-y-2">
-                    <Label>Standardowy (3-5) - Multiplier</Label>
+                    <Label>Standardowy - Multiplier (score 3-5)</Label>
                     <Input
                       type="number"
                       step="0.1"
                       value={localSettings.adaptive_rr_standard}
                       onChange={(e) => updateLocal("adaptive_rr_standard", parseFloat(e.target.value))}
                     />
+                    <p className="text-xs text-muted-foreground">
+                      Domyślnie 1.0x - bazowy R:R bez zmian
+                    </p>
                   </div>
                   <div className="space-y-2">
-                    <Label>Silny (5-7) - Multiplier</Label>
+                    <Label>Silny - Multiplier (score 5-7)</Label>
                     <Input
                       type="number"
                       step="0.1"
                       value={localSettings.adaptive_rr_strong}
                       onChange={(e) => updateLocal("adaptive_rr_strong", parseFloat(e.target.value))}
                     />
+                    <p className="text-xs text-muted-foreground">
+                      Domyślnie 1.2x - wyższy R:R dla dobrych sygnałów
+                    </p>
                   </div>
                   <div className="space-y-2">
-                    <Label>Bardzo silny (7-10) - Multiplier</Label>
+                    <Label>Bardzo silny - Multiplier (score 7-10)</Label>
                     <Input
                       type="number"
                       step="0.1"
                       value={localSettings.adaptive_rr_very_strong}
                       onChange={(e) => updateLocal("adaptive_rr_very_strong", parseFloat(e.target.value))}
                     />
+                    <p className="text-xs text-muted-foreground">
+                      Domyślnie 1.5x - maksymalny R:R dla najlepszych setupów
+                    </p>
+                  </div>
+                  <div className="p-3 bg-muted rounded-lg text-sm">
+                    <strong>Jak to działa:</strong> Score = strength × 10 (0-10).
+                    Wyższy score = sygnał lepszej jakości = możemy celować w dalsze TP.
+                    Przykład: strength=0.75 → score=7.5 → R:R 1.5x (very strong).
+                    Jeśli bazowy R:R to 2.0, to finalny będzie 3.0 (2.0 × 1.5).
                   </div>
                 </>
               )}
@@ -665,7 +726,7 @@ export default function Settings() {
             </CardHeader>
             <CardContent className="space-y-4">
               <div className="space-y-2">
-                <Label>Max otwartych pozycji</Label>
+                <Label>Maksymalna liczba otwartych pozycji</Label>
                 <Input
                   type="number"
                   min="1"
@@ -673,28 +734,72 @@ export default function Settings() {
                   onChange={(e) => updateLocal("max_open_positions", parseInt(e.target.value))}
                 />
               </div>
+            </CardContent>
+          </Card>
 
+          <Card>
+            <CardHeader>
+              <CardTitle>Dzienny Limit Strat</CardTitle>
+              <CardDescription>Automatyczne zatrzymanie po osiągnięciu limitu</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
               <div className="space-y-2">
-                <Label>Dzienny limit strat (USDT)</Label>
-                <Input
-                  type="number"
-                  value={localSettings.daily_loss_limit}
-                  onChange={(e) => updateLocal("daily_loss_limit", parseFloat(e.target.value))}
-                />
+                <Label>Typ limitu</Label>
+                <Select
+                  value={localSettings.loss_limit_type || 'fixed_usdt'}
+                  onValueChange={(value) => updateLocal("loss_limit_type", value)}
+                >
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="fixed_usdt">Stała kwota USDT</SelectItem>
+                    <SelectItem value="percent_drawdown">% Drawdown kapitału</SelectItem>
+                  </SelectContent>
+                </Select>
               </div>
+
+              {localSettings.loss_limit_type === 'fixed_usdt' || !localSettings.loss_limit_type ? (
+                <div className="space-y-2">
+                  <Label>Maksymalna strata dzienna (USDT)</Label>
+                  <Input
+                    type="number"
+                    value={localSettings.daily_loss_limit}
+                    onChange={(e) => updateLocal("daily_loss_limit", parseFloat(e.target.value))}
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    Bot przestanie tradować po przekroczeniu tej kwoty strat w ciągu dnia
+                  </p>
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  <Label>Maksymalny dzienny drawdown (%)</Label>
+                  <Input
+                    type="number"
+                    step="0.1"
+                    value={localSettings.daily_loss_percent || 5.0}
+                    onChange={(e) => updateLocal("daily_loss_percent", parseFloat(e.target.value))}
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    Bot przestanie tradować gdy dzienny drawdown przekroczy ten % kapitału
+                  </p>
+                </div>
+              )}
             </CardContent>
           </Card>
 
           <Card>
             <CardHeader>
               <CardTitle>Filtry Sygnałów</CardTitle>
-              <CardDescription>Filtrowanie alertów przed wykonaniem</CardDescription>
+              <CardDescription>Wykluczaj słabsze sygnały z tradingu</CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
               <div className="flex items-center justify-between">
                 <div className="space-y-0.5">
-                  <Label>Filtruj po Tier</Label>
-                  <div className="text-sm text-muted-foreground">Tylko wybrane tier'y</div>
+                  <Label>Filtruj po tierze</Label>
+                  <div className="text-sm text-muted-foreground">
+                    Wykluczaj określone tiers z automatycznego tradingu
+                  </div>
                 </div>
                 <Switch
                   checked={localSettings.filter_by_tier}
@@ -704,38 +809,33 @@ export default function Settings() {
 
               {localSettings.filter_by_tier && (
                 <div className="space-y-2">
-                  <Label>Dozwolone Tier'y</Label>
+                  <Label>Wykluczone Tiers (nie będą tradowane)</Label>
                   <div className="space-y-2">
-                    {["Premium", "Standard", "Basic"].map((tier) => (
+                    {['Basic', 'Standard', 'Premium', 'Elite'].map((tier) => (
                       <div key={tier} className="flex items-center space-x-2">
                         <Checkbox
-                          id={tier}
-                          checked={localSettings.allowed_tiers?.includes(tier)}
+                          id={`exclude-${tier}`}
+                          checked={(localSettings.excluded_tiers || []).includes(tier)}
                           onCheckedChange={(checked) => {
-                            const newTiers = checked
-                              ? [...(localSettings.allowed_tiers || []), tier]
-                              : (localSettings.allowed_tiers || []).filter((t: string) => t !== tier);
-                            updateLocal("allowed_tiers", newTiers);
+                            const current = localSettings.excluded_tiers || [];
+                            if (checked) {
+                              updateLocal("excluded_tiers", [...current, tier]);
+                            } else {
+                              updateLocal("excluded_tiers", current.filter((t: string) => t !== tier));
+                            }
                           }}
                         />
-                        <Label htmlFor={tier} className="cursor-pointer">{tier}</Label>
+                        <Label htmlFor={`exclude-${tier}`} className="cursor-pointer">
+                          {tier}
+                        </Label>
                       </div>
                     ))}
                   </div>
+                  <p className="text-xs text-muted-foreground">
+                    Zaznaczone tiers będą automatycznie ignorowane
+                  </p>
                 </div>
               )}
-
-              <div className="space-y-2">
-                <Label>Min Strength (0-1)</Label>
-                <Input
-                  type="number"
-                  step="0.1"
-                  min="0"
-                  max="1"
-                  value={localSettings.min_strength}
-                  onChange={(e) => updateLocal("min_strength", parseFloat(e.target.value))}
-                />
-              </div>
             </CardContent>
           </Card>
         </TabsContent>
