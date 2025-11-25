@@ -283,6 +283,11 @@ serve(async (req) => {
         result = await bitgetRequest(config, 'GET', `/api/v2/mix/market/ticker?symbol=${params.symbol}&productType=USDT-FUTURES`);
         break;
 
+      case 'get_symbol_info':
+        // Get contract configuration including minimum order size - v2 API
+        result = await bitgetRequest(config, 'GET', `/api/v2/mix/market/contracts?productType=USDT-FUTURES&symbol=${params.symbol}`);
+        break;
+
       case 'get_plan_orders':
         // Get all plan orders (SL/TP) for a symbol - v2 API
         // planType is REQUIRED: profit_loss gets all SL/TP orders
