@@ -20,12 +20,12 @@ serve(async (req) => {
 
     await log({
       functionName: 'position-monitor',
-      message: 'Starting monitoring cycle',
+      message: '🔥 OKO SAURONA: Starting monitoring cycle',
       level: 'info'
     });
-    console.log('Starting position monitoring cycle');
+    console.log('🔥 OKO SAURONA: Starting position monitoring cycle');
 
-    // Get all open positions
+    // Get all open positions from DB
     const { data: positions, error: positionsError } = await supabase
       .from('positions')
       .select('*')
@@ -34,7 +34,7 @@ serve(async (req) => {
     if (positionsError) {
       await log({
         functionName: 'position-monitor',
-        message: 'Failed to fetch positions',
+        message: 'Failed to fetch positions from DB',
         level: 'error',
         metadata: { error: positionsError.message }
       });
@@ -55,13 +55,13 @@ serve(async (req) => {
 
     await log({
       functionName: 'position-monitor',
-      message: `Monitoring ${positions.length} positions`,
+      message: `🔥 OKO SAURONA: Monitoring ${positions.length} positions`,
       level: 'info',
       metadata: { positionCount: positions.length }
     });
-    console.log(`Monitoring ${positions.length} positions`);
+    console.log(`🔥 OKO SAURONA: Monitoring ${positions.length} positions`);
 
-    // Get settings for auto-repair
+    // Get settings
     const { data: settings } = await supabase
       .from('settings')
       .select('*')
@@ -76,17 +76,17 @@ serve(async (req) => {
       metadata: { autoRepair }
     });
 
-    // Check each position
+    // Check each position with full verification
     for (const position of positions) {
       try {
         await log({
           functionName: 'position-monitor',
-          message: `Checking position ${position.symbol}`,
+          message: `🔥 Checking position ${position.symbol}`,
           level: 'info',
           positionId: position.id,
           metadata: { symbol: position.symbol, side: position.side }
         });
-        await checkPosition(supabase, position, autoRepair);
+        await checkPositionFullVerification(supabase, position, autoRepair, settings);
       } catch (error) {
         await log({
           functionName: 'position-monitor',
@@ -109,31 +109,9 @@ serve(async (req) => {
       }
     }
 
-    // Handle breakeven and trailing stop
-    for (const position of positions) {
-      try {
-        await log({
-          functionName: 'position-monitor',
-          message: `Checking breakeven/trailing for ${position.symbol}`,
-          level: 'info',
-          positionId: position.id
-        });
-        await handleBreakevenAndTrailing(supabase, position, settings);
-      } catch (error) {
-        await log({
-          functionName: 'position-monitor',
-          message: `Error in breakeven/trailing for ${position.symbol}`,
-          level: 'error',
-          positionId: position.id,
-          metadata: { error: error instanceof Error ? error.message : 'Unknown error' }
-        });
-        console.error(`Error handling breakeven/trailing for ${position.id}:`, error);
-      }
-    }
-
     await log({
       functionName: 'position-monitor',
-      message: 'Monitoring cycle completed',
+      message: '🔥 OKO SAURONA: Monitoring cycle completed',
       level: 'info',
       metadata: { positionsChecked: positions.length }
     });
@@ -161,45 +139,44 @@ serve(async (req) => {
   }
 });
 
-async function checkPosition(supabase: any, position: any, autoRepair: boolean) {
-  console.log(`Checking position ${position.id} - ${position.symbol}`);
+async function checkPositionFullVerification(supabase: any, position: any, autoRepair: boolean, settings: any) {
+  console.log(`🔥 Full verification for ${position.id} - ${position.symbol}`);
 
-  // Get current position from Bitget
-  const { data: bitgetResult } = await supabase.functions.invoke('bitget-api', {
+  const issues: any[] = [];
+  const actions: string[] = [];
+
+  // 1. Get current position from Bitget
+  const { data: positionResult } = await supabase.functions.invoke('bitget-api', {
     body: {
       action: 'get_position',
       params: { symbol: position.symbol }
     }
   });
 
-  if (!bitgetResult?.success || !bitgetResult.data) {
-    throw new Error('Failed to get position from Bitget');
-  }
-
-  const bitgetPosition = bitgetResult.data;
-  const issues: any[] = [];
-  const expectedData: any = {
-    quantity: position.quantity,
-    sl_price: position.sl_price,
-    tp_prices: [position.tp1_price, position.tp2_price, position.tp3_price].filter(Boolean),
-  };
-
-  const actualData: any = {
-    quantity: bitgetPosition.total,
-    available: bitgetPosition.available,
-    current_price: bitgetPosition.marketPrice,
-  };
-
-  // Check quantity
-  if (Math.abs(Number(bitgetPosition.total) - Number(position.quantity)) > 0.0001) {
-    issues.push({
-      type: 'quantity_mismatch',
-      expected: position.quantity,
-      actual: bitgetPosition.total,
+  if (!positionResult?.success || !positionResult.data || !positionResult.data[0]) {
+    await log({
+      functionName: 'position-monitor',
+      message: `❌ Position not found on exchange: ${position.symbol}`,
+      level: 'error',
+      positionId: position.id
     });
+    
+    // Position in DB but not on exchange - close it in DB
+    await supabase
+      .from('positions')
+      .update({
+        status: 'closed',
+        close_reason: 'Position not found on exchange',
+        closed_at: new Date().toISOString()
+      })
+      .eq('id', position.id);
+    
+    return;
   }
 
-  // Get current price for PnL calculation
+  const bitgetPosition = positionResult.data[0];
+  
+  // 2. Get current price
   const { data: tickerResult } = await supabase.functions.invoke('bitget-api', {
     body: {
       action: 'get_ticker',
@@ -207,168 +184,309 @@ async function checkPosition(supabase: any, position: any, autoRepair: boolean) 
     }
   });
 
-  if (tickerResult?.success) {
-    const currentPrice = Number(tickerResult.data.last);
-    actualData.current_price = currentPrice;
-
-    // Calculate unrealized PnL
-    const priceDiff = position.side === 'BUY'
-      ? currentPrice - Number(position.entry_price)
-      : Number(position.entry_price) - currentPrice;
-    const unrealizedPnl = priceDiff * Number(position.quantity) * position.leverage;
-
-    // Update position with current price and PnL
-    await supabase
-      .from('positions')
-      .update({
-        current_price: currentPrice,
-        unrealized_pnl: unrealizedPnl,
-        last_check_at: new Date().toISOString(),
-      })
-      .eq('id', position.id);
+  if (!tickerResult?.success || !tickerResult.data || !tickerResult.data[0]) {
+    throw new Error('Failed to get ticker data');
   }
 
-  // Log monitoring result
-  const logStatus = issues.length > 0 ? 'mismatch' : 'ok';
+  const currentPrice = Number(tickerResult.data[0].lastPr);
+  console.log(`Current price for ${position.symbol}: ${currentPrice}`);
+
+  // 3. Get all open orders for this symbol (to check SL/TP)
+  const { data: ordersResult } = await supabase.functions.invoke('bitget-api', {
+    body: {
+      action: 'get_plan_orders',
+      params: { 
+        symbol: position.symbol,
+        productType: 'USDT-FUTURES'
+      }
+    }
+  });
+
+  const planOrders = ordersResult?.success ? (ordersResult.data || []) : [];
+  console.log(`Found ${planOrders.length} plan orders for ${position.symbol}`);
+
+  // 4. Check quantity match
+  const bitgetQuantity = Number(bitgetPosition.total || 0);
+  const dbQuantity = Number(position.quantity);
+  
+  if (Math.abs(bitgetQuantity - dbQuantity) > 0.0001) {
+    issues.push({
+      type: 'quantity_mismatch',
+      expected: dbQuantity,
+      actual: bitgetQuantity,
+      severity: 'high'
+    });
+    console.log(`⚠️ Quantity mismatch: DB=${dbQuantity}, Bitget=${bitgetQuantity}`);
+  }
+
+  // 5. Check if SL order exists
+  const slOrders = planOrders.filter((order: any) => 
+    order.planType === 'loss_plan' && order.state === 'live'
+  );
+  
+  if (slOrders.length === 0) {
+    issues.push({
+      type: 'missing_sl',
+      severity: 'critical',
+      message: 'No Stop Loss order found on exchange'
+    });
+    console.log(`❌ CRITICAL: No SL order found for ${position.symbol}`);
+    
+    // Auto-repair: Place SL order
+    if (autoRepair) {
+      console.log(`🔧 Auto-repairing: Placing SL order`);
+      const slSide = position.side === 'BUY' ? 'close_long' : 'close_short';
+      const { data: slResult } = await supabase.functions.invoke('bitget-api', {
+        body: {
+          action: 'place_plan_order',
+          params: {
+            symbol: position.symbol,
+            size: bitgetQuantity.toString(),
+            side: slSide,
+            orderType: 'market',
+            triggerPrice: position.sl_price.toString(),
+            executePrice: position.sl_price.toString(),
+            planType: 'loss_plan',
+          }
+        }
+      });
+      
+      if (slResult?.success) {
+        await supabase
+          .from('positions')
+          .update({ sl_order_id: slResult.data.orderId })
+          .eq('id', position.id);
+        actions.push('Placed missing SL order');
+      }
+    }
+  }
+
+  // 6. Check if TP orders exist (if configured)
+  const tpOrders = planOrders.filter((order: any) => 
+    order.planType === 'profit_plan' && order.state === 'live'
+  );
+  
+  const expectedTPs = [position.tp1_price, position.tp2_price, position.tp3_price].filter(Boolean).length;
+  
+  if (expectedTPs > 0 && tpOrders.length === 0) {
+    issues.push({
+      type: 'missing_tp',
+      severity: 'high',
+      message: 'No Take Profit orders found on exchange',
+      expected: expectedTPs,
+      actual: 0
+    });
+    console.log(`⚠️ No TP orders found for ${position.symbol}, expected ${expectedTPs}`);
+    
+    // Auto-repair: Place TP orders
+    if (autoRepair) {
+      console.log(`🔧 Auto-repairing: Placing TP orders`);
+      const tpSide = position.side === 'BUY' ? 'close_long' : 'close_short';
+      
+      if (position.tp1_price) {
+        const tp1Qty = bitgetQuantity * (settings?.tp1_close_percent || 100) / 100;
+        const { data: tp1Result } = await supabase.functions.invoke('bitget-api', {
+          body: {
+            action: 'place_plan_order',
+            params: {
+              symbol: position.symbol,
+              size: tp1Qty.toString(),
+              side: tpSide,
+              orderType: 'market',
+              triggerPrice: position.tp1_price.toString(),
+              executePrice: position.tp1_price.toString(),
+              planType: 'profit_plan',
+            }
+          }
+        });
+        
+        if (tp1Result?.success) {
+          await supabase
+            .from('positions')
+            .update({ 
+              tp1_order_id: tp1Result.data.orderId,
+              tp1_quantity: tp1Qty
+            })
+            .eq('id', position.id);
+          actions.push('Placed missing TP1 order');
+        }
+      }
+    }
+  }
+
+  // 7. Check if price has crossed SL or TP levels
+  const isBuy = position.side === 'BUY';
+  const slPrice = Number(position.sl_price);
+  const tp1Price = position.tp1_price ? Number(position.tp1_price) : null;
+  const tp2Price = position.tp2_price ? Number(position.tp2_price) : null;
+  const tp3Price = position.tp3_price ? Number(position.tp3_price) : null;
+
+  // Check if SL was hit
+  const slHit = isBuy ? currentPrice <= slPrice : currentPrice >= slPrice;
+  if (slHit) {
+    console.log(`❌ CRITICAL: SL level hit for ${position.symbol}! Closing position at market`);
+    issues.push({
+      type: 'sl_hit',
+      severity: 'critical',
+      currentPrice,
+      slPrice
+    });
+    
+    // Close position immediately at market
+    const closeSide = isBuy ? 'close_long' : 'close_short';
+    const { data: closeResult } = await supabase.functions.invoke('bitget-api', {
+      body: {
+        action: 'place_order',
+        params: {
+          symbol: position.symbol,
+          size: bitgetQuantity.toString(),
+          side: closeSide,
+        }
+      }
+    });
+    
+    if (closeResult?.success) {
+      await supabase
+        .from('positions')
+        .update({
+          status: 'closed',
+          close_reason: 'SL hit - closed by monitor',
+          close_price: currentPrice,
+          closed_at: new Date().toISOString()
+        })
+        .eq('id', position.id);
+      actions.push(`Closed position at market due to SL hit (${currentPrice})`);
+    }
+    
+    return; // Position closed, no further checks needed
+  }
+
+  // Check if TP1 was hit
+  if (tp1Price && !position.tp1_filled) {
+    const tp1Hit = isBuy ? currentPrice >= tp1Price : currentPrice <= tp1Price;
+    if (tp1Hit) {
+      console.log(`✅ TP1 hit for ${position.symbol}! Closing partial position`);
+      issues.push({
+        type: 'tp1_hit',
+        severity: 'info',
+        currentPrice,
+        tp1Price
+      });
+      
+      // Close partial position at market
+      const tp1Qty = bitgetQuantity * (settings?.tp1_close_percent || 100) / 100;
+      const closeSide = isBuy ? 'close_long' : 'close_short';
+      const { data: closeResult } = await supabase.functions.invoke('bitget-api', {
+        body: {
+          action: 'place_order',
+          params: {
+            symbol: position.symbol,
+            size: tp1Qty.toString(),
+            side: closeSide,
+          }
+        }
+      });
+      
+      if (closeResult?.success) {
+        await supabase
+          .from('positions')
+          .update({
+            tp1_filled: true,
+            quantity: bitgetQuantity - tp1Qty
+          })
+          .eq('id', position.id);
+        actions.push(`Closed ${tp1Qty} at market due to TP1 hit (${currentPrice})`);
+      }
+    }
+  }
+
+  // Check if TP2 was hit
+  if (tp2Price && !position.tp2_filled && position.tp1_filled) {
+    const tp2Hit = isBuy ? currentPrice >= tp2Price : currentPrice <= tp2Price;
+    if (tp2Hit) {
+      console.log(`✅ TP2 hit for ${position.symbol}! Closing partial position`);
+      const tp2Qty = bitgetQuantity * (settings?.tp2_close_percent || 0) / 100;
+      if (tp2Qty > 0) {
+        const closeSide = isBuy ? 'close_long' : 'close_short';
+        const { data: closeResult } = await supabase.functions.invoke('bitget-api', {
+          body: {
+            action: 'place_order',
+            params: {
+              symbol: position.symbol,
+              size: tp2Qty.toString(),
+              side: closeSide,
+            }
+          }
+        });
+        
+        if (closeResult?.success) {
+          await supabase
+            .from('positions')
+            .update({
+              tp2_filled: true,
+              quantity: bitgetQuantity - tp2Qty
+            })
+            .eq('id', position.id);
+          actions.push(`Closed ${tp2Qty} at market due to TP2 hit (${currentPrice})`);
+        }
+      }
+    }
+  }
+
+  // 8. Calculate unrealized PnL
+  const entryPrice = Number(position.entry_price);
+  const priceDiff = isBuy ? currentPrice - entryPrice : entryPrice - currentPrice;
+  const unrealizedPnl = priceDiff * bitgetQuantity;
+
+  // 9. Update position in DB
+  await supabase
+    .from('positions')
+    .update({
+      current_price: currentPrice,
+      unrealized_pnl: unrealizedPnl,
+      last_check_at: new Date().toISOString(),
+      check_errors: 0,
+      last_error: null
+    })
+    .eq('id', position.id);
+
+  // 10. Log monitoring result
+  const logStatus = issues.length > 0 ? (issues.some(i => i.severity === 'critical') ? 'critical' : 'warning') : 'ok';
   
   await supabase
     .from('monitoring_logs')
     .insert({
       position_id: position.id,
-      check_type: 'routine',
+      check_type: 'full_verification',
       status: logStatus,
-      expected_data: expectedData,
-      actual_data: actualData,
+      expected_data: {
+        quantity: dbQuantity,
+        sl_price: slPrice,
+        tp_prices: [tp1Price, tp2Price, tp3Price].filter(Boolean),
+        has_sl_order: true,
+        has_tp_orders: expectedTPs
+      },
+      actual_data: {
+        quantity: bitgetQuantity,
+        current_price: currentPrice,
+        sl_orders_count: slOrders.length,
+        tp_orders_count: tpOrders.length,
+        unrealized_pnl: unrealizedPnl
+      },
       issues: issues.length > 0 ? issues : null,
-      actions_taken: autoRepair && issues.length > 0 ? 'Auto-repair attempted' : null,
+      actions_taken: actions.length > 0 ? actions.join('; ') : null,
     });
 
-  // Auto-repair if enabled
-  if (autoRepair && issues.length > 0) {
-    await log({
-      functionName: 'position-monitor',
-      message: `Auto-repair triggered for position ${position.symbol}`,
-      level: 'warn',
-      positionId: position.id,
-      metadata: { issues }
-    });
-    console.log(`Auto-repairing position ${position.id}`);
-    // TODO: Implement auto-repair logic based on issue types
-  }
-}
-
-async function handleBreakevenAndTrailing(supabase: any, position: any, settings: any) {
-  if (!settings) return;
-
-  const currentPrice = Number(position.current_price);
-  if (!currentPrice) return;
-
-  const entryPrice = Number(position.entry_price);
-  const slPrice = Number(position.sl_price);
-  const isBuy = position.side === 'BUY';
-
-  // Check if TP1 hit for breakeven
-  if (settings.sl_to_breakeven && position.tp1_price && !position.tp1_filled) {
-    const tp1Price = Number(position.tp1_price);
-    const tp1Hit = isBuy ? currentPrice >= tp1Price : currentPrice <= tp1Price;
-
-    if (tp1Hit && settings.breakeven_trigger_tp === 1) {
-      await log({
-        functionName: 'position-monitor',
-        message: `Moving SL to breakeven for ${position.symbol}`,
-        level: 'info',
-        positionId: position.id,
-        metadata: { currentPrice, entryPrice }
-      });
-      console.log(`Moving SL to breakeven for position ${position.id}`);
-      
-      // Update SL to entry price
-      if (position.sl_order_id) {
-        const { data: modifyResult } = await supabase.functions.invoke('bitget-api', {
-          body: {
-            action: 'modify_plan_order',
-            params: {
-              symbol: position.symbol,
-              orderId: position.sl_order_id,
-              triggerPrice: entryPrice.toString(),
-              executePrice: entryPrice.toString(),
-            }
-          }
-        });
-
-        if (modifyResult?.success) {
-          await supabase
-            .from('positions')
-            .update({ sl_price: entryPrice })
-            .eq('id', position.id);
-
-          await supabase
-            .from('monitoring_logs')
-            .insert({
-              position_id: position.id,
-              check_type: 'breakeven',
-              status: 'ok',
-              actions_taken: 'Moved SL to breakeven after TP1',
-            });
-        }
-      }
+  await log({
+    functionName: 'position-monitor',
+    message: `✅ Verification complete for ${position.symbol}: ${issues.length} issues, ${actions.length} actions`,
+    level: issues.length > 0 ? 'warn' : 'info',
+    positionId: position.id,
+    metadata: { 
+      issues: issues.length,
+      actions: actions.length,
+      currentPrice,
+      unrealizedPnl
     }
-  }
-
-  // Check trailing stop
-  if (settings.trailing_stop && position.tp1_price && !position.tp1_filled) {
-    const tp1Price = Number(position.tp1_price);
-    const tp1Hit = isBuy ? currentPrice >= tp1Price : currentPrice <= tp1Price;
-
-    if (tp1Hit && settings.trailing_stop_trigger_tp === 1) {
-      const trailingDistance = settings.trailing_stop_distance / 100;
-      const newSlPrice = isBuy
-        ? currentPrice * (1 - trailingDistance)
-        : currentPrice * (1 + trailingDistance);
-
-      // Only update if new SL is better than current
-      const shouldUpdate = isBuy 
-        ? newSlPrice > slPrice 
-        : newSlPrice < slPrice;
-
-      if (shouldUpdate && position.sl_order_id) {
-        await log({
-          functionName: 'position-monitor',
-          message: `Updating trailing stop for ${position.symbol}`,
-          level: 'info',
-          positionId: position.id,
-          metadata: { oldSL: slPrice, newSL: newSlPrice }
-        });
-        console.log(`Updating trailing stop for position ${position.id}`);
-        
-        const { data: modifyResult } = await supabase.functions.invoke('bitget-api', {
-          body: {
-            action: 'modify_plan_order',
-            params: {
-              symbol: position.symbol,
-              orderId: position.sl_order_id,
-              triggerPrice: newSlPrice.toString(),
-              executePrice: newSlPrice.toString(),
-            }
-          }
-        });
-
-        if (modifyResult?.success) {
-          await supabase
-            .from('positions')
-            .update({ sl_price: newSlPrice })
-            .eq('id', position.id);
-
-          await supabase
-            .from('monitoring_logs')
-            .insert({
-              position_id: position.id,
-              check_type: 'trailing_stop',
-              status: 'ok',
-              actions_taken: `Updated trailing stop to ${newSlPrice}`,
-            });
-        }
-      }
-    }
-  }
+  });
 }
