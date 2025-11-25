@@ -500,13 +500,50 @@ serve(async (req) => {
     });
     console.log('Order placed:', orderId);
 
+    // Get symbol info to determine price precision
+    const { data: priceInfoResult } = await supabase.functions.invoke('bitget-api', {
+      body: {
+        action: 'get_symbol_info',
+        params: { symbol: alert_data.symbol }
+      }
+    });
+    
+    let pricePlace = 2; // Default to 2 decimal places
+    if (priceInfoResult?.success && priceInfoResult.data?.[0]) {
+      pricePlace = parseInt(priceInfoResult.data[0].pricePlace || '2');
+    }
+    
+    await log({
+      functionName: 'bitget-trader',
+      message: 'Symbol precision fetched',
+      level: 'info',
+      alertId: alert_id,
+      metadata: { symbol: alert_data.symbol, pricePlace }
+    });
+    
+    // Round prices to correct precision
+    const roundToPlaces = (price: number, places: number): string => {
+      return price.toFixed(places);
+    };
+    
+    const roundedSlPrice = roundToPlaces(sl_price, pricePlace);
+    const roundedTp1Price = tp1_price ? roundToPlaces(tp1_price, pricePlace) : null;
+    const roundedTp2Price = tp2_price ? roundToPlaces(tp2_price, pricePlace) : null;
+    const roundedTp3Price = tp3_price ? roundToPlaces(tp3_price, pricePlace) : null;
+    
+    console.log(`Prices rounded to ${pricePlace} decimals:`);
+    console.log(`SL: ${sl_price} -> ${roundedSlPrice}`);
+    if (roundedTp1Price) console.log(`TP1: ${tp1_price} -> ${roundedTp1Price}`);
+    if (roundedTp2Price) console.log(`TP2: ${tp2_price} -> ${roundedTp2Price}`);
+    if (roundedTp3Price) console.log(`TP3: ${tp3_price} -> ${roundedTp3Price}`);
+
     // Place Stop Loss order using TPSL endpoint
     await log({
       functionName: 'bitget-trader',
       message: 'Placing Stop Loss order',
       level: 'info',
       alertId: alert_id,
-      metadata: { slPrice: sl_price, symbol: alert_data.symbol }
+      metadata: { slPrice: roundedSlPrice, symbol: alert_data.symbol }
     });
     const holdSide = alert_data.side === 'BUY' ? 'long' : 'short';
     const { data: slResult } = await supabase.functions.invoke('bitget-api', {
@@ -515,7 +552,7 @@ serve(async (req) => {
         params: {
           symbol: alert_data.symbol,
           planType: 'pos_loss',
-          triggerPrice: sl_price.toString(),
+          triggerPrice: roundedSlPrice,
           triggerType: 'mark_price',
           holdSide: holdSide,
           executePrice: 0, // Market order
@@ -549,14 +586,14 @@ serve(async (req) => {
     // Place TP orders
     let tp1OrderId, tp2OrderId, tp3OrderId;
 
-    if (tp1_price && tp1Quantity > 0) {
+    if (roundedTp1Price && tp1Quantity > 0) {
       const { data: tp1Result } = await supabase.functions.invoke('bitget-api', {
         body: {
           action: 'place_tpsl_order',
           params: {
             symbol: alert_data.symbol,
             planType: 'pos_profit',
-            triggerPrice: tp1_price.toString(),
+            triggerPrice: roundedTp1Price,
             triggerType: 'mark_price',
             holdSide: holdSide,
             executePrice: 0,
@@ -570,14 +607,14 @@ serve(async (req) => {
       }
     }
 
-    if (tp2_price && tp2Quantity > 0) {
+    if (roundedTp2Price && tp2Quantity > 0) {
       const { data: tp2Result } = await supabase.functions.invoke('bitget-api', {
         body: {
           action: 'place_tpsl_order',
           params: {
             symbol: alert_data.symbol,
             planType: 'pos_profit',
-            triggerPrice: tp2_price.toString(),
+            triggerPrice: roundedTp2Price,
             triggerType: 'mark_price',
             holdSide: holdSide,
             executePrice: 0,
@@ -591,14 +628,14 @@ serve(async (req) => {
       }
     }
 
-    if (tp3_price && tp3Quantity > 0) {
+    if (roundedTp3Price && tp3Quantity > 0) {
       const { data: tp3Result } = await supabase.functions.invoke('bitget-api', {
         body: {
           action: 'place_tpsl_order',
           params: {
             symbol: alert_data.symbol,
             planType: 'pos_profit',
-            triggerPrice: tp3_price.toString(),
+            triggerPrice: roundedTp3Price,
             triggerType: 'mark_price',
             holdSide: holdSide,
             executePrice: 0,
@@ -635,15 +672,15 @@ serve(async (req) => {
         entry_price: alert_data.price,
         quantity: quantity,
         leverage: effectiveLeverage, // Use custom or default leverage
-        sl_price: sl_price,
+        sl_price: parseFloat(roundedSlPrice),
         sl_order_id: slOrderId,
-        tp1_price: tp1_price,
+        tp1_price: roundedTp1Price ? parseFloat(roundedTp1Price) : null,
         tp1_quantity: tp1Quantity,
         tp1_order_id: tp1OrderId,
-        tp2_price: tp2_price,
+        tp2_price: roundedTp2Price ? parseFloat(roundedTp2Price) : null,
         tp2_quantity: tp2Quantity,
         tp2_order_id: tp2OrderId,
-        tp3_price: tp3_price,
+        tp3_price: roundedTp3Price ? parseFloat(roundedTp3Price) : null,
         tp3_quantity: tp3Quantity,
         tp3_order_id: tp3OrderId,
         status: 'open',
@@ -688,10 +725,10 @@ serve(async (req) => {
     console.log('Notional Value:', (quantity * alert_data.price).toFixed(2), 'USDT');
     console.log('Leverage:', effectiveLeverage + 'x', `(source: ${leverageSource})`);
     console.log('Margin Used:', ((quantity * alert_data.price) / effectiveLeverage).toFixed(2), 'USDT');
-    console.log('SL Price:', sl_price);
-    console.log('TP1 Price:', tp1_price);
-    if (tp2_price) console.log('TP2 Price:', tp2_price);
-    if (tp3_price) console.log('TP3 Price:', tp3_price);
+    console.log('SL Price:', roundedSlPrice);
+    console.log('TP1 Price:', roundedTp1Price || 'N/A');
+    if (roundedTp2Price) console.log('TP2 Price:', roundedTp2Price);
+    if (roundedTp3Price) console.log('TP3 Price:', roundedTp3Price);
     console.log('Order ID:', orderId);
     console.log('SL Order ID:', slOrderId);
     console.log('TP1 Order ID:', tp1OrderId);
