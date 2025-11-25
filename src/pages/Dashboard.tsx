@@ -239,15 +239,14 @@ export default function Dashboard() {
         ))}
       </div>
 
-      <div className="grid gap-6 lg:grid-cols-2">
-        {/* Otwarte Pozycje */}
-        <Card>
-          <CardHeader>
-            <CardTitle>Otwarte Pozycje</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <ScrollArea className="h-[300px]">
-              <div className="space-y-4">
+      {/* Otwarte Pozycje - Pełna szerokość */}
+      <Card>
+        <CardHeader>
+          <CardTitle>Otwarte Pozycje</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <ScrollArea className="h-[400px]">
+            <div className="space-y-4">
                 {positionsWithLivePnL && positionsWithLivePnL.length > 0 ? (
                   positionsWithLivePnL.map((pos) => {
                     const positionValue = Number(pos.quantity) * Number(pos.entry_price);
@@ -395,41 +394,40 @@ export default function Dashboard() {
           </CardContent>
         </Card>
 
-        {/* Ostatnie Alerty */}
-        <Card>
-          <CardHeader>
-            <CardTitle>Ostatnie Alerty</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <ScrollArea className="h-[300px]">
-              <div className="space-y-4">
-                {recentAlerts && recentAlerts.length > 0 ? (
-                  recentAlerts.map((alert) => (
-                    <div key={alert.id} className="flex items-center justify-between border-b border-border pb-3 last:border-0 last:pb-0">
-                      <div>
-                        <div className="font-medium">{alert.symbol}</div>
-                        <div className="text-sm text-muted-foreground">
-                          {alert.tier} • Strength: {Number(alert.strength || 0).toFixed(2)}
-                        </div>
+      {/* Ostatnie Alerty - Pełna szerokość */}
+      <Card>
+        <CardHeader>
+          <CardTitle>Ostatnie Alerty</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <ScrollArea className="h-[300px]">
+            <div className="space-y-4">
+              {recentAlerts && recentAlerts.length > 0 ? (
+                recentAlerts.map((alert) => (
+                  <div key={alert.id} className="flex items-center justify-between border-b border-border pb-3 last:border-0 last:pb-0">
+                    <div>
+                      <div className="font-medium">{alert.symbol}</div>
+                      <div className="text-sm text-muted-foreground">
+                        {alert.tier} • Strength: {Number(alert.strength || 0).toFixed(2)}
                       </div>
-                      <Badge variant={
-                        alert.status === "executed" ? "default" :
-                        alert.status === "ignored" ? "secondary" :
-                        alert.status === "error" ? "destructive" :
-                        "outline"
-                      }>
-                        {alert.status}
-                      </Badge>
                     </div>
-                  ))
-                ) : (
-                  <p className="text-center text-muted-foreground py-8">Brak alertów</p>
-                )}
-              </div>
-            </ScrollArea>
-          </CardContent>
-        </Card>
-      </div>
+                    <Badge variant={
+                      alert.status === "executed" ? "default" :
+                      alert.status === "ignored" ? "secondary" :
+                      alert.status === "error" ? "destructive" :
+                      "outline"
+                    }>
+                      {alert.status}
+                    </Badge>
+                  </div>
+                ))
+              ) : (
+                <p className="text-center text-muted-foreground py-8">Brak alertów</p>
+              )}
+            </div>
+          </ScrollArea>
+        </CardContent>
+      </Card>
     </div>
   );
 }
