@@ -190,10 +190,11 @@ serve(async (req) => {
         }
 
         // Determine plan type based on parameters
-        if (params.planType === 'loss_plan') {
-          planOrderBody.planType = 'loss_plan';
-        } else if (params.planType === 'profit_plan') {
-          planOrderBody.planType = 'profit_plan';
+        // Bitget v2 API uses: pos_loss (SL), pos_profit (TP), normal_plan (trigger)
+        if (params.planType === 'loss_plan' || params.planType === 'pos_loss') {
+          planOrderBody.planType = 'pos_loss';
+        } else if (params.planType === 'profit_plan' || params.planType === 'pos_profit') {
+          planOrderBody.planType = 'pos_profit';
         } else {
           planOrderBody.planType = 'normal_plan';
         }
