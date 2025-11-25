@@ -22,6 +22,8 @@ export type Database = {
           error_message: string | null
           executed_at: string | null
           id: string
+          is_test: boolean | null
+          latency_ms: number | null
           leverage: number
           main_tp: number
           mode: string | null
@@ -44,6 +46,8 @@ export type Database = {
           error_message?: string | null
           executed_at?: string | null
           id?: string
+          is_test?: boolean | null
+          latency_ms?: number | null
           leverage: number
           main_tp: number
           mode?: string | null
@@ -66,6 +70,8 @@ export type Database = {
           error_message?: string | null
           executed_at?: string | null
           id?: string
+          is_test?: boolean | null
+          latency_ms?: number | null
           leverage?: number
           main_tp?: number
           mode?: string | null
