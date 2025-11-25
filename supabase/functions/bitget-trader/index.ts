@@ -300,29 +300,87 @@ serve(async (req) => {
     });
     console.log('Initial calculated quantity:', quantity);
     
-    // Adjust to minimum if necessary
-    const adjustment = adjustPositionSizeToMinimum(quantity, alert_data.symbol, alert_data.price);
-    if (adjustment.wasAdjusted) {
-      quantity = adjustment.adjustedQuantity;
+    // Get REAL minimum requirements from Bitget API before placing order
+    console.log(`🔍 Fetching minimum requirements for ${alert_data.symbol} from Bitget API...`);
+    const { data: symbolInfoResult } = await supabase.functions.invoke('bitget-api', {
+      body: {
+        action: 'get_symbol_info',
+        params: {
+          symbol: alert_data.symbol
+        }
+      }
+    });
+    
+    let minQuantity = 0.001; // Default fallback
+    let minNotionalValue = 5; // Default fallback
+    
+    if (symbolInfoResult?.success && symbolInfoResult.data?.length > 0) {
+      const contractInfo = symbolInfoResult.data[0];
+      minQuantity = parseFloat(contractInfo.minTradeNum || '0.001');
+      minNotionalValue = parseFloat(contractInfo.minTradeUSDT || '5');
+      
       await log({
         functionName: 'bitget-trader',
-        message: 'Position size adjusted to meet minimum',
+        message: `Retrieved real minimums from Bitget API for ${alert_data.symbol}`,
         level: 'info',
         alertId: alert_id,
         metadata: {
-          original: calculatePositionSize(settings, alert_data, accountBalance),
-          adjusted: quantity,
-          adjustedNotional: adjustment.adjustedNotional,
-          symbol: alert_data.symbol
+          symbol: alert_data.symbol,
+          minTradeNum: minQuantity,
+          minTradeUSDT: minNotionalValue
         }
       });
-      console.log(`Position size adjusted to meet minimum requirement:`, {
-        original: calculatePositionSize(settings, alert_data, accountBalance),
-        originalNotional: calculatePositionSize(settings, alert_data, accountBalance) * alert_data.price,
-        adjusted: quantity,
-        adjustedNotional: adjustment.adjustedNotional,
-        symbol: alert_data.symbol
+      
+      console.log(`✅ ${alert_data.symbol} minimums from Bitget API:`, {
+        minTradeNum: minQuantity,
+        minTradeUSDT: minNotionalValue
       });
+    } else {
+      console.warn('⚠️ Could not fetch symbol info from API, using defaults');
+      await log({
+        functionName: 'bitget-trader',
+        message: 'Failed to fetch symbol info, using default minimums',
+        level: 'warn',
+        alertId: alert_id,
+        metadata: { symbol: alert_data.symbol }
+      });
+    }
+    
+    // Calculate notional value of our position
+    const notionalValue = quantity * alert_data.price;
+    
+    // Check BOTH quantity and notional minimums and use whichever is HIGHER
+    if (quantity < minQuantity || notionalValue < minNotionalValue) {
+      const quantityFromMinNotional = minNotionalValue / alert_data.price;
+      const adjustedQuantity = Math.max(minQuantity, quantityFromMinNotional);
+      const adjustedNotional = adjustedQuantity * alert_data.price;
+      const adjustedMargin = adjustedNotional / effectiveLeverage;
+      
+      await log({
+        functionName: 'bitget-trader',
+        message: 'Position size adjusted to meet Bitget minimums',
+        level: 'info',
+        alertId: alert_id,
+        metadata: {
+          symbol: alert_data.symbol,
+          originalQuantity: quantity,
+          originalNotional: notionalValue,
+          adjustedQuantity: adjustedQuantity,
+          adjustedNotional: adjustedNotional,
+          adjustedMargin: adjustedMargin,
+          minQuantity: minQuantity,
+          minNotional: minNotionalValue
+        }
+      });
+      
+      console.log(`⚠️ Position size too small! Adjusting to meet Bitget requirements:`);
+      console.log(`   Original: quantity=${quantity}, notional=${notionalValue.toFixed(2)} USDT, margin=${(notionalValue/effectiveLeverage).toFixed(2)} USDT`);
+      console.log(`   Minimums: quantity=${minQuantity}, notional=${minNotionalValue} USDT`);
+      console.log(`   Adjusted: quantity=${adjustedQuantity}, notional=${adjustedNotional.toFixed(2)} USDT, margin=${adjustedMargin.toFixed(2)} USDT`);
+      
+      quantity = adjustedQuantity;
+    } else {
+      console.log(`✅ Position size meets Bitget requirements: quantity=${quantity}, notional=${notionalValue.toFixed(2)} USDT, margin=${(notionalValue/effectiveLeverage).toFixed(2)} USDT`);
     }
 
     // Calculate SL/TP prices
@@ -442,7 +500,7 @@ serve(async (req) => {
     });
     console.log('Order placed:', orderId);
 
-    // Place Stop Loss order
+    // Place Stop Loss order using TPSL endpoint
     await log({
       functionName: 'bitget-trader',
       message: 'Placing Stop Loss order',
@@ -450,18 +508,17 @@ serve(async (req) => {
       alertId: alert_id,
       metadata: { slPrice: sl_price, symbol: alert_data.symbol }
     });
-    const slSide = alert_data.side === 'BUY' ? 'close_long' : 'close_short';
+    const holdSide = alert_data.side === 'BUY' ? 'long' : 'short';
     const { data: slResult } = await supabase.functions.invoke('bitget-api', {
       body: {
-        action: 'place_plan_order',
+        action: 'place_tpsl_order',
         params: {
           symbol: alert_data.symbol,
-          size: quantity.toString(),
-          side: slSide,
-          orderType: 'market',
-          triggerPrice: sl_price.toString(),
-          executePrice: sl_price.toString(),
           planType: 'pos_loss',
+          triggerPrice: sl_price.toString(),
+          triggerType: 'mark_price',
+          holdSide: holdSide,
+          executePrice: 0, // Market order
         }
       }
     });
@@ -495,15 +552,15 @@ serve(async (req) => {
     if (tp1_price && tp1Quantity > 0) {
       const { data: tp1Result } = await supabase.functions.invoke('bitget-api', {
         body: {
-          action: 'place_plan_order',
+          action: 'place_tpsl_order',
           params: {
             symbol: alert_data.symbol,
-            size: tp1Quantity.toString(),
-            side: slSide,
-            orderType: 'market',
-            triggerPrice: tp1_price.toString(),
-            executePrice: tp1_price.toString(),
             planType: 'pos_profit',
+            triggerPrice: tp1_price.toString(),
+            triggerType: 'mark_price',
+            holdSide: holdSide,
+            executePrice: 0,
+            size: tp1Quantity.toString(),
           }
         }
       });
@@ -516,15 +573,15 @@ serve(async (req) => {
     if (tp2_price && tp2Quantity > 0) {
       const { data: tp2Result } = await supabase.functions.invoke('bitget-api', {
         body: {
-          action: 'place_plan_order',
+          action: 'place_tpsl_order',
           params: {
             symbol: alert_data.symbol,
-            size: tp2Quantity.toString(),
-            side: slSide,
-            orderType: 'market',
-            triggerPrice: tp2_price.toString(),
-            executePrice: tp2_price.toString(),
             planType: 'pos_profit',
+            triggerPrice: tp2_price.toString(),
+            triggerType: 'mark_price',
+            holdSide: holdSide,
+            executePrice: 0,
+            size: tp2Quantity.toString(),
           }
         }
       });
@@ -537,15 +594,15 @@ serve(async (req) => {
     if (tp3_price && tp3Quantity > 0) {
       const { data: tp3Result } = await supabase.functions.invoke('bitget-api', {
         body: {
-          action: 'place_plan_order',
+          action: 'place_tpsl_order',
           params: {
             symbol: alert_data.symbol,
-            size: tp3Quantity.toString(),
-            side: slSide,
-            orderType: 'market',
-            triggerPrice: tp3_price.toString(),
-            executePrice: tp3_price.toString(),
             planType: 'pos_profit',
+            triggerPrice: tp3_price.toString(),
+            triggerType: 'mark_price',
+            holdSide: holdSide,
+            executePrice: 0,
+            size: tp3Quantity.toString(),
           }
         }
       });
