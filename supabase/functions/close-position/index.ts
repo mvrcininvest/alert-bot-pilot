@@ -1,5 +1,6 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { log } from "../_shared/logger.ts";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -18,6 +19,13 @@ serve(async (req) => {
     );
 
     const { position_id, reason } = await req.json();
+    
+    await log({
+      functionName: 'close-position',
+      message: `Closing position: ${reason || 'manual'}`,
+      level: 'info',
+      positionId: position_id
+    });
     console.log('Closing position:', position_id, 'Reason:', reason);
 
     // Get position
@@ -27,11 +35,45 @@ serve(async (req) => {
       .eq('id', position_id)
       .single();
 
-    if (positionError) throw positionError;
-    if (!position) throw new Error('Position not found');
-    if (position.status !== 'open') throw new Error('Position is not open');
+    if (positionError) {
+      await log({
+        functionName: 'close-position',
+        message: 'Failed to fetch position',
+        level: 'error',
+        positionId: position_id,
+        metadata: { error: positionError.message }
+      });
+      throw positionError;
+    }
+    if (!position) {
+      await log({
+        functionName: 'close-position',
+        message: 'Position not found',
+        level: 'error',
+        positionId: position_id
+      });
+      throw new Error('Position not found');
+    }
+    if (position.status !== 'open') {
+      await log({
+        functionName: 'close-position',
+        message: 'Position is not open',
+        level: 'error',
+        positionId: position_id,
+        metadata: { status: position.status }
+      });
+      throw new Error('Position is not open');
+    }
 
     // Get current market price
+    await log({
+      functionName: 'close-position',
+      message: 'Fetching market price',
+      level: 'info',
+      positionId: position_id,
+      metadata: { symbol: position.symbol }
+    });
+    
     const { data: tickerResult } = await supabase.functions.invoke('bitget-api', {
       body: {
         action: 'get_ticker',
@@ -44,6 +86,14 @@ serve(async (req) => {
       : Number(position.entry_price);
 
     // Close position on Bitget
+    await log({
+      functionName: 'close-position',
+      message: 'Closing position on Bitget',
+      level: 'info',
+      positionId: position_id,
+      metadata: { symbol: position.symbol, closePrice }
+    });
+    
     const closeSide = position.side === 'BUY' ? 'close_long' : 'close_short';
     
     const { data: closeResult } = await supabase.functions.invoke('bitget-api', {
@@ -58,10 +108,23 @@ serve(async (req) => {
     });
 
     if (!closeResult?.success) {
+      await log({
+        functionName: 'close-position',
+        message: 'Failed to close position on Bitget',
+        level: 'error',
+        positionId: position_id
+      });
       throw new Error('Failed to close position on Bitget');
     }
 
     // Cancel all pending orders (SL/TP)
+    await log({
+      functionName: 'close-position',
+      message: 'Cancelling pending orders',
+      level: 'info',
+      positionId: position_id
+    });
+    
     const orderIds = [
       position.sl_order_id,
       position.tp1_order_id,
@@ -81,6 +144,13 @@ serve(async (req) => {
           }
         });
       } catch (error) {
+        await log({
+          functionName: 'close-position',
+          message: `Failed to cancel order ${orderId}`,
+          level: 'warn',
+          positionId: position_id,
+          metadata: { orderId, error: error instanceof Error ? error.message : 'Unknown' }
+        });
         console.error('Failed to cancel order:', orderId, error);
       }
     }
@@ -90,6 +160,18 @@ serve(async (req) => {
       ? closePrice - Number(position.entry_price)
       : Number(position.entry_price) - closePrice;
     const realizedPnl = priceDiff * Number(position.quantity) * position.leverage;
+
+    await log({
+      functionName: 'close-position',
+      message: 'Position closed, updating database',
+      level: 'info',
+      positionId: position_id,
+      metadata: { 
+        closePrice, 
+        realizedPnl,
+        entryPrice: position.entry_price
+      }
+    });
 
     // Update position in database
     const { error: updateError } = await supabase
@@ -103,7 +185,16 @@ serve(async (req) => {
       })
       .eq('id', position_id);
 
-    if (updateError) throw updateError;
+    if (updateError) {
+      await log({
+        functionName: 'close-position',
+        message: 'Failed to update position in database',
+        level: 'error',
+        positionId: position_id,
+        metadata: { error: updateError.message }
+      });
+      throw updateError;
+    }
 
     // Update performance metrics
     const today = new Date().toISOString().split('T')[0];
@@ -137,6 +228,17 @@ serve(async (req) => {
         });
     }
 
+    await log({
+      functionName: 'close-position',
+      message: 'Position closed successfully',
+      level: 'info',
+      positionId: position_id,
+      metadata: { 
+        symbol: position.symbol,
+        realizedPnl,
+        closePrice 
+      }
+    });
     console.log('Position closed successfully:', position_id, 'PnL:', realizedPnl);
 
     return new Response(JSON.stringify({ 
@@ -148,8 +250,14 @@ serve(async (req) => {
     });
 
   } catch (error) {
-    console.error('Close position error:', error);
     const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+    await log({
+      functionName: 'close-position',
+      message: 'Failed to close position',
+      level: 'error',
+      metadata: { error: errorMessage }
+    });
+    console.error('Close position error:', error);
     return new Response(JSON.stringify({ error: errorMessage }), {
       status: 500,
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },

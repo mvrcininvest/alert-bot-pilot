@@ -1,5 +1,6 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createHmac } from "https://deno.land/std@0.168.0/node/crypto.ts";
+import { log } from "../_shared/logger.ts";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -42,6 +43,12 @@ async function bitgetRequest(config: BitgetConfig, method: string, endpoint: str
   const bodyStr = body ? JSON.stringify(body) : '';
   const headers = getBitgetHeaders(config, method, requestPath, bodyStr);
 
+  await log({
+    functionName: 'bitget-api',
+    message: `Bitget API request: ${method} ${requestPath}`,
+    level: 'info',
+    metadata: { method, endpoint, hasBody: !!body }
+  });
   console.log('Bitget request:', method, requestPath, bodyStr ? `Body: ${bodyStr}` : '');
 
   const response = await fetch(`${config.baseUrl}${requestPath}`, {
@@ -52,6 +59,12 @@ async function bitgetRequest(config: BitgetConfig, method: string, endpoint: str
 
   if (!response.ok) {
     const errorText = await response.text();
+    await log({
+      functionName: 'bitget-api',
+      message: 'Bitget HTTP error',
+      level: 'error',
+      metadata: { status: response.status, error: errorText, endpoint }
+    });
     console.error('Bitget HTTP error:', response.status, errorText);
     throw new Error(`Bitget HTTP error ${response.status}: ${errorText}`);
   }
@@ -60,9 +73,22 @@ async function bitgetRequest(config: BitgetConfig, method: string, endpoint: str
   console.log('Bitget response:', JSON.stringify(data));
   
   if (data.code !== '00000') {
+    await log({
+      functionName: 'bitget-api',
+      message: 'Bitget API error',
+      level: 'error',
+      metadata: { code: data.code, msg: data.msg, endpoint }
+    });
     console.error('Bitget API error:', data);
     throw new Error(`Bitget API error (${data.code}): ${data.msg || 'Unknown error'}`);
   }
+
+  await log({
+    functionName: 'bitget-api',
+    message: `Bitget API success: ${method} ${requestPath}`,
+    level: 'info',
+    metadata: { endpoint }
+  });
 
   return data.data;
 }
@@ -81,6 +107,12 @@ serve(async (req) => {
     };
 
     const { action, params } = await req.json();
+    await log({
+      functionName: 'bitget-api',
+      message: `Processing action: ${action}`,
+      level: 'info',
+      metadata: { action, params }
+    });
     console.log('Bitget API action:', action);
 
     let result;
@@ -206,6 +238,12 @@ serve(async (req) => {
         break;
 
       default:
+        await log({
+          functionName: 'bitget-api',
+          message: `Unknown action: ${action}`,
+          level: 'error',
+          metadata: { action }
+        });
         throw new Error(`Unknown action: ${action}`);
     }
 
@@ -214,8 +252,14 @@ serve(async (req) => {
     });
 
   } catch (error) {
-    console.error('Bitget API error:', error);
     const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+    await log({
+      functionName: 'bitget-api',
+      message: 'Bitget API call failed',
+      level: 'error',
+      metadata: { error: errorMessage }
+    });
+    console.error('Bitget API error:', error);
     return new Response(JSON.stringify({ success: false, error: errorMessage }), {
       status: 500,
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
