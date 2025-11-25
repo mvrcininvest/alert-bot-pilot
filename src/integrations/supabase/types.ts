@@ -327,6 +327,8 @@ export type Database = {
           rr_sl_percent_margin: number | null
           simple_sl_percent: number | null
           simple_tp_percent: number | null
+          simple_tp2_percent: number | null
+          simple_tp3_percent: number | null
           sl_method: Database["public"]["Enums"]["sl_method"]
           sl_to_breakeven: boolean | null
           symbol_leverage_overrides: Json | null
@@ -381,6 +383,8 @@ export type Database = {
           rr_sl_percent_margin?: number | null
           simple_sl_percent?: number | null
           simple_tp_percent?: number | null
+          simple_tp2_percent?: number | null
+          simple_tp3_percent?: number | null
           sl_method?: Database["public"]["Enums"]["sl_method"]
           sl_to_breakeven?: boolean | null
           symbol_leverage_overrides?: Json | null
@@ -435,6 +439,8 @@ export type Database = {
           rr_sl_percent_margin?: number | null
           simple_sl_percent?: number | null
           simple_tp_percent?: number | null
+          simple_tp2_percent?: number | null
+          simple_tp3_percent?: number | null
           sl_method?: Database["public"]["Enums"]["sl_method"]
           sl_to_breakeven?: boolean | null
           symbol_leverage_overrides?: Json | null

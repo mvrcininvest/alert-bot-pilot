@@ -211,14 +211,18 @@ function calculateTPSimple(
 
   let tp2Price, tp3Price;
   if (settings.tp_levels >= 2) {
+    // Use simple_tp2_percent if available, otherwise fallback to 1.5x multiplier
+    const tp2Percent = ((settings as any).simple_tp2_percent || (settings.simple_tp_percent * 1.5)) / 100;
     tp2Price = alertData.side === 'BUY'
-      ? alertData.price * (1 + percent * 1.5)
-      : alertData.price * (1 - percent * 1.5);
+      ? alertData.price * (1 + tp2Percent)
+      : alertData.price * (1 - tp2Percent);
   }
   if (settings.tp_levels >= 3) {
+    // Use simple_tp3_percent if available, otherwise fallback to 2x multiplier
+    const tp3Percent = ((settings as any).simple_tp3_percent || (settings.simple_tp_percent * 2)) / 100;
     tp3Price = alertData.side === 'BUY'
-      ? alertData.price * (1 + percent * 2)
-      : alertData.price * (1 - percent * 2);
+      ? alertData.price * (1 + tp3Percent)
+      : alertData.price * (1 - tp3Percent);
   }
 
   return { tp1Price, tp2Price, tp3Price };
@@ -263,14 +267,18 @@ function calculateTPATR(
 
   let tp2Price, tp3Price;
   if (settings.tp_levels >= 2) {
+    // Use atr_tp2_multiplier if available, otherwise fallback to 1.5x
+    const tp2Mult = (settings as any).atr_tp2_multiplier || (atrMultiplier * 1.5);
     tp2Price = alertData.side === 'BUY'
-      ? alertData.price + (alertData.atr * atrMultiplier * 1.5)
-      : alertData.price - (alertData.atr * atrMultiplier * 1.5);
+      ? alertData.price + (alertData.atr * tp2Mult)
+      : alertData.price - (alertData.atr * tp2Mult);
   }
   if (settings.tp_levels >= 3) {
+    // Use atr_tp3_multiplier if available, otherwise fallback to 2x
+    const tp3Mult = (settings as any).atr_tp3_multiplier || (atrMultiplier * 2);
     tp3Price = alertData.side === 'BUY'
-      ? alertData.price + (alertData.atr * atrMultiplier * 2)
-      : alertData.price - (alertData.atr * atrMultiplier * 2);
+      ? alertData.price + (alertData.atr * tp3Mult)
+      : alertData.price - (alertData.atr * tp3Mult);
   }
 
   return { tp1Price, tp2Price, tp3Price };
