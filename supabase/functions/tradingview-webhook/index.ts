@@ -12,6 +12,10 @@ serve(async (req) => {
   }
 
   try {
+    console.log('=== Webhook received ===');
+    console.log('Method:', req.method);
+    console.log('Headers:', Object.fromEntries(req.headers.entries()));
+
     const supabase = createClient(
       Deno.env.get('SUPABASE_URL') ?? '',
       Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
@@ -20,7 +24,11 @@ serve(async (req) => {
     const webhookSecret = Deno.env.get('TRADINGVIEW_WEBHOOK_SECRET');
     const authHeader = req.headers.get('authorization');
     
+    console.log('Webhook secret configured:', !!webhookSecret);
+    console.log('Auth header present:', !!authHeader);
+    
     if (webhookSecret && authHeader !== `Bearer ${webhookSecret}`) {
+      console.error('Authorization failed - secret mismatch');
       return new Response(JSON.stringify({ error: 'Unauthorized' }), {
         status: 401,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
@@ -28,7 +36,7 @@ serve(async (req) => {
     }
 
     const alertData = await req.json();
-    console.log('Received alert:', alertData);
+    console.log('Received alert data:', JSON.stringify(alertData, null, 2));
 
     // Save alert to database
     const { data: alert, error: alertError } = await supabase
@@ -53,15 +61,40 @@ serve(async (req) => {
       .select()
       .single();
 
-    if (alertError) throw alertError;
+    if (alertError) {
+      console.error('Error saving alert:', alertError);
+      throw alertError;
+    }
+
+    console.log('Alert saved with ID:', alert.id);
 
     // Get settings
-    const { data: settings } = await supabase
+    const { data: settings, error: settingsError } = await supabase
       .from('settings')
       .select('*')
-      .single();
+      .maybeSingle();
 
-    if (!settings?.bot_active) {
+    if (settingsError) {
+      console.error('Error fetching settings:', settingsError);
+      throw settingsError;
+    }
+
+    if (!settings) {
+      console.error('No settings found in database');
+      await supabase
+        .from('alerts')
+        .update({ status: 'error', error_message: 'No settings configured' })
+        .eq('id', alert.id);
+      
+      return new Response(JSON.stringify({ error: 'No settings configured', alert_id: alert.id }), {
+        status: 500,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
+    }
+
+    console.log('Settings loaded, bot_active:', settings.bot_active);
+
+    if (!settings.bot_active) {
       await supabase
         .from('alerts')
         .update({ status: 'ignored', error_message: 'Bot not active' })
@@ -72,8 +105,10 @@ serve(async (req) => {
       });
     }
 
+    console.log('Bot is active, checking filters...');
+
     // Apply filters
-    if (settings.filter_by_tier && !settings.allowed_tiers.includes(alertData.tier)) {
+    if (settings.filter_by_tier && !settings.allowed_tiers?.includes(alertData.tier)) {
       await supabase
         .from('alerts')
         .update({ status: 'ignored', error_message: 'Tier not allowed' })
@@ -84,7 +119,7 @@ serve(async (req) => {
       });
     }
 
-    if (alertData.strength < settings.min_strength) {
+    if (alertData.strength && alertData.strength < (settings.min_strength || 0)) {
       await supabase
         .from('alerts')
         .update({ status: 'ignored', error_message: 'Strength too low' })
@@ -94,6 +129,8 @@ serve(async (req) => {
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       });
     }
+
+    console.log('All filters passed, calling bitget-trader...');
 
     // Call trader function
     const { data: tradeResult, error: tradeError } = await supabase.functions.invoke('bitget-trader', {
@@ -106,7 +143,14 @@ serve(async (req) => {
         .from('alerts')
         .update({ status: 'error', error_message: tradeError.message })
         .eq('id', alert.id);
+      
+      return new Response(JSON.stringify({ error: 'Trade execution failed', details: tradeError.message, alert_id: alert.id }), {
+        status: 500,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
     }
+
+    console.log('Trade executed successfully:', tradeResult);
 
     return new Response(JSON.stringify({ success: true, alert_id: alert.id, trade_result: tradeResult }), {
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
