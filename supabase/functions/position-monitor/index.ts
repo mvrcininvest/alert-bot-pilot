@@ -242,8 +242,15 @@ async function checkPositionFullVerification(supabase: any, position: any, autoR
     if (autoRepair) {
       console.log(`🔧 Auto-repairing: Placing SL order`);
       const slSide = position.side === 'BUY' ? 'close_long' : 'close_short';
-      const { data: slResult } = await supabase.functions.invoke('bitget-api', {
-        body: {
+      
+      // Direct fetch to bitget-api edge function
+      const slResponse = await fetch(`${Deno.env.get('SUPABASE_URL')}/functions/v1/bitget-api`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')}`
+        },
+        body: JSON.stringify({
           action: 'place_plan_order',
           params: {
             symbol: position.symbol,
@@ -254,8 +261,10 @@ async function checkPositionFullVerification(supabase: any, position: any, autoR
             executePrice: position.sl_price.toString(),
             planType: 'pos_loss',
           }
-        }
+        })
       });
+      
+      const slResult = await slResponse.json();
       
       if (slResult?.success) {
         await supabase
@@ -303,8 +312,15 @@ async function checkPositionFullVerification(supabase: any, position: any, autoR
       
       if (position.tp1_price) {
         const tp1Qty = bitgetQuantity * (settings?.tp1_close_percent || 100) / 100;
-        const { data: tp1Result } = await supabase.functions.invoke('bitget-api', {
-          body: {
+        
+        // Direct fetch to bitget-api edge function
+        const tp1Response = await fetch(`${Deno.env.get('SUPABASE_URL')}/functions/v1/bitget-api`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')}`
+          },
+          body: JSON.stringify({
             action: 'place_plan_order',
             params: {
               symbol: position.symbol,
@@ -315,8 +331,10 @@ async function checkPositionFullVerification(supabase: any, position: any, autoR
               executePrice: position.tp1_price.toString(),
               planType: 'pos_profit',
             }
-          }
+          })
         });
+        
+        const tp1Result = await tp1Response.json();
         
         if (tp1Result?.success) {
           await supabase
@@ -343,7 +361,7 @@ async function checkPositionFullVerification(supabase: any, position: any, autoR
       if (position.tp2_price) {
         const tp2Qty = bitgetQuantity * (settings?.tp2_close_percent || 0) / 100;
         if (tp2Qty > 0) {
-          const { data: tp2Result } = await supabase.functions.invoke('bitget-api', {
+          const { data: tp2Result, error: tp2Error } = await supabase.functions.invoke('bitget-api', {
             body: {
               action: 'place_plan_order',
               params: {
@@ -358,7 +376,9 @@ async function checkPositionFullVerification(supabase: any, position: any, autoR
             }
           });
           
-          if (tp2Result?.success) {
+          if (tp2Error) {
+            console.error(`❌ Supabase invoke error for TP2:`, tp2Error);
+          } else if (tp2Result?.success) {
             await supabase
               .from('positions')
               .update({ 
