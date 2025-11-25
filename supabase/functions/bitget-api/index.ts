@@ -136,8 +136,15 @@ serve(async (req) => {
 
       case 'place_order':
         // Place market order - v2 API
-        // Determine tradeSide from side param (open_long/open_short/close_long/close_short)
-        const isLong = params.side.toLowerCase().includes('long');
+        // Map internal side format to Bitget API format
+        const sideParam = params.side.toLowerCase();
+        const isLong = sideParam.includes('long');
+        const isOpen = sideParam.includes('open');
+        
+        // Bitget v2 API: side is "buy" or "sell", tradeSide is "long" or "short"
+        // open_long: buy + long, open_short: sell + short
+        // close_long: sell + long, close_short: buy + short
+        const bitgetSide = (isOpen && isLong) || (!isOpen && !isLong) ? 'buy' : 'sell';
         const tradeSide = isLong ? 'long' : 'short';
         
         result = await bitgetRequest(config, 'POST', '/api/v2/mix/order/place-order', {
@@ -147,7 +154,7 @@ serve(async (req) => {
           marginCoin: 'USDT',
           size: params.size.toString(),
           price: '',
-          side: params.side.toLowerCase(), // 'open_long', 'open_short', 'close_long', 'close_short'
+          side: bitgetSide,
           tradeSide: tradeSide,
           orderType: 'market',
           force: 'ioc',
