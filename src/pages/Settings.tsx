@@ -216,8 +216,13 @@ export default function Settings() {
                   <div className="space-y-1">
                     <div className="text-xs text-muted-foreground">Wartość</div>
                     <div className="font-medium">
-                      {localSettings.position_size_value} {localSettings.position_sizing_type === "fixed_usdt" ? "USDT" : "%"}
+                      {localSettings.position_size_value} {localSettings.position_sizing_type === "fixed_usdt" ? "USDT (notional)" : "%"}
                     </div>
+                    {localSettings.position_sizing_type === "fixed_usdt" && (
+                      <div className="text-xs text-muted-foreground">
+                        Margines = wartość ÷ dźwignia
+                      </div>
+                    )}
                   </div>
                 </div>
               </div>
@@ -584,7 +589,9 @@ export default function Settings() {
                 />
                 {localSettings.position_sizing_type === "fixed_usdt" && (
                   <p className="text-xs text-muted-foreground">
-                    Wartość kontraktu bez dźwigni (notional). Z dźwignią 10x potrzebujesz 10x mniej marginu.
+                    To jest <strong>wartość pozycji</strong> (notional), nie margines. 
+                    Przykład: 3 USDT przy dźwigni 10x = z konta zostanie wzięte 0.3 USDT marginu.
+                    Przy dźwigni 20x = 0.15 USDT marginu z konta.
                   </p>
                 )}
               </div>
