@@ -1,4 +1,4 @@
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -6,13 +6,16 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { format } from "date-fns";
-import { Info, AlertCircle } from "lucide-react";
+import { Info, AlertCircle, TestTube } from "lucide-react";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useState } from "react";
+import { useToast } from "@/hooks/use-toast";
 
 export default function Alerts() {
   const [selectedAlert, setSelectedAlert] = useState<any>(null);
+  const { toast } = useToast();
+  const queryClient = useQueryClient();
   
   const { data: alerts, isLoading } = useQuery({
     queryKey: ["alerts"],
@@ -27,6 +30,41 @@ export default function Alerts() {
       return data || [];
     },
   });
+
+  const toggleTestMutation = useMutation({
+    mutationFn: async ({ alertId, isTest }: { alertId: string; isTest: boolean }) => {
+      const { error } = await supabase
+        .from("alerts")
+        .update({ is_test: !isTest })
+        .eq("id", alertId);
+      
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["alerts"] });
+      toast({
+        title: "Status zaktualizowany",
+        description: "Alert został oznaczony jako testowy/produkcyjny",
+      });
+    },
+    onError: () => {
+      toast({
+        title: "Błąd",
+        description: "Nie udało się zaktualizować statusu alertu",
+        variant: "destructive",
+      });
+    },
+  });
+
+  const stats = alerts ? {
+    total: alerts.length,
+    buy: alerts.filter(a => a.side === "BUY").length,
+    sell: alerts.filter(a => a.side === "SELL").length,
+    executed: alerts.filter(a => a.status === "executed").length,
+    ignored: alerts.filter(a => a.status === "ignored").length,
+    error: alerts.filter(a => a.status === "error").length,
+    test: alerts.filter(a => a.is_test).length,
+  } : null;
 
   const getStatusColor = (status: string) => {
     switch (status) {
@@ -43,6 +81,67 @@ export default function Alerts() {
         <h1 className="text-3xl font-bold">Historia Alertów</h1>
         <p className="text-muted-foreground">Wszystkie alerty otrzymane z TradingView</p>
       </div>
+
+      {stats && (
+        <div className="grid gap-4 md:grid-cols-4 lg:grid-cols-7">
+          <Card>
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm">Łącznie</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-bold">{stats.total}</div>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm">BUY</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-bold text-profit">{stats.buy}</div>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm">SELL</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-bold text-loss">{stats.sell}</div>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm">Wykonane</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-bold text-profit">{stats.executed}</div>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm">Odrzucone</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-bold text-muted-foreground">{stats.ignored}</div>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm">Błędy</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-bold text-destructive">{stats.error}</div>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm">Testowe</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-bold text-muted-foreground">{stats.test}</div>
+            </CardContent>
+          </Card>
+        </div>
+      )}
 
       <Card>
         <CardHeader>
@@ -62,20 +161,22 @@ export default function Alerts() {
                   <TableHead>Tier</TableHead>
                   <TableHead>Strength</TableHead>
                   <TableHead>Leverage</TableHead>
+                  <TableHead>Latencja</TableHead>
                   <TableHead>Status</TableHead>
+                  <TableHead>Test</TableHead>
                   <TableHead>Akcje</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {isLoading ? (
                   <TableRow>
-                    <TableCell colSpan={11} className="text-center py-8">
+                    <TableCell colSpan={13} className="text-center py-8">
                       Ładowanie...
                     </TableCell>
                   </TableRow>
                 ) : alerts && alerts.length > 0 ? (
                   alerts.map((alert) => (
-                    <TableRow key={alert.id}>
+                    <TableRow key={alert.id} className={alert.is_test ? "opacity-50" : ""}>
                       <TableCell className="text-xs">
                         {format(new Date(alert.created_at), "dd.MM.yyyy HH:mm")}
                       </TableCell>
@@ -93,10 +194,22 @@ export default function Alerts() {
                       </TableCell>
                       <TableCell>{Number(alert.strength || 0).toFixed(2)}</TableCell>
                       <TableCell>{alert.leverage}x</TableCell>
+                      <TableCell className="text-xs">
+                        {alert.latency_ms ? `${alert.latency_ms}ms` : "-"}
+                      </TableCell>
                       <TableCell>
                         <Badge variant={getStatusColor(alert.status)}>
                           {alert.status}
                         </Badge>
+                      </TableCell>
+                      <TableCell>
+                        <Button
+                          variant={alert.is_test ? "default" : "outline"}
+                          size="sm"
+                          onClick={() => toggleTestMutation.mutate({ alertId: alert.id, isTest: alert.is_test })}
+                        >
+                          <TestTube className="h-4 w-4" />
+                        </Button>
                       </TableCell>
                       <TableCell>
                         <Dialog>
@@ -243,7 +356,7 @@ export default function Alerts() {
                   ))
                 ) : (
                   <TableRow>
-                    <TableCell colSpan={11} className="text-center py-8 text-muted-foreground">
+                    <TableCell colSpan={13} className="text-center py-8 text-muted-foreground">
                       Brak alertów
                     </TableCell>
                   </TableRow>

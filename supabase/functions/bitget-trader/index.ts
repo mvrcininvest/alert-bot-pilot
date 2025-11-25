@@ -14,6 +14,8 @@ serve(async (req) => {
     return new Response(null, { headers: corsHeaders });
   }
 
+  const startTime = Date.now(); // Track execution start time
+
   try {
     const supabase = createClient(
       Deno.env.get('SUPABASE_URL') ?? '',
@@ -580,13 +582,15 @@ serve(async (req) => {
     console.log('TP1 Order ID:', tp1OrderId);
     console.log('============================');
 
-    // Update alert status
+    // Update alert status with latency
+    const latencyMs = Date.now() - startTime;
     await supabase
       .from('alerts')
       .update({ 
         status: 'executed', 
         executed_at: new Date().toISOString(),
-        position_id: position.id 
+        position_id: position.id,
+        latency_ms: latencyMs
       })
       .eq('id', alert_id);
 
@@ -598,6 +602,7 @@ serve(async (req) => {
       positionId: position.id,
       metadata: { 
         positionId: position.id,
+        latencyMs,
         orderId,
         symbol: alert_data.symbol,
         side: alert_data.side,

@@ -48,9 +48,15 @@ export default function Stats() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from("positions")
-        .select("*")
+        .select(`
+          *,
+          alerts!inner (
+            is_test
+          )
+        `)
         .eq("status", "closed")
-        .neq("close_reason", "error"); // Exclude positions from failed alerts
+        .neq("close_reason", "error") // Exclude positions from failed alerts
+        .eq("alerts.is_test", false); // Exclude test alerts
       
       if (error) throw error;
       return data || [];
