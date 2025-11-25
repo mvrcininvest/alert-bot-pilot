@@ -113,6 +113,24 @@ serve(async (req) => {
     // Get account balance (placeholder - would call Bitget API)
     const accountBalance = 10000; // TODO: Get from Bitget
 
+    // Determine leverage to use for this position
+    const symbolLeverageOverrides = settings.symbol_leverage_overrides || {};
+    const defaultLeverage = settings.default_leverage || 10;
+    const effectiveLeverage = symbolLeverageOverrides[alert_data.symbol] || defaultLeverage;
+    
+    console.log(`Using leverage ${effectiveLeverage}x for ${alert_data.symbol} (default: ${defaultLeverage}, custom: ${symbolLeverageOverrides[alert_data.symbol] || 'none'})`);
+
+    // Set leverage on Bitget before placing order
+    await supabase.functions.invoke('bitget-api', {
+      body: {
+        action: 'set_leverage',
+        params: {
+          symbol: alert_data.symbol,
+          leverage: effectiveLeverage,
+        }
+      }
+    });
+
     // Calculate position size
     const quantity = calculatePositionSize(settings, alert_data, accountBalance);
     console.log('Calculated quantity:', quantity);
@@ -243,7 +261,7 @@ serve(async (req) => {
         side: alert_data.side,
         entry_price: alert_data.price,
         quantity: quantity,
-        leverage: alert_data.leverage,
+        leverage: effectiveLeverage, // Use custom or default leverage
         sl_price: sl_price,
         sl_order_id: slOrderId,
         tp1_price: tp1_price,
@@ -259,6 +277,8 @@ serve(async (req) => {
         metadata: {
           settings_snapshot: settings,
           alert_data: alert_data,
+          effective_leverage: effectiveLeverage,
+          leverage_source: symbolLeverageOverrides[alert_data.symbol] ? 'custom' : 'default'
         }
       })
       .select()

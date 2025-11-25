@@ -220,6 +220,114 @@ export default function Settings() {
               </div>
             </CardContent>
           </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle>Dźwignia (Leverage)</CardTitle>
+              <CardDescription>Konfiguracja dźwigni dla pozycji</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="space-y-2">
+                <Label>Domyślna dźwignia</Label>
+                <Input
+                  type="number"
+                  min="1"
+                  max="125"
+                  value={localSettings.default_leverage || 10}
+                  onChange={(e) => updateLocal("default_leverage", parseInt(e.target.value))}
+                />
+                <p className="text-xs text-muted-foreground">
+                  Dźwignia używana dla wszystkich symboli (jeśli nie ma custom ustawienia)
+                </p>
+              </div>
+
+              <Separator />
+
+              <div className="space-y-3">
+                <div>
+                  <Label>Niestandardowa dźwignia dla symboli</Label>
+                  <p className="text-xs text-muted-foreground mt-1">
+                    Ustaw różną dźwignię dla konkretnych par handlowych
+                  </p>
+                </div>
+
+                {localSettings.symbol_leverage_overrides && 
+                  Object.keys(localSettings.symbol_leverage_overrides).length > 0 && (
+                  <div className="space-y-2">
+                    {Object.entries(localSettings.symbol_leverage_overrides).map(([symbol, leverage]) => (
+                      <div key={symbol} className="flex items-center justify-between p-2 border rounded-lg">
+                        <div className="flex items-center gap-2">
+                          <Badge variant="outline">{symbol}</Badge>
+                          <span className="text-sm">{leverage as number}x</span>
+                        </div>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => {
+                            const updated = { ...localSettings.symbol_leverage_overrides };
+                            delete updated[symbol];
+                            updateLocal("symbol_leverage_overrides", updated);
+                          }}
+                        >
+                          Usuń
+                        </Button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                <div className="flex gap-2">
+                  <Input
+                    id="new-symbol"
+                    placeholder="Symbol (np. BTCUSDT)"
+                    className="flex-1"
+                  />
+                  <Input
+                    id="new-leverage"
+                    type="number"
+                    min="1"
+                    max="125"
+                    placeholder="Dźwignia"
+                    className="w-24"
+                  />
+                  <Button
+                    onClick={() => {
+                      const symbolInput = document.getElementById("new-symbol") as HTMLInputElement;
+                      const leverageInput = document.getElementById("new-leverage") as HTMLInputElement;
+                      
+                      const symbol = symbolInput?.value.trim().toUpperCase();
+                      const leverage = parseInt(leverageInput?.value);
+                      
+                      if (symbol && leverage && leverage > 0 && leverage <= 125) {
+                        const updated = {
+                          ...(localSettings.symbol_leverage_overrides || {}),
+                          [symbol]: leverage
+                        };
+                        updateLocal("symbol_leverage_overrides", updated);
+                        symbolInput.value = "";
+                        leverageInput.value = "";
+                        toast({
+                          title: "Dodano",
+                          description: `Ustawiono ${symbol} na dźwignię ${leverage}x`,
+                        });
+                      } else {
+                        toast({
+                          title: "Błąd",
+                          description: "Wprowadź prawidłowy symbol i dźwignię (1-125)",
+                          variant: "destructive",
+                        });
+                      }
+                    }}
+                  >
+                    Dodaj
+                  </Button>
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  Przykład: BTCUSDT z dźwignią 20x, ETHUSDT z 15x
+                </p>
+              </div>
+            </CardContent>
+          </Card>
         </TabsContent>
 
         {/* SL/TP TAB */}
