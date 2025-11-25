@@ -17,3 +17,6 @@ verify_jwt = true
 
 [functions.import-history]
 verify_jwt = true
+
+[functions.recalculate-sltp]
+verify_jwt = false
