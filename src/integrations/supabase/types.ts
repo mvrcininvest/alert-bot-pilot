@@ -83,6 +83,54 @@ export type Database = {
         }
         Relationships: []
       }
+      bot_logs: {
+        Row: {
+          alert_id: string | null
+          created_at: string | null
+          function_name: string
+          id: string
+          level: string
+          message: string
+          metadata: Json | null
+          position_id: string | null
+        }
+        Insert: {
+          alert_id?: string | null
+          created_at?: string | null
+          function_name: string
+          id?: string
+          level: string
+          message: string
+          metadata?: Json | null
+          position_id?: string | null
+        }
+        Update: {
+          alert_id?: string | null
+          created_at?: string | null
+          function_name?: string
+          id?: string
+          level?: string
+          message?: string
+          metadata?: Json | null
+          position_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "bot_logs_alert_id_fkey"
+            columns: ["alert_id"]
+            isOneToOne: false
+            referencedRelation: "alerts"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "bot_logs_position_id_fkey"
+            columns: ["position_id"]
+            isOneToOne: false
+            referencedRelation: "positions"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       monitoring_logs: {
         Row: {
           actions_taken: string | null

@@ -2,6 +2,7 @@ import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { calculatePositionSize, calculateSLTP } from "./calculators.ts";
 import { adjustPositionSizeToMinimum } from "./minimums.ts";
+import { log } from "../_shared/logger.ts";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -20,6 +21,19 @@ serve(async (req) => {
     );
 
     const { alert_id, alert_data, settings } = await req.json();
+    
+    await log({
+      functionName: 'bitget-trader',
+      message: 'Trader function started',
+      level: 'info',
+      alertId: alert_id,
+      metadata: { 
+        symbol: alert_data.symbol,
+        side: alert_data.side,
+        tier: alert_data.tier
+      }
+    });
+    
     console.log('=== BITGET TRADER STARTED ===');
     console.log('Alert ID:', alert_id);
     console.log('Alert symbol:', alert_data.symbol);
@@ -38,6 +52,16 @@ serve(async (req) => {
     if (countError) throw countError;
 
     if (openPositions && openPositions.length >= settings.max_open_positions) {
+      await log({
+        functionName: 'bitget-trader',
+        message: 'Max open positions reached - alert ignored',
+        level: 'warn',
+        alertId: alert_id,
+        metadata: { 
+          currentPositions: openPositions.length,
+          maxPositions: settings.max_open_positions
+        }
+      });
       console.log('Max open positions reached');
       await supabase
         .from('alerts')
@@ -54,6 +78,17 @@ serve(async (req) => {
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       });
     }
+    
+    await log({
+      functionName: 'bitget-trader',
+      message: 'Position limit check passed',
+      level: 'info',
+      alertId: alert_id,
+      metadata: { 
+        currentPositions: openPositions?.length || 0,
+        maxPositions: settings.max_open_positions
+      }
+    });
 
     // Check daily loss limit
     const today = new Date().toISOString().split('T')[0];
@@ -65,6 +100,14 @@ serve(async (req) => {
       .lte('closed_at', `${today}T23:59:59`);
 
     const todayPnL = todayPositions?.reduce((sum, pos) => sum + (Number(pos.realized_pnl) || 0), 0) || 0;
+    
+    await log({
+      functionName: 'bitget-trader',
+      message: 'Checking daily loss limit',
+      level: 'info',
+      alertId: alert_id,
+      metadata: { todayPnL, lossLimitType: settings.loss_limit_type }
+    });
     console.log('Today PnL:', todayPnL);
 
     // Check loss limit based on type
@@ -81,6 +124,18 @@ serve(async (req) => {
       const maxLossAmount = accountBalance * ((settings.daily_loss_percent || 5) / 100);
       
       if (Math.abs(todayPnL) >= maxLossAmount) {
+        await log({
+          functionName: 'bitget-trader',
+          message: 'Daily drawdown limit reached - alert ignored',
+          level: 'warn',
+          alertId: alert_id,
+          metadata: { 
+            todayPnL: Math.abs(todayPnL),
+            maxLossAmount,
+            dailyLossPercent: settings.daily_loss_percent,
+            accountBalance
+          }
+        });
         console.log(`Daily drawdown limit reached: ${Math.abs(todayPnL).toFixed(2)} USDT (${settings.daily_loss_percent}% of ${accountBalance.toFixed(2)} USDT)`);
         await supabase
           .from('alerts')
@@ -100,6 +155,16 @@ serve(async (req) => {
     } else {
       // Fixed USDT limit
       if (Math.abs(todayPnL) >= (settings.daily_loss_limit || 500)) {
+        await log({
+          functionName: 'bitget-trader',
+          message: 'Daily loss limit reached - alert ignored',
+          level: 'warn',
+          alertId: alert_id,
+          metadata: { 
+            todayPnL: Math.abs(todayPnL),
+            dailyLossLimit: settings.daily_loss_limit
+          }
+        });
         console.log(`Daily loss limit reached: ${Math.abs(todayPnL).toFixed(2)} / ${settings.daily_loss_limit} USDT`);
         await supabase
           .from('alerts')
@@ -119,6 +184,12 @@ serve(async (req) => {
     }
 
     // Get account balance from Bitget
+    await log({
+      functionName: 'bitget-trader',
+      message: 'Fetching account balance from Bitget',
+      level: 'info',
+      alertId: alert_id
+    });
     console.log('Fetching account balance from Bitget API...');
     const { data: accountData } = await supabase.functions.invoke('bitget-api', {
       body: { action: 'get_account' }
@@ -130,9 +201,26 @@ serve(async (req) => {
       // Use accountEquity for more accurate total balance including unrealized PnL
       const accountInfo = accountData.data[0];
       accountBalance = Number(accountInfo.accountEquity || accountInfo.available) || 10000;
+      await log({
+        functionName: 'bitget-trader',
+        message: 'Account balance fetched from Bitget',
+        level: 'info',
+        alertId: alert_id,
+        metadata: { 
+          accountBalance,
+          availableMargin: Number(accountInfo.available || 0)
+        }
+      });
       console.log(`✓ Real account balance from Bitget: ${accountBalance} USDT (equity)`);
       console.log(`  Available margin: ${Number(accountInfo.available || 0).toFixed(2)} USDT`);
     } else {
+      await log({
+        functionName: 'bitget-trader',
+        message: 'Failed to fetch account balance, using fallback',
+        level: 'warn',
+        alertId: alert_id,
+        metadata: { fallbackBalance: accountBalance }
+      });
       console.warn('⚠ Failed to get account balance from Bitget, using fallback:', accountBalance);
       console.warn('Account API response:', JSON.stringify(accountData));
     }
@@ -163,6 +251,25 @@ serve(async (req) => {
       console.log(`Using leverage ${effectiveLeverage}x for ${alert_data.symbol} (source: ${leverageSource})`);
     }
     
+    await log({
+      functionName: 'bitget-trader',
+      message: `Leverage determined: ${effectiveLeverage}x`,
+      level: 'info',
+      alertId: alert_id,
+      metadata: { 
+        leverage: effectiveLeverage,
+        leverageSource,
+        symbol: alert_data.symbol
+      }
+    });
+    
+    await log({
+      functionName: 'bitget-trader',
+      message: 'Setting leverage on Bitget',
+      level: 'info',
+      alertId: alert_id,
+      metadata: { symbol: alert_data.symbol, leverage: effectiveLeverage }
+    });
     console.log(`Setting leverage on Bitget: ${effectiveLeverage}x for ${alert_data.symbol}`);
     // Set leverage on Bitget before placing order
     await supabase.functions.invoke('bitget-api', {
@@ -177,12 +284,31 @@ serve(async (req) => {
 
     // Calculate position size
     let quantity = calculatePositionSize(settings, alert_data, accountBalance);
+    await log({
+      functionName: 'bitget-trader',
+      message: 'Position size calculated',
+      level: 'info',
+      alertId: alert_id,
+      metadata: { initialQuantity: quantity, symbol: alert_data.symbol }
+    });
     console.log('Initial calculated quantity:', quantity);
     
     // Adjust to minimum if necessary
     const adjustment = adjustPositionSizeToMinimum(quantity, alert_data.symbol, alert_data.price);
     if (adjustment.wasAdjusted) {
       quantity = adjustment.adjustedQuantity;
+      await log({
+        functionName: 'bitget-trader',
+        message: 'Position size adjusted to meet minimum',
+        level: 'info',
+        alertId: alert_id,
+        metadata: {
+          original: calculatePositionSize(settings, alert_data, accountBalance),
+          adjusted: quantity,
+          adjustedNotional: adjustment.adjustedNotional,
+          symbol: alert_data.symbol
+        }
+      });
       console.log(`Position size adjusted to meet minimum requirement:`, {
         original: calculatePositionSize(settings, alert_data, accountBalance),
         originalNotional: calculatePositionSize(settings, alert_data, accountBalance) * alert_data.price,
@@ -210,6 +336,19 @@ serve(async (req) => {
 
     // Call Bitget API to place order
     const side = alert_data.side === 'BUY' ? 'open_long' : 'open_short';
+    await log({
+      functionName: 'bitget-trader',
+      message: `Placing ${side} order on Bitget`,
+      level: 'info',
+      alertId: alert_id,
+      metadata: { 
+        symbol: alert_data.symbol,
+        size: quantity,
+        side,
+        leverage: effectiveLeverage,
+        entryPrice: alert_data.price
+      }
+    });
     console.log(`Placing ${side} order on Bitget for ${alert_data.symbol}...`);
     console.log('Order params:', {
       symbol: alert_data.symbol,
@@ -230,13 +369,34 @@ serve(async (req) => {
     });
 
     if (!orderResult?.success) {
+      await log({
+        functionName: 'bitget-trader',
+        message: 'Failed to place order on Bitget',
+        level: 'error',
+        alertId: alert_id,
+        metadata: { error: 'Order placement failed' }
+      });
       throw new Error('Failed to place order on Bitget');
     }
 
     const orderId = orderResult.data.orderId;
+    await log({
+      functionName: 'bitget-trader',
+      message: 'Order placed successfully',
+      level: 'info',
+      alertId: alert_id,
+      metadata: { orderId, symbol: alert_data.symbol }
+    });
     console.log('Order placed:', orderId);
 
     // Place Stop Loss order
+    await log({
+      functionName: 'bitget-trader',
+      message: 'Placing Stop Loss order',
+      level: 'info',
+      alertId: alert_id,
+      metadata: { slPrice: sl_price, symbol: alert_data.symbol }
+    });
     const slSide = alert_data.side === 'BUY' ? 'close_long' : 'close_short';
     const { data: slResult } = await supabase.functions.invoke('bitget-api', {
       body: {
@@ -254,6 +414,13 @@ serve(async (req) => {
     });
 
     const slOrderId = slResult?.success ? slResult.data.orderId : null;
+    await log({
+      functionName: 'bitget-trader',
+      message: slOrderId ? 'Stop Loss order placed' : 'Stop Loss order failed',
+      level: slOrderId ? 'info' : 'warn',
+      alertId: alert_id,
+      metadata: { slOrderId, slPrice: sl_price }
+    });
 
     // Calculate quantities for partial TP closing
     const tp1Quantity = tp1_price && settings.tp_strategy === 'partial_close' 
@@ -324,6 +491,18 @@ serve(async (req) => {
     }
 
     // Save position to database
+    await log({
+      functionName: 'bitget-trader',
+      message: 'Saving position to database',
+      level: 'info',
+      alertId: alert_id,
+      metadata: { 
+        symbol: alert_data.symbol,
+        side: alert_data.side,
+        quantity,
+        leverage: effectiveLeverage
+      }
+    });
     const { data: position, error: positionError } = await supabase
       .from('positions')
       .insert({
@@ -357,8 +536,25 @@ serve(async (req) => {
       .select()
       .single();
 
-    if (positionError) throw positionError;
+    if (positionError) {
+      await log({
+        functionName: 'bitget-trader',
+        message: 'Failed to save position to database',
+        level: 'error',
+        alertId: alert_id,
+        metadata: { error: positionError.message }
+      });
+      throw positionError;
+    }
 
+    await log({
+      functionName: 'bitget-trader',
+      message: 'Position saved to database successfully',
+      level: 'info',
+      alertId: alert_id,
+      positionId: position.id,
+      metadata: { positionId: position.id, symbol: alert_data.symbol }
+    });
     console.log('Position saved to database:', position.id);
     console.log('=== TRADE EXECUTION SUMMARY ===');
     console.log('Symbol:', alert_data.symbol);
@@ -389,6 +585,22 @@ serve(async (req) => {
       })
       .eq('id', alert_id);
 
+    await log({
+      functionName: 'bitget-trader',
+      message: 'Trade execution completed successfully',
+      level: 'info',
+      alertId: alert_id,
+      positionId: position.id,
+      metadata: { 
+        positionId: position.id,
+        orderId,
+        symbol: alert_data.symbol,
+        side: alert_data.side,
+        quantity,
+        leverage: effectiveLeverage,
+        entryPrice: alert_data.price
+      }
+    });
     console.log('Position opened successfully:', position.id);
 
     return new Response(JSON.stringify({ 
@@ -400,8 +612,14 @@ serve(async (req) => {
     });
 
   } catch (error) {
-    console.error('Trader error:', error);
     const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+    await log({
+      functionName: 'bitget-trader',
+      message: 'Trade execution failed',
+      level: 'error',
+      metadata: { error: errorMessage, stack: error instanceof Error ? error.stack : undefined }
+    });
+    console.error('Trader error:', error);
     return new Response(JSON.stringify({ error: errorMessage }), {
       status: 500,
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },

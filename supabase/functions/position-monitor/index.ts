@@ -1,5 +1,6 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { log } from "../_shared/logger.ts";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -17,6 +18,11 @@ serve(async (req) => {
       Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
     );
 
+    await log({
+      functionName: 'position-monitor',
+      message: 'Starting monitoring cycle',
+      level: 'info'
+    });
     console.log('Starting position monitoring cycle');
 
     // Get all open positions
@@ -25,15 +31,34 @@ serve(async (req) => {
       .select('*')
       .eq('status', 'open');
 
-    if (positionsError) throw positionsError;
+    if (positionsError) {
+      await log({
+        functionName: 'position-monitor',
+        message: 'Failed to fetch positions',
+        level: 'error',
+        metadata: { error: positionsError.message }
+      });
+      throw positionsError;
+    }
 
     if (!positions || positions.length === 0) {
+      await log({
+        functionName: 'position-monitor',
+        message: 'No open positions to monitor',
+        level: 'info'
+      });
       console.log('No open positions to monitor');
       return new Response(JSON.stringify({ message: 'No open positions' }), {
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       });
     }
 
+    await log({
+      functionName: 'position-monitor',
+      message: `Monitoring ${positions.length} positions`,
+      level: 'info',
+      metadata: { positionCount: positions.length }
+    });
     console.log(`Monitoring ${positions.length} positions`);
 
     // Get settings for auto-repair
@@ -43,12 +68,33 @@ serve(async (req) => {
       .single();
 
     const autoRepair = settings?.auto_repair || false;
+    
+    await log({
+      functionName: 'position-monitor',
+      message: 'Settings loaded',
+      level: 'info',
+      metadata: { autoRepair }
+    });
 
     // Check each position
     for (const position of positions) {
       try {
+        await log({
+          functionName: 'position-monitor',
+          message: `Checking position ${position.symbol}`,
+          level: 'info',
+          positionId: position.id,
+          metadata: { symbol: position.symbol, side: position.side }
+        });
         await checkPosition(supabase, position, autoRepair);
       } catch (error) {
+        await log({
+          functionName: 'position-monitor',
+          message: `Error checking position ${position.symbol}`,
+          level: 'error',
+          positionId: position.id,
+          metadata: { error: error instanceof Error ? error.message : 'Unknown error' }
+        });
         console.error(`Error checking position ${position.id}:`, error);
         
         // Update position with error
@@ -66,11 +112,31 @@ serve(async (req) => {
     // Handle breakeven and trailing stop
     for (const position of positions) {
       try {
+        await log({
+          functionName: 'position-monitor',
+          message: `Checking breakeven/trailing for ${position.symbol}`,
+          level: 'info',
+          positionId: position.id
+        });
         await handleBreakevenAndTrailing(supabase, position, settings);
       } catch (error) {
+        await log({
+          functionName: 'position-monitor',
+          message: `Error in breakeven/trailing for ${position.symbol}`,
+          level: 'error',
+          positionId: position.id,
+          metadata: { error: error instanceof Error ? error.message : 'Unknown error' }
+        });
         console.error(`Error handling breakeven/trailing for ${position.id}:`, error);
       }
     }
+
+    await log({
+      functionName: 'position-monitor',
+      message: 'Monitoring cycle completed',
+      level: 'info',
+      metadata: { positionsChecked: positions.length }
+    });
 
     return new Response(JSON.stringify({ 
       success: true, 
@@ -80,6 +146,12 @@ serve(async (req) => {
     });
 
   } catch (error) {
+    await log({
+      functionName: 'position-monitor',
+      message: 'Monitor cycle failed',
+      level: 'error',
+      metadata: { error: error instanceof Error ? error.message : 'Unknown error' }
+    });
     console.error('Monitor error:', error);
     const errorMessage = error instanceof Error ? error.message : 'Unknown error';
     return new Response(JSON.stringify({ error: errorMessage }), {
@@ -173,6 +245,13 @@ async function checkPosition(supabase: any, position: any, autoRepair: boolean) 
 
   // Auto-repair if enabled
   if (autoRepair && issues.length > 0) {
+    await log({
+      functionName: 'position-monitor',
+      message: `Auto-repair triggered for position ${position.symbol}`,
+      level: 'warn',
+      positionId: position.id,
+      metadata: { issues }
+    });
     console.log(`Auto-repairing position ${position.id}`);
     // TODO: Implement auto-repair logic based on issue types
   }
@@ -194,6 +273,13 @@ async function handleBreakevenAndTrailing(supabase: any, position: any, settings
     const tp1Hit = isBuy ? currentPrice >= tp1Price : currentPrice <= tp1Price;
 
     if (tp1Hit && settings.breakeven_trigger_tp === 1) {
+      await log({
+        functionName: 'position-monitor',
+        message: `Moving SL to breakeven for ${position.symbol}`,
+        level: 'info',
+        positionId: position.id,
+        metadata: { currentPrice, entryPrice }
+      });
       console.log(`Moving SL to breakeven for position ${position.id}`);
       
       // Update SL to entry price
@@ -246,6 +332,13 @@ async function handleBreakevenAndTrailing(supabase: any, position: any, settings
         : newSlPrice < slPrice;
 
       if (shouldUpdate && position.sl_order_id) {
+        await log({
+          functionName: 'position-monitor',
+          message: `Updating trailing stop for ${position.symbol}`,
+          level: 'info',
+          positionId: position.id,
+          metadata: { oldSL: slPrice, newSL: newSlPrice }
+        });
         console.log(`Updating trailing stop for position ${position.id}`);
         
         const { data: modifyResult } = await supabase.functions.invoke('bitget-api', {

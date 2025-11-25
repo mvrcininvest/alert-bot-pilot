@@ -1,5 +1,6 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { log } from "../_shared/logger.ts";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -12,6 +13,12 @@ serve(async (req) => {
   }
 
   try {
+    await log({
+      functionName: 'tradingview-webhook',
+      message: 'Webhook received',
+      level: 'info'
+    });
+    
     console.log('=== Webhook received ===');
     console.log('Method:', req.method);
     console.log('Headers:', Object.fromEntries(req.headers.entries()));
@@ -28,6 +35,11 @@ serve(async (req) => {
     console.log('Auth header present:', !!authHeader);
     
     if (webhookSecret && authHeader !== `Bearer ${webhookSecret}`) {
+      await log({
+        functionName: 'tradingview-webhook',
+        message: 'Unauthorized webhook access attempt',
+        level: 'error'
+      });
       console.error('Authorization failed - secret mismatch');
       return new Response(JSON.stringify({ error: 'Unauthorized' }), {
         status: 401,
@@ -37,6 +49,13 @@ serve(async (req) => {
 
     const alertData = await req.json();
     console.log('Received alert data:', JSON.stringify(alertData, null, 2));
+    
+    await log({
+      functionName: 'tradingview-webhook',
+      message: 'Alert data parsed',
+      level: 'info',
+      metadata: { symbol: alertData.symbol, side: alertData.side, tier: alertData.tier }
+    });
 
     // Save alert to database
     const { data: alert, error: alertError } = await supabase
@@ -44,12 +63,12 @@ serve(async (req) => {
       .insert({
         symbol: alertData.symbol,
         side: alertData.side,
-        entry_price: alertData.entryPrice || alertData.price,  // Try entryPrice first, fallback to price
+        entry_price: alertData.entryPrice || alertData.price,
         sl: alertData.sl,
         tp1: alertData.tp1,
         tp2: alertData.tp2,
         tp3: alertData.tp3,
-        main_tp: alertData.mainTp || alertData.main_tp,  // Support both camelCase and snake_case
+        main_tp: alertData.mainTp || alertData.main_tp,
         atr: alertData.atr,
         leverage: alertData.leverage,
         strength: alertData.strength,
@@ -62,9 +81,23 @@ serve(async (req) => {
       .single();
 
     if (alertError) {
+      await log({
+        functionName: 'tradingview-webhook',
+        message: 'Failed to save alert to database',
+        level: 'error',
+        metadata: { error: alertError.message }
+      });
       console.error('Error saving alert:', alertError);
       throw alertError;
     }
+    
+    await log({
+      functionName: 'tradingview-webhook',
+      message: 'Alert saved to database',
+      level: 'info',
+      alertId: alert.id,
+      metadata: { alertId: alert.id }
+    });
 
     console.log('Alert saved with ID:', alert.id);
 
@@ -75,11 +108,24 @@ serve(async (req) => {
       .maybeSingle();
 
     if (settingsError) {
+      await log({
+        functionName: 'tradingview-webhook',
+        message: 'Failed to fetch settings',
+        level: 'error',
+        alertId: alert.id,
+        metadata: { error: settingsError.message }
+      });
       console.error('Error fetching settings:', settingsError);
       throw settingsError;
     }
 
     if (!settings) {
+      await log({
+        functionName: 'tradingview-webhook',
+        message: 'No settings found in database',
+        level: 'error',
+        alertId: alert.id
+      });
       console.error('No settings found in database');
       await supabase
         .from('alerts')
@@ -95,6 +141,12 @@ serve(async (req) => {
     console.log('Settings loaded, bot_active:', settings.bot_active);
 
     if (!settings.bot_active) {
+      await log({
+        functionName: 'tradingview-webhook',
+        message: 'Bot is not active - alert ignored',
+        level: 'warn',
+        alertId: alert.id
+      });
       await supabase
         .from('alerts')
         .update({ status: 'ignored', error_message: 'Bot not active' })
@@ -109,6 +161,13 @@ serve(async (req) => {
 
     // Apply filters
     if (settings.filter_by_tier && settings.excluded_tiers && settings.excluded_tiers.includes(alertData.tier)) {
+      await log({
+        functionName: 'tradingview-webhook',
+        message: `Tier ${alertData.tier} excluded - alert ignored`,
+        level: 'info',
+        alertId: alert.id,
+        metadata: { tier: alertData.tier, excludedTiers: settings.excluded_tiers }
+      });
       console.log(`Alert tier ${alertData.tier} is in excluded list`);
       await supabase
         .from('alerts')
@@ -120,6 +179,12 @@ serve(async (req) => {
       });
     }
 
+    await log({
+      functionName: 'tradingview-webhook',
+      message: 'All filters passed, invoking trader',
+      level: 'info',
+      alertId: alert.id
+    });
     console.log('All filters passed, calling bitget-trader...');
 
     // Call trader function
@@ -128,6 +193,13 @@ serve(async (req) => {
     });
 
     if (tradeError) {
+      await log({
+        functionName: 'tradingview-webhook',
+        message: 'Trader function failed',
+        level: 'error',
+        alertId: alert.id,
+        metadata: { error: tradeError.message }
+      });
       console.error('Trade error:', tradeError);
       await supabase
         .from('alerts')
@@ -140,6 +212,13 @@ serve(async (req) => {
       });
     }
 
+    await log({
+      functionName: 'tradingview-webhook',
+      message: 'Trade executed successfully',
+      level: 'info',
+      alertId: alert.id,
+      metadata: { tradeResult }
+    });
     console.log('Trade executed successfully:', tradeResult);
 
     return new Response(JSON.stringify({ success: true, alert_id: alert.id, trade_result: tradeResult }), {
@@ -147,8 +226,14 @@ serve(async (req) => {
     });
 
   } catch (error) {
-    console.error('Webhook error:', error);
     const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+    await log({
+      functionName: 'tradingview-webhook',
+      message: 'Webhook processing failed',
+      level: 'error',
+      metadata: { error: errorMessage, stack: error instanceof Error ? error.stack : undefined }
+    });
+    console.error('Webhook error:', error);
     return new Response(JSON.stringify({ error: errorMessage }), {
       status: 500,
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
