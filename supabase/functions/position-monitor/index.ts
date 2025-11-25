@@ -252,7 +252,7 @@ async function checkPositionFullVerification(supabase: any, position: any, autoR
             orderType: 'market',
             triggerPrice: position.sl_price.toString(),
             executePrice: position.sl_price.toString(),
-            planType: 'loss_plan',
+            planType: 'pos_loss',
           }
         }
       });
@@ -263,6 +263,9 @@ async function checkPositionFullVerification(supabase: any, position: any, autoR
           .update({ sl_order_id: slResult.data.orderId })
           .eq('id', position.id);
         actions.push('Placed missing SL order');
+        console.log(`✅ SL order placed: ${slResult.data.orderId}`);
+      } else {
+        console.error(`❌ Failed to place SL order:`, slResult);
       }
     }
   }
@@ -303,7 +306,7 @@ async function checkPositionFullVerification(supabase: any, position: any, autoR
               orderType: 'market',
               triggerPrice: position.tp1_price.toString(),
               executePrice: position.tp1_price.toString(),
-              planType: 'profit_plan',
+              planType: 'pos_profit',
             }
           }
         });
@@ -317,6 +320,41 @@ async function checkPositionFullVerification(supabase: any, position: any, autoR
             })
             .eq('id', position.id);
           actions.push('Placed missing TP1 order');
+          console.log(`✅ TP1 order placed: ${tp1Result.data.orderId}`);
+        } else {
+          console.error(`❌ Failed to place TP1 order:`, tp1Result);
+        }
+      }
+      
+      if (position.tp2_price) {
+        const tp2Qty = bitgetQuantity * (settings?.tp2_close_percent || 0) / 100;
+        if (tp2Qty > 0) {
+          const { data: tp2Result } = await supabase.functions.invoke('bitget-api', {
+            body: {
+              action: 'place_plan_order',
+              params: {
+                symbol: position.symbol,
+                size: tp2Qty.toString(),
+                side: tpSide,
+                orderType: 'market',
+                triggerPrice: position.tp2_price.toString(),
+                executePrice: position.tp2_price.toString(),
+                planType: 'pos_profit',
+              }
+            }
+          });
+          
+          if (tp2Result?.success) {
+            await supabase
+              .from('positions')
+              .update({ 
+                tp2_order_id: tp2Result.data.orderId,
+                tp2_quantity: tp2Qty
+              })
+              .eq('id', position.id);
+            actions.push('Placed missing TP2 order');
+            console.log(`✅ TP2 order placed: ${tp2Result.data.orderId}`);
+          }
         }
       }
     }
