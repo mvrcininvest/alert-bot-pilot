@@ -308,6 +308,7 @@ export type Database = {
           created_at: string
           daily_loss_limit: number | null
           daily_loss_percent: number | null
+          default_leverage: number | null
           excluded_tiers: string[] | null
           filter_by_tier: boolean | null
           id: string
@@ -328,6 +329,7 @@ export type Database = {
           simple_tp_percent: number | null
           sl_method: Database["public"]["Enums"]["sl_method"]
           sl_to_breakeven: boolean | null
+          symbol_leverage_overrides: Json | null
           tp_levels: number | null
           tp_strategy: Database["public"]["Enums"]["tp_strategy"]
           tp1_close_percent: number | null
@@ -360,6 +362,7 @@ export type Database = {
           created_at?: string
           daily_loss_limit?: number | null
           daily_loss_percent?: number | null
+          default_leverage?: number | null
           excluded_tiers?: string[] | null
           filter_by_tier?: boolean | null
           id?: string
@@ -380,6 +383,7 @@ export type Database = {
           simple_tp_percent?: number | null
           sl_method?: Database["public"]["Enums"]["sl_method"]
           sl_to_breakeven?: boolean | null
+          symbol_leverage_overrides?: Json | null
           tp_levels?: number | null
           tp_strategy?: Database["public"]["Enums"]["tp_strategy"]
           tp1_close_percent?: number | null
@@ -412,6 +416,7 @@ export type Database = {
           created_at?: string
           daily_loss_limit?: number | null
           daily_loss_percent?: number | null
+          default_leverage?: number | null
           excluded_tiers?: string[] | null
           filter_by_tier?: boolean | null
           id?: string
@@ -432,6 +437,7 @@ export type Database = {
           simple_tp_percent?: number | null
           sl_method?: Database["public"]["Enums"]["sl_method"]
           sl_to_breakeven?: boolean | null
+          symbol_leverage_overrides?: Json | null
           tp_levels?: number | null
           tp_strategy?: Database["public"]["Enums"]["tp_strategy"]
           tp1_close_percent?: number | null
