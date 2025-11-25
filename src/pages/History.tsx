@@ -19,6 +19,7 @@ export default function History() {
       if (error) throw error;
       return data || [];
     },
+    refetchInterval: 30000, // Refresh every 30 seconds
   });
 
   const stats = closedPositions ? {
