@@ -810,8 +810,11 @@ export default function Settings() {
               {localSettings.filter_by_tier && (
                 <div className="space-y-2">
                   <Label>Wykluczone Tiers (nie będą tradowane)</Label>
+                  <p className="text-sm text-muted-foreground mb-3">
+                    Tiery ze wskaźnika: <strong>Platinum</strong> (najrzadsze, 1-2/dzień), <strong>Premium</strong> (2-4/dzień), <strong>Standard</strong> (4-8/dzień), <strong>Quick</strong> (6-12/dzień), <strong>Emergency</strong> (0-3/dzień, tryb awaryjny)
+                  </p>
                   <div className="space-y-2">
-                    {['Basic', 'Standard', 'Premium', 'Elite'].map((tier) => (
+                    {['Platinum', 'Premium', 'Standard', 'Quick', 'Emergency'].map((tier) => (
                       <div key={tier} className="flex items-center space-x-2">
                         <Checkbox
                           id={`exclude-${tier}`}
