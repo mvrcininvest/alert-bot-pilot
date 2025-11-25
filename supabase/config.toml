@@ -5,3 +5,9 @@ verify_jwt = false
 
 [functions.bitget-trader]
 verify_jwt = true
+
+[functions.bitget-api]
+verify_jwt = true
+
+[functions.position-monitor]
+verify_jwt = true
