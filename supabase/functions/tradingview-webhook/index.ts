@@ -108,24 +108,14 @@ serve(async (req) => {
     console.log('Bot is active, checking filters...');
 
     // Apply filters
-    if (settings.filter_by_tier && !settings.allowed_tiers?.includes(alertData.tier)) {
+    if (settings.filter_by_tier && settings.excluded_tiers && settings.excluded_tiers.includes(alertData.tier)) {
+      console.log(`Alert tier ${alertData.tier} is in excluded list`);
       await supabase
         .from('alerts')
-        .update({ status: 'ignored', error_message: 'Tier not allowed' })
+        .update({ status: 'ignored', error_message: 'Tier excluded from trading' })
         .eq('id', alert.id);
       
-      return new Response(JSON.stringify({ message: 'Tier filtered', alert_id: alert.id }), {
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      });
-    }
-
-    if (alertData.strength && alertData.strength < (settings.min_strength || 0)) {
-      await supabase
-        .from('alerts')
-        .update({ status: 'ignored', error_message: 'Strength too low' })
-        .eq('id', alert.id);
-      
-      return new Response(JSON.stringify({ message: 'Strength filtered', alert_id: alert.id }), {
+      return new Response(JSON.stringify({ message: 'Tier excluded', alert_id: alert.id }), {
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       });
     }

@@ -56,21 +56,54 @@ serve(async (req) => {
       .gte('closed_at', `${today}T00:00:00`)
       .lte('closed_at', `${today}T23:59:59`);
 
-    if (todayPositions) {
-      const todayPnL = todayPositions.reduce((sum, p) => sum + (Number(p.realized_pnl) || 0), 0);
-      if (todayPnL < -settings.daily_loss_limit) {
-        console.log('Daily loss limit reached');
+    const todayPnL = todayPositions?.reduce((sum, pos) => sum + (Number(pos.realized_pnl) || 0), 0) || 0;
+    console.log('Today PnL:', todayPnL);
+
+    // Check loss limit based on type
+    if (settings.loss_limit_type === 'percent_drawdown') {
+      // Get account balance
+      const { data: accountData } = await supabase.functions.invoke('bitget-api', {
+        body: { action: 'get_account' }
+      });
+      
+      const accountBalance = accountData?.success && accountData.data?.[0]?.available 
+        ? Number(accountData.data[0].available)
+        : 10000; // fallback
+      
+      const maxLossAmount = accountBalance * ((settings.daily_loss_percent || 5) / 100);
+      
+      if (Math.abs(todayPnL) >= maxLossAmount) {
+        console.log(`Daily drawdown limit reached: ${Math.abs(todayPnL).toFixed(2)} USDT (${settings.daily_loss_percent}% of ${accountBalance.toFixed(2)} USDT)`);
         await supabase
           .from('alerts')
           .update({ 
             status: 'ignored', 
-            error_message: 'Daily loss limit reached' 
+            error_message: `Daily loss limit reached: ${Math.abs(todayPnL).toFixed(2)} USDT (${settings.daily_loss_percent}% of capital)` 
           })
           .eq('id', alert_id);
         
         return new Response(JSON.stringify({ 
           success: false, 
-          message: 'Daily loss limit reached' 
+          message: `Daily loss limit reached: ${Math.abs(todayPnL).toFixed(2)} USDT (${settings.daily_loss_percent}% of ${accountBalance.toFixed(2)} USDT)` 
+        }), {
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        });
+      }
+    } else {
+      // Fixed USDT limit
+      if (Math.abs(todayPnL) >= (settings.daily_loss_limit || 500)) {
+        console.log(`Daily loss limit reached: ${Math.abs(todayPnL).toFixed(2)} / ${settings.daily_loss_limit} USDT`);
+        await supabase
+          .from('alerts')
+          .update({ 
+            status: 'ignored', 
+            error_message: `Daily loss limit reached: ${Math.abs(todayPnL).toFixed(2)} USDT` 
+          })
+          .eq('id', alert_id);
+        
+        return new Response(JSON.stringify({ 
+          success: false, 
+          message: `Daily loss limit reached: ${Math.abs(todayPnL).toFixed(2)} / ${settings.daily_loss_limit} USDT` 
         }), {
           headers: { ...corsHeaders, 'Content-Type': 'application/json' },
         });

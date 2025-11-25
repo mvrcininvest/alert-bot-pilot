@@ -307,10 +307,12 @@ export type Database = {
           calculator_type: Database["public"]["Enums"]["calculator_type"]
           created_at: string
           daily_loss_limit: number | null
+          daily_loss_percent: number | null
+          excluded_tiers: string[] | null
           filter_by_tier: boolean | null
           id: string
+          loss_limit_type: string | null
           max_open_positions: number | null
-          min_strength: number | null
           momentum_based_tp: boolean | null
           momentum_moderate_multiplier: number | null
           momentum_strong_multiplier: number | null
@@ -357,10 +359,12 @@ export type Database = {
           calculator_type?: Database["public"]["Enums"]["calculator_type"]
           created_at?: string
           daily_loss_limit?: number | null
+          daily_loss_percent?: number | null
+          excluded_tiers?: string[] | null
           filter_by_tier?: boolean | null
           id?: string
+          loss_limit_type?: string | null
           max_open_positions?: number | null
-          min_strength?: number | null
           momentum_based_tp?: boolean | null
           momentum_moderate_multiplier?: number | null
           momentum_strong_multiplier?: number | null
@@ -407,10 +411,12 @@ export type Database = {
           calculator_type?: Database["public"]["Enums"]["calculator_type"]
           created_at?: string
           daily_loss_limit?: number | null
+          daily_loss_percent?: number | null
+          excluded_tiers?: string[] | null
           filter_by_tier?: boolean | null
           id?: string
+          loss_limit_type?: string | null
           max_open_positions?: number | null
-          min_strength?: number | null
           momentum_based_tp?: boolean | null
           momentum_moderate_multiplier?: number | null
           momentum_strong_multiplier?: number | null
