@@ -30,24 +30,35 @@ serve(async (req) => {
 
     const webhookSecret = Deno.env.get('TRADINGVIEW_WEBHOOK_SECRET');
     const authHeader = req.headers.get('authorization');
+    const bodyText = await req.text();
     
     console.log('Webhook secret configured:', !!webhookSecret);
     console.log('Auth header present:', !!authHeader);
+    console.log('Request body:', bodyText);
     
-    if (webhookSecret && authHeader !== `Bearer ${webhookSecret}`) {
-      await log({
-        functionName: 'tradingview-webhook',
-        message: 'Unauthorized webhook access attempt',
-        level: 'error'
-      });
-      console.error('Authorization failed - secret mismatch');
-      return new Response(JSON.stringify({ error: 'Unauthorized' }), {
-        status: 401,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      });
+    // Check webhook secret if configured
+    // TradingView sends the secret in the URL or body, not in Authorization header
+    if (webhookSecret) {
+      try {
+        const alertData = JSON.parse(bodyText);
+        if (alertData.secret !== webhookSecret) {
+          await log({
+            functionName: 'tradingview-webhook',
+            message: 'Unauthorized webhook access attempt',
+            level: 'error'
+          });
+          console.error('Authorization failed - secret mismatch');
+          return new Response(JSON.stringify({ error: 'Unauthorized' }), {
+            status: 401,
+            headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+          });
+        }
+      } catch (e) {
+        console.error('Failed to parse body for secret check:', e);
+      }
     }
 
-    const alertData = await req.json();
+    const alertData = JSON.parse(bodyText);
     console.log('Received alert data:', JSON.stringify(alertData, null, 2));
     
     await log({
