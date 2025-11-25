@@ -1,4 +1,5 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.84.0';
+import { createHmac } from "https://deno.land/std@0.168.0/node/crypto.ts";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -32,32 +33,16 @@ async function signBitgetRequest(
   body: string,
   timestamp: string
 ): Promise<string> {
-  const apiKey = Deno.env.get('BITGET_API_KEY');
   const secretKey = Deno.env.get('BITGET_SECRET_KEY');
-  const passphrase = Deno.env.get('BITGET_PASSPHRASE');
 
-  if (!apiKey || !secretKey || !passphrase) {
-    throw new Error('Missing Bitget API credentials');
+  if (!secretKey) {
+    throw new Error('Missing Bitget SECRET_KEY');
   }
 
   const message = timestamp + method + requestPath + queryString + body;
-  const encoder = new TextEncoder();
-  const keyData = encoder.encode(secretKey);
-  const messageData = encoder.encode(message);
-
-  const key = await crypto.subtle.importKey(
-    'raw',
-    keyData,
-    { name: 'HMAC', hash: 'SHA-256' },
-    false,
-    ['sign']
-  );
-
-  const signature = await crypto.subtle.sign('HMAC', key, messageData);
-  const hashArray = Array.from(new Uint8Array(signature));
-  const hashHex = hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
-
-  return hashHex;
+  const hmac = createHmac('sha256', secretKey);
+  hmac.update(message);
+  return hmac.digest('base64');
 }
 
 async function fetchBitgetHistory(startTime: number, endTime: number): Promise<BitgetHistoricalPosition[]> {
