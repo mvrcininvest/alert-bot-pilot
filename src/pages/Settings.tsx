@@ -247,10 +247,12 @@ export default function Settings() {
                 </Select>
               </div>
 
+              <Separator />
+
               {localSettings.calculator_type === "simple_percent" && (
                 <>
                   <div className="space-y-2">
-                    <Label>SL Procent</Label>
+                    <Label>SL Procent (% od ceny wejścia)</Label>
                     <Input
                       type="number"
                       step="0.1"
@@ -259,7 +261,7 @@ export default function Settings() {
                     />
                   </div>
                   <div className="space-y-2">
-                    <Label>TP Procent</Label>
+                    <Label>TP Procent (% od ceny wejścia)</Label>
                     <Input
                       type="number"
                       step="0.1"
@@ -273,7 +275,7 @@ export default function Settings() {
               {localSettings.calculator_type === "risk_reward" && (
                 <>
                   <div className="space-y-2">
-                    <Label>SL % od Margin</Label>
+                    <Label>SL % od Margin (max strata z kapitału)</Label>
                     <Input
                       type="number"
                       step="0.1"
@@ -282,7 +284,7 @@ export default function Settings() {
                     />
                   </div>
                   <div className="space-y-2">
-                    <Label>Risk:Reward Ratio</Label>
+                    <Label>Risk:Reward Ratio (bazowy)</Label>
                     <Input
                       type="number"
                       step="0.1"
@@ -291,7 +293,12 @@ export default function Settings() {
                     />
                   </div>
                   <div className="flex items-center justify-between">
-                    <Label>Adaptive R:R</Label>
+                    <div className="space-y-0.5">
+                      <Label>Adaptive R:R</Label>
+                      <div className="text-sm text-muted-foreground">
+                        Dostosuj R:R na podstawie siły sygnału
+                      </div>
+                    </div>
                     <Switch
                       checked={localSettings.rr_adaptive}
                       onCheckedChange={(checked) => updateLocal("rr_adaptive", checked)}
@@ -303,7 +310,7 @@ export default function Settings() {
               {localSettings.calculator_type === "atr_based" && (
                 <>
                   <div className="space-y-2">
-                    <Label>ATR SL Multiplier</Label>
+                    <Label>ATR SL Multiplier (ile ATR dla SL)</Label>
                     <Input
                       type="number"
                       step="0.1"
@@ -312,7 +319,7 @@ export default function Settings() {
                     />
                   </div>
                   <div className="space-y-2">
-                    <Label>ATR TP Multiplier</Label>
+                    <Label>ATR TP Multiplier (ile ATR dla TP)</Label>
                     <Input
                       type="number"
                       step="0.1"
@@ -327,41 +334,45 @@ export default function Settings() {
 
           <Card>
             <CardHeader>
-              <CardTitle>Zarządzanie SL</CardTitle>
+              <CardTitle>Zaawansowane Zarządzanie SL</CardTitle>
+              <CardDescription>Wybierz JEDNĄ strategię przesuwania Stop Loss</CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
               <div className="space-y-2">
-                <Label>Metoda Stop Loss</Label>
+                <Label>Strategia po osiągnięciu TP</Label>
                 <Select
-                  value={localSettings.sl_method}
-                  onValueChange={(value) => updateLocal("sl_method", value)}
+                  value={
+                    localSettings.trailing_stop ? "trailing" :
+                    localSettings.sl_to_breakeven ? "breakeven" : 
+                    "none"
+                  }
+                  onValueChange={(value) => {
+                    if (value === "trailing") {
+                      updateLocal("trailing_stop", true);
+                      updateLocal("sl_to_breakeven", false);
+                    } else if (value === "breakeven") {
+                      updateLocal("trailing_stop", false);
+                      updateLocal("sl_to_breakeven", true);
+                    } else {
+                      updateLocal("trailing_stop", false);
+                      updateLocal("sl_to_breakeven", false);
+                    }
+                  }}
                 >
                   <SelectTrigger>
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="percent_margin">% od Margin</SelectItem>
-                    <SelectItem value="percent_entry">% od Ceny Entry</SelectItem>
-                    <SelectItem value="fixed_usdt">Stała kwota USDT</SelectItem>
-                    <SelectItem value="atr_based">Bazowany na ATR</SelectItem>
+                    <SelectItem value="none">Brak - SL pozostaje na miejscu</SelectItem>
+                    <SelectItem value="breakeven">Breakeven - przesuń SL na entry</SelectItem>
+                    <SelectItem value="trailing">Trailing Stop - śledź cenę</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
 
-              <div className="flex items-center justify-between">
-                <div className="space-y-0.5">
-                  <Label>Breakeven</Label>
-                  <div className="text-sm text-muted-foreground">Przesuń SL na entry po TP</div>
-                </div>
-                <Switch
-                  checked={localSettings.sl_to_breakeven}
-                  onCheckedChange={(checked) => updateLocal("sl_to_breakeven", checked)}
-                />
-              </div>
-
               {localSettings.sl_to_breakeven && (
                 <div className="space-y-2">
-                  <Label>Breakeven Trigger (który TP?)</Label>
+                  <Label>Breakeven Trigger (po którym TP?)</Label>
                   <Input
                     type="number"
                     min="1"
@@ -369,24 +380,16 @@ export default function Settings() {
                     value={localSettings.breakeven_trigger_tp}
                     onChange={(e) => updateLocal("breakeven_trigger_tp", parseInt(e.target.value))}
                   />
+                  <p className="text-xs text-muted-foreground">
+                    Po osiągnięciu tego TP, SL zostanie przesunięty na cenę wejścia
+                  </p>
                 </div>
               )}
-
-              <div className="flex items-center justify-between">
-                <div className="space-y-0.5">
-                  <Label>Trailing Stop</Label>
-                  <div className="text-sm text-muted-foreground">Automatyczne przesuwanie SL</div>
-                </div>
-                <Switch
-                  checked={localSettings.trailing_stop}
-                  onCheckedChange={(checked) => updateLocal("trailing_stop", checked)}
-                />
-              </div>
 
               {localSettings.trailing_stop && (
                 <>
                   <div className="space-y-2">
-                    <Label>Trailing Trigger (który TP?)</Label>
+                    <Label>Trailing Start (po którym TP?)</Label>
                     <Input
                       type="number"
                       min="1"
@@ -403,6 +406,9 @@ export default function Settings() {
                       value={localSettings.trailing_stop_distance}
                       onChange={(e) => updateLocal("trailing_stop_distance", parseFloat(e.target.value))}
                     />
+                    <p className="text-xs text-muted-foreground">
+                      O ile % poniżej aktualnej ceny ma być trailing stop
+                    </p>
                   </div>
                 </>
               )}
@@ -412,25 +418,9 @@ export default function Settings() {
           <Card>
             <CardHeader>
               <CardTitle>Poziomy Take Profit</CardTitle>
+              <CardDescription>Konfiguracja częściowego zamykania pozycji</CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
-              <div className="space-y-2">
-                <Label>Strategia TP</Label>
-                <Select
-                  value={localSettings.tp_strategy}
-                  onValueChange={(value) => updateLocal("tp_strategy", value)}
-                >
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="partial_close">Częściowe zamykanie</SelectItem>
-                    <SelectItem value="main_tp_only">Tylko main_tp</SelectItem>
-                    <SelectItem value="trailing_stop">Trailing Stop</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-
               <div className="space-y-2">
                 <Label>Liczba poziomów TP</Label>
                 <Input
@@ -442,77 +432,78 @@ export default function Settings() {
                 />
               </div>
 
-              {localSettings.tp_strategy === "partial_close" && (
+              <div className="space-y-2">
+                <Label>TP1 - Zamknij % pozycji</Label>
+                <Input
+                  type="number"
+                  min="0"
+                  max="100"
+                  value={localSettings.tp1_close_percent}
+                  onChange={(e) => updateLocal("tp1_close_percent", parseFloat(e.target.value))}
+                />
+              </div>
+              
+              {localSettings.tp_levels >= 2 && (
+                <div className="space-y-2">
+                  <Label>TP2 - Zamknij % pozycji</Label>
+                  <Input
+                    type="number"
+                    min="0"
+                    max="100"
+                    value={localSettings.tp2_close_percent}
+                    onChange={(e) => updateLocal("tp2_close_percent", parseFloat(e.target.value))}
+                  />
+                </div>
+              )}
+              
+              {localSettings.tp_levels >= 3 && (
+                <div className="space-y-2">
+                  <Label>TP3 - Zamknij % pozycji</Label>
+                  <Input
+                    type="number"
+                    min="0"
+                    max="100"
+                    value={localSettings.tp3_close_percent}
+                    onChange={(e) => updateLocal("tp3_close_percent", parseFloat(e.target.value))}
+                  />
+                </div>
+              )}
+
+              {localSettings.calculator_type === "risk_reward" && (
                 <>
+                  <Separator />
                   <div className="space-y-2">
-                    <Label>TP1 Zamknij % pozycji</Label>
+                    <Label>TP1 R:R Ratio</Label>
                     <Input
                       type="number"
-                      min="0"
-                      max="100"
-                      value={localSettings.tp1_close_percent}
-                      onChange={(e) => updateLocal("tp1_close_percent", parseFloat(e.target.value))}
+                      step="0.1"
+                      value={localSettings.tp1_rr_ratio}
+                      onChange={(e) => updateLocal("tp1_rr_ratio", parseFloat(e.target.value))}
                     />
                   </div>
                   {localSettings.tp_levels >= 2 && (
                     <div className="space-y-2">
-                      <Label>TP2 Zamknij % pozycji</Label>
+                      <Label>TP2 R:R Ratio</Label>
                       <Input
                         type="number"
-                        min="0"
-                        max="100"
-                        value={localSettings.tp2_close_percent}
-                        onChange={(e) => updateLocal("tp2_close_percent", parseFloat(e.target.value))}
+                        step="0.1"
+                        value={localSettings.tp2_rr_ratio}
+                        onChange={(e) => updateLocal("tp2_rr_ratio", parseFloat(e.target.value))}
                       />
                     </div>
                   )}
                   {localSettings.tp_levels >= 3 && (
                     <div className="space-y-2">
-                      <Label>TP3 Zamknij % pozycji</Label>
+                      <Label>TP3 R:R Ratio</Label>
                       <Input
                         type="number"
-                        min="0"
-                        max="100"
-                        value={localSettings.tp3_close_percent}
-                        onChange={(e) => updateLocal("tp3_close_percent", parseFloat(e.target.value))}
+                        step="0.1"
+                        value={localSettings.tp3_rr_ratio}
+                        onChange={(e) => updateLocal("tp3_rr_ratio", parseFloat(e.target.value))}
                       />
                     </div>
                   )}
                 </>
-              )}
-
-              <Separator />
-
-              <div className="space-y-2">
-                <Label>TP1 R:R Ratio</Label>
-                <Input
-                  type="number"
-                  step="0.1"
-                  value={localSettings.tp1_rr_ratio}
-                  onChange={(e) => updateLocal("tp1_rr_ratio", parseFloat(e.target.value))}
-                />
-              </div>
-              {localSettings.tp_levels >= 2 && (
-                <div className="space-y-2">
-                  <Label>TP2 R:R Ratio</Label>
-                  <Input
-                    type="number"
-                    step="0.1"
-                    value={localSettings.tp2_rr_ratio}
-                    onChange={(e) => updateLocal("tp2_rr_ratio", parseFloat(e.target.value))}
-                  />
-                </div>
-              )}
-              {localSettings.tp_levels >= 3 && (
-                <div className="space-y-2">
-                  <Label>TP3 R:R Ratio</Label>
-                  <Input
-                    type="number"
-                    step="0.1"
-                    value={localSettings.tp3_rr_ratio}
-                    onChange={(e) => updateLocal("tp3_rr_ratio", parseFloat(e.target.value))}
-                  />
-                </div>
               )}
             </CardContent>
           </Card>
