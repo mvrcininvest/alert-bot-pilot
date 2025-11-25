@@ -163,14 +163,22 @@ serve(async (req) => {
 
       case 'place_plan_order':
         // Place stop loss or take profit order - v2 API
+        const planSideParam = params.side.toLowerCase();
+        const planIsLong = planSideParam.includes('long');
+        const planIsOpen = planSideParam.includes('open');
+        
+        // Map side correctly for plan orders (same logic as place_order)
+        const planBitgetSide = (planIsOpen && planIsLong) || (!planIsOpen && !planIsLong) ? 'buy' : 'sell';
+        const planTradeSide = planIsLong ? 'long' : 'short';
+        
         const planOrderBody: any = {
           symbol: params.symbol,
           productType: 'USDT-FUTURES',
           marginMode: 'crossed',
           marginCoin: 'USDT',
           size: params.size.toString(),
-          side: params.side, // 'close_long' or 'close_short'
-          tradeSide: params.side.includes('long') ? 'long' : 'short',
+          side: planBitgetSide,
+          tradeSide: planTradeSide,
           triggerPrice: params.triggerPrice.toString(),
           triggerType: params.triggerType || 'mark_price',
           orderType: params.orderType || 'market',
@@ -218,6 +226,14 @@ serve(async (req) => {
 
       case 'close_position':
         // Close entire position - v2 API
+        const closeSideParam = params.side.toLowerCase();
+        const closeIsLong = closeSideParam.includes('long');
+        const closeIsOpen = closeSideParam.includes('open');
+        
+        // Map side correctly for close orders
+        const closeBitgetSide = (closeIsOpen && closeIsLong) || (!closeIsOpen && !closeIsLong) ? 'buy' : 'sell';
+        const closeTradeSide = closeIsLong ? 'long' : 'short';
+        
         result = await bitgetRequest(config, 'POST', '/api/v2/mix/order/place-order', {
           symbol: params.symbol,
           productType: 'USDT-FUTURES',
@@ -225,8 +241,8 @@ serve(async (req) => {
           marginCoin: 'USDT',
           size: params.size.toString(),
           price: '',
-          side: params.side, // 'close_long' or 'close_short'
-          tradeSide: params.side.includes('long') ? 'long' : 'short',
+          side: closeBitgetSide,
+          tradeSide: closeTradeSide,
           orderType: 'market',
           force: 'ioc',
         });

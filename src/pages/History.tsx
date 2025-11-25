@@ -170,7 +170,7 @@ export default function History() {
                         <TableCell className="font-medium">{position.symbol}</TableCell>
                         <TableCell>
                           <Badge variant={position.side === "BUY" ? "default" : "destructive"}>
-                            {position.side}
+                            {position.side === "BUY" ? "LONG" : "SHORT"}
                           </Badge>
                         </TableCell>
                         <TableCell>${Number(position.entry_price).toFixed(4)}</TableCell>
