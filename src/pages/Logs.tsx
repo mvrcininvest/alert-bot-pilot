@@ -4,18 +4,56 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { AlertCircle, Info, AlertTriangle } from "lucide-react";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { AlertCircle, Info, AlertTriangle, Search, Calendar } from "lucide-react";
+import { useState } from "react";
+import { format } from "date-fns";
 
 export default function Logs() {
+  const [searchQuery, setSearchQuery] = useState("");
+  const [levelFilter, setLevelFilter] = useState<string>("all");
+  const [dateFrom, setDateFrom] = useState("");
+  const [dateTo, setDateTo] = useState("");
+
   const { data: logs, isLoading } = useQuery({
-    queryKey: ["bot-logs"],
+    queryKey: ["bot-logs", searchQuery, levelFilter, dateFrom, dateTo],
     queryFn: async () => {
-      const { data, error } = await supabase
+      let query = supabase
         .from("bot_logs")
         .select("*")
         .order("created_at", { ascending: false })
-        .limit(500);
+        .limit(1000);
+
+      // Filter by level
+      if (levelFilter !== "all") {
+        query = query.eq("level", levelFilter);
+      }
+
+      // Filter by date range
+      if (dateFrom) {
+        query = query.gte("created_at", new Date(dateFrom).toISOString());
+      }
+      if (dateTo) {
+        const endDate = new Date(dateTo);
+        endDate.setHours(23, 59, 59, 999);
+        query = query.lte("created_at", endDate.toISOString());
+      }
+
+      const { data, error } = await query;
       if (error) throw error;
+
+      // Client-side search filter
+      if (searchQuery) {
+        const lowerQuery = searchQuery.toLowerCase();
+        return data?.filter((log) => 
+          log.message.toLowerCase().includes(lowerQuery) ||
+          log.function_name.toLowerCase().includes(lowerQuery) ||
+          JSON.stringify(log.metadata || {}).toLowerCase().includes(lowerQuery)
+        );
+      }
+
       return data;
     },
     refetchInterval: 5000,
@@ -75,6 +113,81 @@ export default function Logs() {
           <CardTitle>Logi Bota</CardTitle>
         </CardHeader>
         <CardContent>
+          {/* Search and Filters */}
+          <div className="space-y-4 mb-6">
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+              {/* Search */}
+              <div className="space-y-2">
+                <Label htmlFor="search">Szukaj</Label>
+                <div className="relative">
+                  <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                  <Input
+                    id="search"
+                    placeholder="Szukaj w logach..."
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    className="pl-9"
+                  />
+                </div>
+              </div>
+
+              {/* Level Filter */}
+              <div className="space-y-2">
+                <Label htmlFor="level">Poziom</Label>
+                <Select value={levelFilter} onValueChange={setLevelFilter}>
+                  <SelectTrigger id="level">
+                    <SelectValue placeholder="Wszystkie" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">Wszystkie</SelectItem>
+                    <SelectItem value="info">Info</SelectItem>
+                    <SelectItem value="warn">Ostrzeżenia</SelectItem>
+                    <SelectItem value="error">Błędy</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+
+              {/* Date From */}
+              <div className="space-y-2">
+                <Label htmlFor="dateFrom">Od daty</Label>
+                <div className="relative">
+                  <Calendar className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
+                  <Input
+                    id="dateFrom"
+                    type="date"
+                    value={dateFrom}
+                    onChange={(e) => setDateFrom(e.target.value)}
+                    className="pl-9"
+                  />
+                </div>
+              </div>
+
+              {/* Date To */}
+              <div className="space-y-2">
+                <Label htmlFor="dateTo">Do daty</Label>
+                <div className="relative">
+                  <Calendar className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
+                  <Input
+                    id="dateTo"
+                    type="date"
+                    value={dateTo}
+                    onChange={(e) => setDateTo(e.target.value)}
+                    className="pl-9"
+                  />
+                </div>
+              </div>
+            </div>
+
+            {/* Results count */}
+            <div className="flex items-center gap-2 text-sm text-muted-foreground">
+              <Info className="h-4 w-4" />
+              <span>
+                Znaleziono {logs?.length || 0} logów
+                {(searchQuery || levelFilter !== "all" || dateFrom || dateTo) && " (filtrowane)"}
+              </span>
+            </div>
+          </div>
+
           <Tabs defaultValue="all">
             <TabsList>
               <TabsTrigger value="all">Wszystkie ({logs?.length || 0})</TabsTrigger>
