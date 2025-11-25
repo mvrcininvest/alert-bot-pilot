@@ -119,19 +119,22 @@ export default function History() {
                   <TableHead>Entry</TableHead>
                   <TableHead>Close</TableHead>
                   <TableHead>Quantity</TableHead>
+                  <TableHead>Leverage</TableHead>
+                  <TableHead>Wartość</TableHead>
+                  <TableHead>Margin</TableHead>
                   <TableHead>PnL</TableHead>
                   <TableHead>PnL %</TableHead>
-                  <TableHead>Powód</TableHead>
+                  <TableHead>Powód zamknięcia</TableHead>
                   <TableHead>Otwarcie</TableHead>
                   <TableHead>Zamknięcie</TableHead>
-                  <TableHead>Czas trwania</TableHead>
+                  <TableHead>Czas</TableHead>
                   <TableHead>Alert</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {isLoading ? (
                   <TableRow>
-                    <TableCell colSpan={12} className="text-center py-8">
+                    <TableCell colSpan={15} className="text-center py-8">
                       Ładowanie...
                     </TableCell>
                   </TableRow>
@@ -139,14 +142,28 @@ export default function History() {
                   closedPositions.map((position) => {
                     const pnl = Number(position.realized_pnl || 0);
                     const pnlPercent = position.entry_price && position.close_price
-                      ? ((Number(position.close_price) - Number(position.entry_price)) / Number(position.entry_price)) * 100
+                      ? ((Number(position.close_price) - Number(position.entry_price)) / Number(position.entry_price)) * 100 * (position.side === 'BUY' ? 1 : -1)
                       : 0;
                     
                     const duration = position.closed_at && position.created_at
                       ? Math.floor((new Date(position.closed_at).getTime() - new Date(position.created_at).getTime()) / 1000 / 60)
                       : 0;
                     
+                    const notionalValue = Number(position.entry_price) * Number(position.quantity);
+                    const marginUsed = position.leverage ? notionalValue / Number(position.leverage) : 0;
+                    
                     const alert = Array.isArray(position.alerts) ? position.alerts[0] : position.alerts;
+                    
+                    // Close reason translation
+                    const closeReasonMap: Record<string, string> = {
+                      'imported_from_bitget': 'Import z Bitget',
+                      'tp_hit': 'TP osiągnięty',
+                      'sl_hit': 'SL osiągnięty',
+                      'manual_close': 'Zamknięcie ręczne',
+                      'trailing_stop': 'Trailing Stop',
+                      'breakeven_stop': 'Breakeven',
+                      'error': 'Błąd'
+                    };
                     
                     return (
                       <TableRow key={position.id}>
@@ -159,6 +176,9 @@ export default function History() {
                         <TableCell>${Number(position.entry_price).toFixed(4)}</TableCell>
                         <TableCell>${Number(position.close_price).toFixed(4)}</TableCell>
                         <TableCell>{Number(position.quantity).toFixed(4)}</TableCell>
+                        <TableCell className="font-medium">{position.leverage}x</TableCell>
+                        <TableCell className="font-medium">${notionalValue.toFixed(2)}</TableCell>
+                        <TableCell className="text-muted-foreground">${marginUsed.toFixed(2)}</TableCell>
                         <TableCell className={pnl >= 0 ? "text-profit font-medium" : "text-loss font-medium"}>
                           ${pnl.toFixed(2)}
                         </TableCell>
@@ -166,7 +186,9 @@ export default function History() {
                           {pnlPercent.toFixed(2)}%
                         </TableCell>
                         <TableCell>
-                          <Badge variant="outline">{position.close_reason || "Unknown"}</Badge>
+                          <Badge variant="outline">
+                            {closeReasonMap[position.close_reason || ''] || position.close_reason || "Unknown"}
+                          </Badge>
                         </TableCell>
                         <TableCell className="text-xs">
                           {format(new Date(position.created_at), "dd.MM.yyyy HH:mm")}
@@ -321,7 +343,7 @@ export default function History() {
                   })
                 ) : (
                   <TableRow>
-                    <TableCell colSpan={12} className="text-center py-8 text-muted-foreground">
+                    <TableCell colSpan={15} className="text-center py-8 text-muted-foreground">
                       Brak zamkniętych pozycji
                     </TableCell>
                   </TableRow>
