@@ -9,6 +9,7 @@ import Alerts from "./pages/Alerts";
 import Positions from "./pages/Positions";
 import History from "./pages/History";
 import Stats from "./pages/Stats";
+import Integration from "./pages/Integration";
 import Settings from "./pages/Settings";
 import NotFound from "./pages/NotFound";
 
@@ -27,6 +28,7 @@ const App = () => (
             <Route path="/positions" element={<Positions />} />
             <Route path="/history" element={<History />} />
             <Route path="/stats" element={<Stats />} />
+            <Route path="/integration" element={<Integration />} />
             <Route path="/settings" element={<Settings />} />
             <Route path="*" element={<NotFound />} />
           </Routes>

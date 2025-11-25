@@ -11,3 +11,6 @@ verify_jwt = true
 
 [functions.position-monitor]
 verify_jwt = true
+
+[functions.close-position]
+verify_jwt = true
