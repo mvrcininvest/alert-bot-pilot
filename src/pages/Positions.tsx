@@ -27,11 +27,30 @@ export default function Positions() {
   });
 
   const handleClosePosition = async (positionId: string) => {
-    toast({
-      title: "Zamykanie pozycji",
-      description: "Funkcja w trakcie implementacji",
-    });
-    // TODO: Implement close position logic via edge function
+    const confirmed = window.confirm('Czy na pewno chcesz zamknąć tę pozycję?');
+    if (!confirmed) return;
+
+    try {
+      const { data, error } = await supabase.functions.invoke('close-position', {
+        body: { position_id: positionId, reason: 'manual' }
+      });
+
+      if (error) throw error;
+
+      toast({
+        title: "Pozycja zamknięta",
+        description: `PnL: $${data?.realized_pnl?.toFixed(2) || '0.00'}`,
+      });
+
+      refetch();
+    } catch (error) {
+      console.error('Error closing position:', error);
+      toast({
+        title: "Błąd",
+        description: "Nie udało się zamknąć pozycji",
+        variant: "destructive",
+      });
+    }
   };
 
   return (
@@ -41,7 +60,18 @@ export default function Positions() {
           <h1 className="text-3xl font-bold">Otwarte Pozycje</h1>
           <p className="text-muted-foreground">Monitoring aktywnych pozycji tradingowych</p>
         </div>
-        <Button variant="destructive" onClick={() => toast({ title: "Funkcja w trakcie", description: "Zamknięcie wszystkich pozycji zostanie wkrótce dodane" })}>
+        <Button 
+          variant="destructive" 
+          onClick={async () => {
+            const confirmed = window.confirm('Czy na pewno chcesz zamknąć WSZYSTKIE pozycje?');
+            if (!confirmed) return;
+            
+            for (const pos of positions || []) {
+              await handleClosePosition(pos.id);
+            }
+          }}
+          disabled={!positions || positions.length === 0}
+        >
           Zamknij Wszystkie
         </Button>
       </div>
