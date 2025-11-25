@@ -265,7 +265,14 @@ async function checkPositionFullVerification(supabase: any, position: any, autoR
         actions.push('Placed missing SL order');
         console.log(`✅ SL order placed: ${slResult.data.orderId}`);
       } else {
-        console.error(`❌ Failed to place SL order:`, slResult);
+        console.error(`❌ Failed to place SL order:`, JSON.stringify(slResult));
+        await log({
+          functionName: 'position-monitor',
+          message: 'Failed to place SL order during auto-repair',
+          level: 'error',
+          positionId: position.id,
+          metadata: { error: slResult?.error || 'Unknown error', result: slResult }
+        });
       }
     }
   }
@@ -322,7 +329,14 @@ async function checkPositionFullVerification(supabase: any, position: any, autoR
           actions.push('Placed missing TP1 order');
           console.log(`✅ TP1 order placed: ${tp1Result.data.orderId}`);
         } else {
-          console.error(`❌ Failed to place TP1 order:`, tp1Result);
+          console.error(`❌ Failed to place TP1 order:`, JSON.stringify(tp1Result));
+          await log({
+            functionName: 'position-monitor',
+            message: 'Failed to place TP1 order during auto-repair',
+            level: 'error',
+            positionId: position.id,
+            metadata: { error: tp1Result?.error || 'Unknown error', result: tp1Result }
+          });
         }
       }
       

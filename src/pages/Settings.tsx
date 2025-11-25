@@ -46,7 +46,6 @@ export default function Settings() {
             tp1_close_percent: 100,
             max_open_positions: 3,
             daily_loss_limit: 500,
-            min_strength: 0.3,
             filter_by_tier: false,
             allowed_tiers: ['Premium'],
             sl_to_breakeven: true,

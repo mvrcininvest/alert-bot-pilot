@@ -461,7 +461,7 @@ serve(async (req) => {
           orderType: 'market',
           triggerPrice: sl_price.toString(),
           executePrice: sl_price.toString(),
-          planType: 'loss_plan',
+          planType: 'pos_loss',
         }
       }
     });
@@ -470,10 +470,13 @@ serve(async (req) => {
     await log({
       functionName: 'bitget-trader',
       message: slOrderId ? 'Stop Loss order placed' : 'Stop Loss order failed',
-      level: slOrderId ? 'info' : 'warn',
+      level: slOrderId ? 'info' : 'error',
       alertId: alert_id,
-      metadata: { slOrderId, slPrice: sl_price }
+      metadata: { slOrderId, slPrice: sl_price, error: slResult?.error }
     });
+    if (!slOrderId) {
+      console.error('Failed to place SL order:', slResult);
+    }
 
     // Calculate quantities for partial TP closing
     const tp1Quantity = tp1_price && settings.tp_strategy === 'partial_close' 
@@ -500,11 +503,14 @@ serve(async (req) => {
             orderType: 'market',
             triggerPrice: tp1_price.toString(),
             executePrice: tp1_price.toString(),
-            planType: 'profit_plan',
+            planType: 'pos_profit',
           }
         }
       });
       tp1OrderId = tp1Result?.success ? tp1Result.data.orderId : null;
+      if (!tp1OrderId) {
+        console.error('Failed to place TP1 order:', tp1Result);
+      }
     }
 
     if (tp2_price && tp2Quantity > 0) {
@@ -518,11 +524,14 @@ serve(async (req) => {
             orderType: 'market',
             triggerPrice: tp2_price.toString(),
             executePrice: tp2_price.toString(),
-            planType: 'profit_plan',
+            planType: 'pos_profit',
           }
         }
       });
       tp2OrderId = tp2Result?.success ? tp2Result.data.orderId : null;
+      if (!tp2OrderId) {
+        console.error('Failed to place TP2 order:', tp2Result);
+      }
     }
 
     if (tp3_price && tp3Quantity > 0) {
@@ -536,11 +545,14 @@ serve(async (req) => {
             orderType: 'market',
             triggerPrice: tp3_price.toString(),
             executePrice: tp3_price.toString(),
-            planType: 'profit_plan',
+            planType: 'pos_profit',
           }
         }
       });
       tp3OrderId = tp3Result?.success ? tp3Result.data.orderId : null;
+      if (!tp3OrderId) {
+        console.error('Failed to place TP3 order:', tp3Result);
+      }
     }
 
     // Save position to database
