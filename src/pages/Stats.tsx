@@ -15,6 +15,7 @@ export default function Stats() {
       if (error) throw error;
       return data || [];
     },
+    refetchInterval: 30000, // Refresh every 30 seconds
   });
 
   // Calculate statistics
