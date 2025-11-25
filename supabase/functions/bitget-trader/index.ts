@@ -22,6 +22,11 @@ serve(async (req) => {
 
     const { alert_id, alert_data, settings } = await req.json();
     
+    // Remove .P suffix from TradingView symbol format (XRPUSDT.P -> XRPUSDT)
+    if (alert_data.symbol && alert_data.symbol.endsWith('.P')) {
+      alert_data.symbol = alert_data.symbol.slice(0, -2);
+    }
+    
     await log({
       functionName: 'bitget-trader',
       message: 'Trader function started',
