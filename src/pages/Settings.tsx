@@ -506,13 +506,13 @@ export default function Settings() {
                   <div className="space-y-1">
                     <div className="text-xs text-muted-foreground">Typ limitu straty</div>
                     <div className="font-medium">
-                      {localSettings.loss_limit_type === "percent_capital" ? "% kapitału" : "Stała kwota"}
+                      {localSettings.loss_limit_type === "percent_drawdown" ? "% Drawdown" : "Stała kwota"}
                     </div>
                   </div>
                   <div className="space-y-1">
                     <div className="text-xs text-muted-foreground">Dzienny limit straty</div>
                     <div className="font-medium">
-                      {localSettings.loss_limit_type === "percent_capital" 
+                      {localSettings.loss_limit_type === "percent_drawdown" 
                         ? `${localSettings.daily_loss_percent || 5}%` 
                         : `${localSettings.daily_loss_limit || 500} USDT`}
                     </div>
