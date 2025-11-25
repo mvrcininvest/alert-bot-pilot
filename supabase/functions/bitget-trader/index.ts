@@ -1,6 +1,7 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { calculatePositionSize, calculateSLTP } from "./calculators.ts";
+import { adjustPositionSizeToMinimum } from "./minimums.ts";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -140,8 +141,21 @@ serve(async (req) => {
     });
 
     // Calculate position size
-    const quantity = calculatePositionSize(settings, alert_data, accountBalance);
-    console.log('Calculated quantity:', quantity);
+    let quantity = calculatePositionSize(settings, alert_data, accountBalance);
+    console.log('Initial calculated quantity:', quantity);
+    
+    // Adjust to minimum if necessary
+    const adjustment = adjustPositionSizeToMinimum(quantity, alert_data.symbol, alert_data.price);
+    if (adjustment.wasAdjusted) {
+      quantity = adjustment.adjustedQuantity;
+      console.log(`Position size adjusted to meet minimum requirement:`, {
+        original: calculatePositionSize(settings, alert_data, accountBalance),
+        originalNotional: calculatePositionSize(settings, alert_data, accountBalance) * alert_data.price,
+        adjusted: quantity,
+        adjustedNotional: adjustment.adjustedNotional,
+        symbol: alert_data.symbol
+      });
+    }
 
     // Calculate SL/TP prices
     const { sl_price, tp1_price, tp2_price, tp3_price } = calculateSLTP(
