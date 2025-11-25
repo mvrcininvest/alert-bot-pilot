@@ -1,7 +1,7 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { calculatePositionSize, calculateSLTP } from "./calculators.ts";
-import { adjustPositionSizeToMinimum } from "./minimums.ts";
+import { adjustPositionSizeToMinimum, getMinimumPositionSize } from "./minimums.ts";
 import { log } from "../_shared/logger.ts";
 
 const corsHeaders = {
@@ -364,16 +364,62 @@ serve(async (req) => {
       leverage: effectiveLeverage
     });
     
-    const { data: orderResult } = await supabase.functions.invoke('bitget-api', {
-      body: {
-        action: 'place_order',
-        params: {
-          symbol: alert_data.symbol,
-          size: quantity.toString(),
-          side: side,
+    let orderResult;
+    let orderQuantity = quantity;
+    
+    try {
+      const { data } = await supabase.functions.invoke('bitget-api', {
+        body: {
+          action: 'place_order',
+          params: {
+            symbol: alert_data.symbol,
+            size: orderQuantity.toString(),
+            side: side,
+          }
         }
+      });
+      orderResult = data;
+    } catch (error: any) {
+      // Check if error is "less than minimum" (code 45110)
+      const errorMsg = error?.message || error?.context?.error || '';
+      if (errorMsg.includes('45110') || errorMsg.includes('less than the minimum')) {
+        await log({
+          functionName: 'bitget-trader',
+          message: 'Position size below minimum, retrying with minimum size',
+          level: 'info',
+          alertId: alert_id,
+          metadata: { 
+            originalSize: orderQuantity,
+            symbol: alert_data.symbol 
+          }
+        });
+        console.log(`Position below minimum, using minimum size for ${alert_data.symbol}`);
+        
+        // Calculate minimum quantity for this symbol
+        const minNotional = getMinimumPositionSize(alert_data.symbol);
+        orderQuantity = minNotional / alert_data.price;
+        
+        console.log(`Retrying with minimum quantity: ${orderQuantity} (${minNotional} USDT)`);
+        
+        // Retry with minimum quantity
+        const { data } = await supabase.functions.invoke('bitget-api', {
+          body: {
+            action: 'place_order',
+            params: {
+              symbol: alert_data.symbol,
+              size: orderQuantity.toString(),
+              side: side,
+            }
+          }
+        });
+        orderResult = data;
+        
+        // Update quantity for SL/TP orders
+        quantity = orderQuantity;
+      } else {
+        throw error;
       }
-    });
+    }
 
     if (!orderResult?.success) {
       await log({
