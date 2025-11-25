@@ -346,6 +346,7 @@ export type Database = {
           trailing_stop_distance: number | null
           trailing_stop_trigger_tp: number | null
           updated_at: string
+          use_alert_leverage: boolean | null
         }
         Insert: {
           adaptive_rr?: boolean | null
@@ -404,6 +405,7 @@ export type Database = {
           trailing_stop_distance?: number | null
           trailing_stop_trigger_tp?: number | null
           updated_at?: string
+          use_alert_leverage?: boolean | null
         }
         Update: {
           adaptive_rr?: boolean | null
@@ -462,6 +464,7 @@ export type Database = {
           trailing_stop_distance?: number | null
           trailing_stop_trigger_tp?: number | null
           updated_at?: string
+          use_alert_leverage?: boolean | null
         }
         Relationships: []
       }

@@ -227,6 +227,21 @@ export default function Settings() {
               <CardDescription>Konfiguracja dźwigni dla pozycji</CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
+              <div className="flex items-center justify-between">
+                <div className="space-y-0.5">
+                  <Label>Używaj dźwigni z alertu</Label>
+                  <div className="text-sm text-muted-foreground">
+                    Jeśli włączone, używa dźwigni z TradingView. Jeśli wyłączone, używa Twoich ustawień poniżej.
+                  </div>
+                </div>
+                <Switch
+                  checked={localSettings.use_alert_leverage !== false}
+                  onCheckedChange={(checked) => updateLocal("use_alert_leverage", checked)}
+                />
+              </div>
+
+              <Separator />
+
               <div className="space-y-2">
                 <Label>Domyślna dźwignia</Label>
                 <Input
@@ -235,9 +250,12 @@ export default function Settings() {
                   max="125"
                   value={localSettings.default_leverage || 10}
                   onChange={(e) => updateLocal("default_leverage", parseInt(e.target.value))}
+                  disabled={localSettings.use_alert_leverage !== false}
                 />
                 <p className="text-xs text-muted-foreground">
-                  Dźwignia używana dla wszystkich symboli (jeśli nie ma custom ustawienia)
+                  {localSettings.use_alert_leverage !== false 
+                    ? "Wyłącz 'Używaj dźwigni z alertu' aby ustawić własną dźwignię"
+                    : "Dźwignia używana dla wszystkich symboli (jeśli nie ma custom ustawienia)"}
                 </p>
               </div>
 
@@ -247,7 +265,9 @@ export default function Settings() {
                 <div>
                   <Label>Niestandardowa dźwignia dla symboli</Label>
                   <p className="text-xs text-muted-foreground mt-1">
-                    Ustaw różną dźwignię dla konkretnych par handlowych
+                    {localSettings.use_alert_leverage !== false
+                      ? "Wyłącz 'Używaj dźwigni z alertu' aby móc ustawić custom dźwignię"
+                      : "Ustaw różną dźwignię dla konkretnych par handlowych"}
                   </p>
                 </div>
 
@@ -281,6 +301,7 @@ export default function Settings() {
                     id="new-symbol"
                     placeholder="Symbol (np. BTCUSDT)"
                     className="flex-1"
+                    disabled={localSettings.use_alert_leverage !== false}
                   />
                   <Input
                     id="new-leverage"
@@ -289,8 +310,10 @@ export default function Settings() {
                     max="125"
                     placeholder="Dźwignia"
                     className="w-24"
+                    disabled={localSettings.use_alert_leverage !== false}
                   />
                   <Button
+                    disabled={localSettings.use_alert_leverage !== false}
                     onClick={() => {
                       const symbolInput = document.getElementById("new-symbol") as HTMLInputElement;
                       const leverageInput = document.getElementById("new-leverage") as HTMLInputElement;
