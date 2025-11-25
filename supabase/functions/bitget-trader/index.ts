@@ -114,12 +114,20 @@ serve(async (req) => {
     const accountBalance = 10000; // TODO: Get from Bitget
 
     // Determine leverage to use for this position
-    const symbolLeverageOverrides = settings.symbol_leverage_overrides || {};
-    const defaultLeverage = settings.default_leverage || 10;
-    const effectiveLeverage = symbolLeverageOverrides[alert_data.symbol] || defaultLeverage;
+    let effectiveLeverage: number;
     
-    console.log(`Using leverage ${effectiveLeverage}x for ${alert_data.symbol} (default: ${defaultLeverage}, custom: ${symbolLeverageOverrides[alert_data.symbol] || 'none'})`);
-
+    // Check if we should use alert leverage or settings leverage
+    if (settings.use_alert_leverage !== false && alert_data.leverage) {
+      // Use leverage from alert
+      effectiveLeverage = alert_data.leverage;
+      console.log(`Using leverage from alert: ${effectiveLeverage}x`);
+    } else {
+      // Use leverage from settings
+      const symbolLeverageOverrides = settings.symbol_leverage_overrides || {};
+      const defaultLeverage = settings.default_leverage || 10;
+      effectiveLeverage = symbolLeverageOverrides[alert_data.symbol] || defaultLeverage;
+      console.log(`Using leverage ${effectiveLeverage}x for ${alert_data.symbol} (default: ${defaultLeverage}, custom: ${symbolLeverageOverrides[alert_data.symbol] || 'none'})`);
+    }
     // Set leverage on Bitget before placing order
     await supabase.functions.invoke('bitget-api', {
       body: {
@@ -278,7 +286,8 @@ serve(async (req) => {
           settings_snapshot: settings,
           alert_data: alert_data,
           effective_leverage: effectiveLeverage,
-          leverage_source: symbolLeverageOverrides[alert_data.symbol] ? 'custom' : 'default'
+          leverage_source: settings.use_alert_leverage !== false && alert_data.leverage ? 'alert' : 
+                          ((settings.symbol_leverage_overrides || {})[alert_data.symbol] ? 'custom' : 'default')
         }
       })
       .select()
