@@ -183,120 +183,368 @@ export default function Settings() {
           <Card>
             <CardHeader>
               <CardTitle>Obecne Ustawienia Bota</CardTitle>
-              <CardDescription>Podsumowanie aktywnej konfiguracji</CardDescription>
+              <CardDescription>Kompletne podsumowanie aktywnej konfiguracji</CardDescription>
             </CardHeader>
-            <CardContent className="space-y-3">
-              <div className="grid grid-cols-2 gap-4">
-                <div className="space-y-1">
-                  <div className="text-xs text-muted-foreground">Kalkulator SL/TP</div>
-                  <div className="font-medium">
-                    {localSettings.calculator_type === "simple_percent" && "Prosty (%)"}
-                    {localSettings.calculator_type === "risk_reward" && "Risk:Reward"}
-                    {localSettings.calculator_type === "atr_based" && "ATR-based"}
+            <CardContent className="space-y-4">
+              {/* PODSTAWOWE */}
+              <div>
+                <h3 className="font-semibold mb-3">Podstawowe</h3>
+                <div className="grid grid-cols-2 gap-3 text-sm">
+                  <div className="space-y-1">
+                    <div className="text-xs text-muted-foreground">Nazwa profilu</div>
+                    <div className="font-medium">{localSettings.profile_name || "Default"}</div>
                   </div>
-                </div>
-                
-                <div className="space-y-1">
-                  <div className="text-xs text-muted-foreground">Wielkość pozycji</div>
-                  <div className="font-medium">
-                    {localSettings.position_size_value} {localSettings.position_sizing_type === "fixed_usdt" ? "USDT" : "%"}
-                  </div>
-                </div>
-
-                <div className="space-y-1">
-                  <div className="text-xs text-muted-foreground">Źródło dźwigni</div>
-                  <div className="font-medium">
-                    {localSettings.use_alert_leverage !== false ? "Z alertu" : `Własna (${localSettings.default_leverage || 10}x)`}
-                  </div>
-                </div>
-
-                <div className="space-y-1">
-                  <div className="text-xs text-muted-foreground">Poziomy TP</div>
-                  <div className="font-medium">{localSettings.tp_levels || 1}</div>
-                </div>
-
-                <div className="space-y-1">
-                  <div className="text-xs text-muted-foreground">Max otwartych pozycji</div>
-                  <div className="font-medium">{localSettings.max_open_positions || 3}</div>
-                </div>
-
-                <div className="space-y-1">
-                  <div className="text-xs text-muted-foreground">Dzienny limit straty</div>
-                  <div className="font-medium">
-                    {localSettings.loss_limit_type === "percent_capital" 
-                      ? `${localSettings.daily_loss_percent || 5}%` 
-                      : `${localSettings.daily_loss_limit || 500} USDT`}
-                  </div>
-                </div>
-
-                {localSettings.calculator_type === "simple_percent" && (
-                  <>
-                    <div className="space-y-1">
-                      <div className="text-xs text-muted-foreground">Stop Loss</div>
-                      <div className="font-medium">{localSettings.simple_sl_percent || 1.5}%</div>
-                    </div>
-                    <div className="space-y-1">
-                      <div className="text-xs text-muted-foreground">Take Profit TP1</div>
-                      <div className="font-medium">{localSettings.simple_tp_percent || 3}%</div>
-                    </div>
-                  </>
-                )}
-
-                {localSettings.calculator_type === "risk_reward" && (
-                  <>
-                    <div className="space-y-1">
-                      <div className="text-xs text-muted-foreground">SL (% margin)</div>
-                      <div className="font-medium">{localSettings.rr_sl_percent_margin || 2}%</div>
-                    </div>
-                    <div className="space-y-1">
-                      <div className="text-xs text-muted-foreground">TP1 R:R</div>
-                      <div className="font-medium">{localSettings.tp1_rr_ratio || 1.5}</div>
-                    </div>
-                  </>
-                )}
-
-                {localSettings.calculator_type === "atr_based" && (
-                  <>
-                    <div className="space-y-1">
-                      <div className="text-xs text-muted-foreground">SL ATR multiplier</div>
-                      <div className="font-medium">{localSettings.atr_sl_multiplier || 1.5}x</div>
-                    </div>
-                    <div className="space-y-1">
-                      <div className="text-xs text-muted-foreground">TP1 ATR multiplier</div>
-                      <div className="font-medium">{localSettings.atr_tp_multiplier || 3}x</div>
-                    </div>
-                  </>
-                )}
-
-                <div className="space-y-1">
-                  <div className="text-xs text-muted-foreground">Breakeven/Trailing</div>
-                  <div className="font-medium">
-                    {localSettings.trailing_stop ? "Trailing Stop" : 
-                     localSettings.sl_to_breakeven ? "Breakeven" : "Brak"}
-                  </div>
-                </div>
-
-                <div className="space-y-1">
-                  <div className="text-xs text-muted-foreground">Auto-repair</div>
-                  <div className="font-medium">
-                    {localSettings.auto_repair ? "✓ Włączony" : "✗ Wyłączony"}
+                  <div className="space-y-1">
+                    <div className="text-xs text-muted-foreground">Bot aktywny</div>
+                    <div className="font-medium">{localSettings.bot_active ? "✓ TAK" : "✗ NIE"}</div>
                   </div>
                 </div>
               </div>
 
-              {localSettings.symbol_leverage_overrides && 
-                Object.keys(localSettings.symbol_leverage_overrides).length > 0 && (
-                <div className="mt-4 pt-4 border-t">
-                  <div className="text-xs text-muted-foreground mb-2">Niestandardowa dźwignia:</div>
-                  <div className="flex flex-wrap gap-2">
-                    {Object.entries(localSettings.symbol_leverage_overrides).map(([symbol, leverage]) => (
-                      <Badge key={symbol} variant="outline">
-                        {symbol}: {leverage as number}x
-                      </Badge>
-                    ))}
+              <Separator />
+
+              {/* POZYCJE */}
+              <div>
+                <h3 className="font-semibold mb-3">Wielkość Pozycji</h3>
+                <div className="grid grid-cols-2 gap-3 text-sm">
+                  <div className="space-y-1">
+                    <div className="text-xs text-muted-foreground">Metoda</div>
+                    <div className="font-medium">
+                      {localSettings.position_sizing_type === "fixed_usdt" ? "Stała kwota USDT" : "% kapitału"}
+                    </div>
+                  </div>
+                  <div className="space-y-1">
+                    <div className="text-xs text-muted-foreground">Wartość</div>
+                    <div className="font-medium">
+                      {localSettings.position_size_value} {localSettings.position_sizing_type === "fixed_usdt" ? "USDT" : "%"}
+                    </div>
                   </div>
                 </div>
-              )}
+              </div>
+
+              <Separator />
+
+              {/* DŹWIGNIA */}
+              <div>
+                <h3 className="font-semibold mb-3">Dźwignia (Leverage)</h3>
+                <div className="grid grid-cols-2 gap-3 text-sm">
+                  <div className="space-y-1">
+                    <div className="text-xs text-muted-foreground">Źródło dźwigni</div>
+                    <div className="font-medium">
+                      {localSettings.use_alert_leverage !== false ? "Z alertu" : "Własna"}
+                    </div>
+                  </div>
+                  <div className="space-y-1">
+                    <div className="text-xs text-muted-foreground">Domyślna dźwignia</div>
+                    <div className="font-medium">{localSettings.default_leverage || 10}x</div>
+                  </div>
+                </div>
+                {localSettings.symbol_leverage_overrides && 
+                  Object.keys(localSettings.symbol_leverage_overrides).length > 0 && (
+                  <div className="mt-3">
+                    <div className="text-xs text-muted-foreground mb-2">Niestandardowa dźwignia:</div>
+                    <div className="flex flex-wrap gap-2">
+                      {Object.entries(localSettings.symbol_leverage_overrides).map(([symbol, leverage]) => (
+                        <Badge key={symbol} variant="outline">
+                          {symbol}: {leverage as number}x
+                        </Badge>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              <Separator />
+
+              {/* KALKULATOR SL/TP */}
+              <div>
+                <h3 className="font-semibold mb-3">Kalkulator SL/TP</h3>
+                <div className="grid grid-cols-2 gap-3 text-sm">
+                  <div className="space-y-1">
+                    <div className="text-xs text-muted-foreground">Typ kalkulatora</div>
+                    <div className="font-medium">
+                      {localSettings.calculator_type === "simple_percent" && "Prosty (%)"}
+                      {localSettings.calculator_type === "risk_reward" && "Risk:Reward"}
+                      {localSettings.calculator_type === "atr_based" && "ATR-based"}
+                    </div>
+                  </div>
+                  <div className="space-y-1">
+                    <div className="text-xs text-muted-foreground">Liczba poziomów TP</div>
+                    <div className="font-medium">{localSettings.tp_levels || 1}</div>
+                  </div>
+                </div>
+
+                {/* Simple Percent */}
+                {localSettings.calculator_type === "simple_percent" && (
+                  <div className="mt-3 p-3 bg-muted/30 rounded-lg">
+                    <div className="text-xs font-medium mb-2">Prosty (%)</div>
+                    <div className="grid grid-cols-2 gap-3 text-sm">
+                      <div>
+                        <div className="text-xs text-muted-foreground">SL %</div>
+                        <div className="font-medium">{localSettings.simple_sl_percent || 1.5}%</div>
+                      </div>
+                      <div>
+                        <div className="text-xs text-muted-foreground">TP1 %</div>
+                        <div className="font-medium">{localSettings.simple_tp_percent || 3}%</div>
+                      </div>
+                      {localSettings.tp_levels >= 2 && (
+                        <div>
+                          <div className="text-xs text-muted-foreground">TP2 %</div>
+                          <div className="font-medium">{localSettings.simple_tp2_percent || (localSettings.simple_tp_percent * 1.5)}%</div>
+                        </div>
+                      )}
+                      {localSettings.tp_levels >= 3 && (
+                        <div>
+                          <div className="text-xs text-muted-foreground">TP3 %</div>
+                          <div className="font-medium">{localSettings.simple_tp3_percent || (localSettings.simple_tp_percent * 2)}%</div>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
+
+                {/* Risk Reward */}
+                {localSettings.calculator_type === "risk_reward" && (
+                  <div className="mt-3 p-3 bg-muted/30 rounded-lg">
+                    <div className="text-xs font-medium mb-2">Risk:Reward</div>
+                    <div className="grid grid-cols-2 gap-3 text-sm">
+                      <div>
+                        <div className="text-xs text-muted-foreground">SL % margin</div>
+                        <div className="font-medium">{localSettings.rr_sl_percent_margin || 2}%</div>
+                      </div>
+                      <div>
+                        <div className="text-xs text-muted-foreground">Adaptive R:R</div>
+                        <div className="font-medium">{localSettings.rr_adaptive ? "✓" : "✗"}</div>
+                      </div>
+                      {localSettings.rr_adaptive && (
+                        <>
+                          <div>
+                            <div className="text-xs text-muted-foreground">Słaby R:R</div>
+                            <div className="font-medium">{localSettings.adaptive_rr_weak_signal || 1.5}</div>
+                          </div>
+                          <div>
+                            <div className="text-xs text-muted-foreground">Standard R:R</div>
+                            <div className="font-medium">{localSettings.adaptive_rr_standard || 2.0}</div>
+                          </div>
+                          <div>
+                            <div className="text-xs text-muted-foreground">Silny R:R</div>
+                            <div className="font-medium">{localSettings.adaptive_rr_strong || 2.5}</div>
+                          </div>
+                          <div>
+                            <div className="text-xs text-muted-foreground">Bardzo silny R:R</div>
+                            <div className="font-medium">{localSettings.adaptive_rr_very_strong || 3.0}</div>
+                          </div>
+                        </>
+                      )}
+                      <div>
+                        <div className="text-xs text-muted-foreground">TP1 R:R</div>
+                        <div className="font-medium">{localSettings.tp1_rr_ratio || 1.5}</div>
+                      </div>
+                      {localSettings.tp_levels >= 2 && (
+                        <div>
+                          <div className="text-xs text-muted-foreground">TP2 R:R</div>
+                          <div className="font-medium">{localSettings.tp2_rr_ratio || 2.5}</div>
+                        </div>
+                      )}
+                      {localSettings.tp_levels >= 3 && (
+                        <div>
+                          <div className="text-xs text-muted-foreground">TP3 R:R</div>
+                          <div className="font-medium">{localSettings.tp3_rr_ratio || 3.5}</div>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
+
+                {/* ATR Based */}
+                {localSettings.calculator_type === "atr_based" && (
+                  <div className="mt-3 p-3 bg-muted/30 rounded-lg">
+                    <div className="text-xs font-medium mb-2">ATR-based</div>
+                    <div className="grid grid-cols-2 gap-3 text-sm">
+                      <div>
+                        <div className="text-xs text-muted-foreground">SL multiplier</div>
+                        <div className="font-medium">{localSettings.atr_sl_multiplier || 1.5}x</div>
+                      </div>
+                      <div>
+                        <div className="text-xs text-muted-foreground">TP1 multiplier</div>
+                        <div className="font-medium">{localSettings.atr_tp_multiplier || 3}x</div>
+                      </div>
+                      {localSettings.tp_levels >= 2 && (
+                        <div>
+                          <div className="text-xs text-muted-foreground">TP2 multiplier</div>
+                          <div className="font-medium">{localSettings.atr_tp2_multiplier || (localSettings.atr_tp_multiplier * 1.5)}x</div>
+                        </div>
+                      )}
+                      {localSettings.tp_levels >= 3 && (
+                        <div>
+                          <div className="text-xs text-muted-foreground">TP3 multiplier</div>
+                          <div className="font-medium">{localSettings.atr_tp3_multiplier || (localSettings.atr_tp_multiplier * 2)}x</div>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
+
+                {/* % zamknięcia pozycji */}
+                <div className="mt-3 p-3 bg-muted/30 rounded-lg">
+                  <div className="text-xs font-medium mb-2">% zamknięcia pozycji</div>
+                  <div className="grid grid-cols-3 gap-3 text-sm">
+                    <div>
+                      <div className="text-xs text-muted-foreground">TP1</div>
+                      <div className="font-medium">{localSettings.tp1_close_percent || 100}%</div>
+                    </div>
+                    {localSettings.tp_levels >= 2 && (
+                      <div>
+                        <div className="text-xs text-muted-foreground">TP2</div>
+                        <div className="font-medium">{localSettings.tp2_close_percent || 0}%</div>
+                      </div>
+                    )}
+                    {localSettings.tp_levels >= 3 && (
+                      <div>
+                        <div className="text-xs text-muted-foreground">TP3</div>
+                        <div className="font-medium">{localSettings.tp3_close_percent || 0}%</div>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              <Separator />
+
+              {/* ZARZĄDZANIE SL */}
+              <div>
+                <h3 className="font-semibold mb-3">Zarządzanie Stop Loss</h3>
+                <div className="grid grid-cols-2 gap-3 text-sm">
+                  <div className="space-y-1">
+                    <div className="text-xs text-muted-foreground">Strategia</div>
+                    <div className="font-medium">
+                      {localSettings.trailing_stop ? "Trailing Stop" : 
+                       localSettings.sl_to_breakeven ? "Breakeven" : "Brak"}
+                    </div>
+                  </div>
+                  {localSettings.sl_to_breakeven && (
+                    <div className="space-y-1">
+                      <div className="text-xs text-muted-foreground">Breakeven po TP</div>
+                      <div className="font-medium">TP{localSettings.breakeven_trigger_tp || 1}</div>
+                    </div>
+                  )}
+                  {localSettings.trailing_stop && (
+                    <>
+                      <div className="space-y-1">
+                        <div className="text-xs text-muted-foreground">Trailing start po TP</div>
+                        <div className="font-medium">TP{localSettings.trailing_stop_trigger_tp || 1}</div>
+                      </div>
+                      <div className="space-y-1">
+                        <div className="text-xs text-muted-foreground">Trailing odległość</div>
+                        <div className="font-medium">{localSettings.trailing_stop_distance || 1}%</div>
+                      </div>
+                    </>
+                  )}
+                </div>
+              </div>
+
+              <Separator />
+
+              {/* ADAPTACYJNE */}
+              <div>
+                <h3 className="font-semibold mb-3">Ustawienia Adaptacyjne</h3>
+                <div className="grid grid-cols-2 gap-3 text-sm">
+                  <div className="space-y-1">
+                    <div className="text-xs text-muted-foreground">Adaptive TP Spacing</div>
+                    <div className="font-medium">{localSettings.adaptive_tp_spacing ? "✓" : "✗"}</div>
+                  </div>
+                  {localSettings.adaptive_tp_spacing && (
+                    <>
+                      <div className="space-y-1">
+                        <div className="text-xs text-muted-foreground">Wysoka zmienność</div>
+                        <div className="font-medium">{localSettings.adaptive_tp_high_volatility_multiplier || 1.3}x</div>
+                      </div>
+                      <div className="space-y-1">
+                        <div className="text-xs text-muted-foreground">Niska zmienność</div>
+                        <div className="font-medium">{localSettings.adaptive_tp_low_volatility_multiplier || 0.9}x</div>
+                      </div>
+                    </>
+                  )}
+                  <div className="space-y-1">
+                    <div className="text-xs text-muted-foreground">Momentum-based TP</div>
+                    <div className="font-medium">{localSettings.momentum_based_tp ? "✓" : "✗"}</div>
+                  </div>
+                  {localSettings.momentum_based_tp && (
+                    <>
+                      <div className="space-y-1">
+                        <div className="text-xs text-muted-foreground">Słaby momentum</div>
+                        <div className="font-medium">{localSettings.momentum_weak_multiplier || 0.9}x</div>
+                      </div>
+                      <div className="space-y-1">
+                        <div className="text-xs text-muted-foreground">Umiarkowany</div>
+                        <div className="font-medium">{localSettings.momentum_moderate_multiplier || 1.1}x</div>
+                      </div>
+                      <div className="space-y-1">
+                        <div className="text-xs text-muted-foreground">Silny momentum</div>
+                        <div className="font-medium">{localSettings.momentum_strong_multiplier || 1.3}x</div>
+                      </div>
+                    </>
+                  )}
+                </div>
+              </div>
+
+              <Separator />
+
+              {/* RISK MANAGEMENT */}
+              <div>
+                <h3 className="font-semibold mb-3">Risk Management</h3>
+                <div className="grid grid-cols-2 gap-3 text-sm">
+                  <div className="space-y-1">
+                    <div className="text-xs text-muted-foreground">Max otwartych pozycji</div>
+                    <div className="font-medium">{localSettings.max_open_positions || 3}</div>
+                  </div>
+                  <div className="space-y-1">
+                    <div className="text-xs text-muted-foreground">Typ limitu straty</div>
+                    <div className="font-medium">
+                      {localSettings.loss_limit_type === "percent_capital" ? "% kapitału" : "Stała kwota"}
+                    </div>
+                  </div>
+                  <div className="space-y-1">
+                    <div className="text-xs text-muted-foreground">Dzienny limit straty</div>
+                    <div className="font-medium">
+                      {localSettings.loss_limit_type === "percent_capital" 
+                        ? `${localSettings.daily_loss_percent || 5}%` 
+                        : `${localSettings.daily_loss_limit || 500} USDT`}
+                    </div>
+                  </div>
+                  <div className="space-y-1">
+                    <div className="text-xs text-muted-foreground">Filtrowanie po tier</div>
+                    <div className="font-medium">{localSettings.filter_by_tier ? "✓" : "✗"}</div>
+                  </div>
+                  {localSettings.filter_by_tier && localSettings.allowed_tiers && (
+                    <div className="col-span-2">
+                      <div className="text-xs text-muted-foreground mb-1">Dozwolone tier:</div>
+                      <div className="flex flex-wrap gap-1">
+                        {localSettings.allowed_tiers.map((tier: string) => (
+                          <Badge key={tier} variant="outline" className="text-xs">{tier}</Badge>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              <Separator />
+
+              {/* MONITORING */}
+              <div>
+                <h3 className="font-semibold mb-3">Monitoring</h3>
+                <div className="grid grid-cols-2 gap-3 text-sm">
+                  <div className="space-y-1">
+                    <div className="text-xs text-muted-foreground">Auto-repair</div>
+                    <div className="font-medium">{localSettings.auto_repair ? "✓ Włączony" : "✗ Wyłączony"}</div>
+                  </div>
+                  <div className="space-y-1">
+                    <div className="text-xs text-muted-foreground">Interwał sprawdzania</div>
+                    <div className="font-medium">{localSettings.monitor_interval_seconds || 60}s</div>
+                  </div>
+                </div>
+              </div>
             </CardContent>
           </Card>
         </TabsContent>
