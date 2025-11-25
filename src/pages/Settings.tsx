@@ -68,6 +68,7 @@ export default function Settings() {
 
   useEffect(() => {
     if (settings) {
+      console.log("Ładowanie ustawień do lokalnego stanu:", settings);
       setLocalSettings(settings);
     }
   }, [settings]);
@@ -92,6 +93,7 @@ export default function Settings() {
 
   const handleSave = () => {
     if (localSettings) {
+      console.log("Zapisywanie ustawień:", localSettings);
       updateSettings.mutate(localSettings);
     }
   };
@@ -170,11 +172,131 @@ export default function Settings() {
               <div className="space-y-2">
                 <Label>Nazwa Profilu</Label>
                 <Input
-                  value={localSettings.profile_name}
+                  value={localSettings.profile_name || ""}
                   onChange={(e) => updateLocal("profile_name", e.target.value)}
                   placeholder="Default"
                 />
               </div>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle>Obecne Ustawienia Bota</CardTitle>
+              <CardDescription>Podsumowanie aktywnej konfiguracji</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-1">
+                  <div className="text-xs text-muted-foreground">Kalkulator SL/TP</div>
+                  <div className="font-medium">
+                    {localSettings.calculator_type === "simple_percent" && "Prosty (%)"}
+                    {localSettings.calculator_type === "risk_reward" && "Risk:Reward"}
+                    {localSettings.calculator_type === "atr_based" && "ATR-based"}
+                  </div>
+                </div>
+                
+                <div className="space-y-1">
+                  <div className="text-xs text-muted-foreground">Wielkość pozycji</div>
+                  <div className="font-medium">
+                    {localSettings.position_size_value} {localSettings.position_sizing_type === "fixed_usdt" ? "USDT" : "%"}
+                  </div>
+                </div>
+
+                <div className="space-y-1">
+                  <div className="text-xs text-muted-foreground">Źródło dźwigni</div>
+                  <div className="font-medium">
+                    {localSettings.use_alert_leverage !== false ? "Z alertu" : `Własna (${localSettings.default_leverage || 10}x)`}
+                  </div>
+                </div>
+
+                <div className="space-y-1">
+                  <div className="text-xs text-muted-foreground">Poziomy TP</div>
+                  <div className="font-medium">{localSettings.tp_levels || 1}</div>
+                </div>
+
+                <div className="space-y-1">
+                  <div className="text-xs text-muted-foreground">Max otwartych pozycji</div>
+                  <div className="font-medium">{localSettings.max_open_positions || 3}</div>
+                </div>
+
+                <div className="space-y-1">
+                  <div className="text-xs text-muted-foreground">Dzienny limit straty</div>
+                  <div className="font-medium">
+                    {localSettings.loss_limit_type === "percent_capital" 
+                      ? `${localSettings.daily_loss_percent || 5}%` 
+                      : `${localSettings.daily_loss_limit || 500} USDT`}
+                  </div>
+                </div>
+
+                {localSettings.calculator_type === "simple_percent" && (
+                  <>
+                    <div className="space-y-1">
+                      <div className="text-xs text-muted-foreground">Stop Loss</div>
+                      <div className="font-medium">{localSettings.simple_sl_percent || 1.5}%</div>
+                    </div>
+                    <div className="space-y-1">
+                      <div className="text-xs text-muted-foreground">Take Profit TP1</div>
+                      <div className="font-medium">{localSettings.simple_tp_percent || 3}%</div>
+                    </div>
+                  </>
+                )}
+
+                {localSettings.calculator_type === "risk_reward" && (
+                  <>
+                    <div className="space-y-1">
+                      <div className="text-xs text-muted-foreground">SL (% margin)</div>
+                      <div className="font-medium">{localSettings.rr_sl_percent_margin || 2}%</div>
+                    </div>
+                    <div className="space-y-1">
+                      <div className="text-xs text-muted-foreground">TP1 R:R</div>
+                      <div className="font-medium">{localSettings.tp1_rr_ratio || 1.5}</div>
+                    </div>
+                  </>
+                )}
+
+                {localSettings.calculator_type === "atr_based" && (
+                  <>
+                    <div className="space-y-1">
+                      <div className="text-xs text-muted-foreground">SL ATR multiplier</div>
+                      <div className="font-medium">{localSettings.atr_sl_multiplier || 1.5}x</div>
+                    </div>
+                    <div className="space-y-1">
+                      <div className="text-xs text-muted-foreground">TP1 ATR multiplier</div>
+                      <div className="font-medium">{localSettings.atr_tp_multiplier || 3}x</div>
+                    </div>
+                  </>
+                )}
+
+                <div className="space-y-1">
+                  <div className="text-xs text-muted-foreground">Breakeven/Trailing</div>
+                  <div className="font-medium">
+                    {localSettings.trailing_stop ? "Trailing Stop" : 
+                     localSettings.sl_to_breakeven ? "Breakeven" : "Brak"}
+                  </div>
+                </div>
+
+                <div className="space-y-1">
+                  <div className="text-xs text-muted-foreground">Auto-repair</div>
+                  <div className="font-medium">
+                    {localSettings.auto_repair ? "✓ Włączony" : "✗ Wyłączony"}
+                  </div>
+                </div>
+              </div>
+
+              {localSettings.symbol_leverage_overrides && 
+                Object.keys(localSettings.symbol_leverage_overrides).length > 0 && (
+                <div className="mt-4 pt-4 border-t">
+                  <div className="text-xs text-muted-foreground mb-2">Niestandardowa dźwignia:</div>
+                  <div className="flex flex-wrap gap-2">
+                    {Object.entries(localSettings.symbol_leverage_overrides).map(([symbol, leverage]) => (
+                      <Badge key={symbol} variant="outline">
+                        {symbol}: {leverage as number}x
+                      </Badge>
+                    ))}
+                  </div>
+                </div>
+              )}
             </CardContent>
           </Card>
         </TabsContent>
