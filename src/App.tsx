@@ -12,6 +12,7 @@ import Stats from "./pages/Stats";
 import Integration from "./pages/Integration";
 import Settings from "./pages/Settings";
 import Logs from "./pages/Logs";
+import RecalculateSLTP from "./pages/RecalculateSLTP";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -32,6 +33,7 @@ const App = () => (
             <Route path="/integration" element={<Integration />} />
             <Route path="/settings" element={<Settings />} />
             <Route path="/logs" element={<Logs />} />
+            <Route path="/recalculate-sltp" element={<RecalculateSLTP />} />
             <Route path="*" element={<NotFound />} />
           </Routes>
         </Layout>

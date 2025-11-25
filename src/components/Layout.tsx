@@ -1,4 +1,4 @@
-import { Home, AlertCircle, TrendingUp, History, BarChart3, Settings, Activity, Webhook, FileText } from "lucide-react";
+import { Home, AlertCircle, TrendingUp, History, BarChart3, Settings, Activity, Webhook, FileText, RefreshCw } from "lucide-react";
 import { NavLink } from "./NavLink";
 import { cn } from "@/lib/utils";
 
@@ -11,6 +11,7 @@ const navigation = [
   { name: "Logi", href: "/logs", icon: FileText },
   { name: "Integracja", href: "/integration", icon: Webhook },
   { name: "Ustawienia", href: "/settings", icon: Settings },
+  { name: "Przelicz SL/TP", href: "/recalculate-sltp", icon: RefreshCw },
 ];
 
 export function Layout({ children }: { children: React.ReactNode }) {
