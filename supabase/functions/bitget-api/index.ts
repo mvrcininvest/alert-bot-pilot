@@ -141,11 +141,11 @@ serve(async (req) => {
         const isLong = sideParam.includes('long');
         const isOpen = sideParam.includes('open');
         
-        // Bitget v2 API: side is "buy" or "sell", tradeSide is "long" or "short"
-        // open_long: buy + long, open_short: sell + short
-        // close_long: sell + long, close_short: buy + short
+        // Bitget v2 API: side is "buy" or "sell", tradeSide is "open" or "close"
+        // open_long: buy + open, open_short: sell + open
+        // close_long: sell + close, close_short: buy + close
         const bitgetSide = (isOpen && isLong) || (!isOpen && !isLong) ? 'buy' : 'sell';
-        const tradeSide = isLong ? 'long' : 'short';
+        const tradeSide = isOpen ? 'open' : 'close';
         
         result = await bitgetRequest(config, 'POST', '/api/v2/mix/order/place-order', {
           symbol: params.symbol,
@@ -167,9 +167,9 @@ serve(async (req) => {
         const planIsLong = planSideParam.includes('long');
         const planIsOpen = planSideParam.includes('open');
         
-        // Map side correctly for plan orders (same logic as place_order)
+        // Map side correctly for plan orders (tradeSide: "open" or "close")
         const planBitgetSide = (planIsOpen && planIsLong) || (!planIsOpen && !planIsLong) ? 'buy' : 'sell';
-        const planTradeSide = planIsLong ? 'long' : 'short';
+        const planTradeSide = planIsOpen ? 'open' : 'close';
         
         const planOrderBody: any = {
           symbol: params.symbol,
@@ -230,9 +230,9 @@ serve(async (req) => {
         const closeIsLong = closeSideParam.includes('long');
         const closeIsOpen = closeSideParam.includes('open');
         
-        // Map side correctly for close orders
+        // Map side correctly for close orders (tradeSide: "close")
         const closeBitgetSide = (closeIsOpen && closeIsLong) || (!closeIsOpen && !closeIsLong) ? 'buy' : 'sell';
-        const closeTradeSide = closeIsLong ? 'long' : 'short';
+        const closeTradeSide = closeIsOpen ? 'open' : 'close';
         
         result = await bitgetRequest(config, 'POST', '/api/v2/mix/order/place-order', {
           symbol: params.symbol,
