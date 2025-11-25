@@ -1,1 +1,7 @@
 project_id = "aoyqeieqqmpuhfvfzbrb"
+
+[functions.tradingview-webhook]
+verify_jwt = false
+
+[functions.bitget-trader]
+verify_jwt = true
