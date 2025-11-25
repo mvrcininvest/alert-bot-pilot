@@ -21,33 +21,54 @@ export default function Dashboard() {
     refetchInterval: 5000,
   });
 
-  // Fetch live prices from Bitget for open positions
-  const { data: livePrices } = useQuery({
-    queryKey: ["live-prices", positions?.map(p => p.symbol).join(',')],
+  // Fetch live prices and orders from Bitget for open positions
+  const { data: liveData } = useQuery({
+    queryKey: ["live-data", positions?.map(p => p.symbol).join(',')],
     queryFn: async () => {
       if (!positions || positions.length === 0) return {};
       
-      const priceMap: Record<string, number> = {};
+      const dataMap: Record<string, any> = {};
       
-      // Fetch current prices from Bitget for each symbol
+      // Fetch current prices and orders from Bitget for each symbol
       for (const pos of positions) {
         try {
-          const { data } = await supabase.functions.invoke('bitget-api', {
+          // Get current price
+          const { data: tickerData } = await supabase.functions.invoke('bitget-api', {
             body: { 
               action: 'get_ticker',
               params: { symbol: pos.symbol }
             }
           });
           
-          if (data?.success && data.data?.[0]?.lastPr) {
-            priceMap[pos.symbol] = Number(data.data[0].lastPr);
-          }
+          // Get plan orders (SL/TP)
+          const { data: ordersData } = await supabase.functions.invoke('bitget-api', {
+            body: { 
+              action: 'get_plan_orders',
+              params: { 
+                symbol: pos.symbol,
+                productType: 'USDT-FUTURES'
+              }
+            }
+          });
+          
+          dataMap[pos.symbol] = {
+            currentPrice: tickerData?.success && tickerData.data?.[0]?.lastPr 
+              ? Number(tickerData.data[0].lastPr) 
+              : null,
+            slOrders: ordersData?.success && ordersData.data
+              ? ordersData.data.filter((o: any) => o.planType === 'loss_plan' && o.state === 'live')
+              : [],
+            tpOrders: ordersData?.success && ordersData.data
+              ? ordersData.data.filter((o: any) => o.planType === 'profit_plan' && o.state === 'live')
+              : []
+          };
         } catch (err) {
-          console.error(`Failed to fetch price for ${pos.symbol}:`, err);
+          console.error(`Failed to fetch data for ${pos.symbol}:`, err);
+          dataMap[pos.symbol] = { currentPrice: null, slOrders: [], tpOrders: [] };
         }
       }
       
-      return priceMap;
+      return dataMap;
     },
     enabled: !!positions && positions.length > 0,
     refetchInterval: 3000, // Update every 3 seconds
@@ -55,7 +76,8 @@ export default function Dashboard() {
 
   // Calculate live PnL for positions
   const positionsWithLivePnL = positions?.map(pos => {
-    const currentPrice = livePrices?.[pos.symbol] || Number(pos.current_price) || Number(pos.entry_price);
+    const liveInfo = liveData?.[pos.symbol];
+    const currentPrice = liveInfo?.currentPrice || Number(pos.current_price) || Number(pos.entry_price);
     const quantity = Number(pos.quantity);
     const entryPrice = Number(pos.entry_price);
     
@@ -66,10 +88,23 @@ export default function Dashboard() {
       unrealizedPnL = (entryPrice - currentPrice) * quantity;
     }
     
+    // Get SL/TP from exchange orders
+    const slOrders = liveInfo?.slOrders || [];
+    const tpOrders = liveInfo?.tpOrders || [];
+    
+    const realSlPrice = slOrders.length > 0 ? Number(slOrders[0].triggerPrice) : null;
+    const realTpPrices = tpOrders.map((o: any) => Number(o.triggerPrice)).sort((a: number, b: number) => 
+      pos.side === 'BUY' ? a - b : b - a
+    );
+    
     return {
       ...pos,
       current_price: currentPrice,
-      unrealized_pnl: unrealizedPnL
+      unrealized_pnl: unrealizedPnL,
+      real_sl_price: realSlPrice,
+      real_tp_prices: realTpPrices,
+      has_sl_order: slOrders.length > 0,
+      has_tp_orders: tpOrders.length > 0
     };
   }) || [];
 
@@ -200,13 +235,31 @@ export default function Dashboard() {
                     const pnlPercent = ((Number(pos.unrealized_pnl) || 0) / (Number(pos.quantity) * Number(pos.entry_price))) * 100;
                     const notionalValue = Number(pos.quantity) * Number(pos.entry_price);
                     
+                    // Use real SL/TP from exchange, fallback to DB values
+                    const displaySlPrice = pos.real_sl_price || Number(pos.sl_price);
+                    const displayTpPrices = pos.real_tp_prices && pos.real_tp_prices.length > 0 
+                      ? pos.real_tp_prices 
+                      : [pos.tp1_price, pos.tp2_price, pos.tp3_price].filter(Boolean).map(Number);
+                    
                     return (
                       <div key={pos.id} className="border border-border rounded-lg p-3">
                         <div className="flex items-center justify-between mb-3">
                           <div className="font-medium text-lg">{pos.symbol}</div>
-                          <Badge variant={pos.side === "BUY" ? "default" : "destructive"}>
-                            {pos.side} {pos.leverage}x
-                          </Badge>
+                          <div className="flex gap-2">
+                            <Badge variant={pos.side === "BUY" ? "default" : "destructive"}>
+                              {pos.side} {pos.leverage}x
+                            </Badge>
+                            {!pos.has_sl_order && (
+                              <Badge variant="destructive" className="text-xs">
+                                ⚠️ NO SL
+                              </Badge>
+                            )}
+                            {!pos.has_tp_orders && displayTpPrices.length > 0 && (
+                              <Badge variant="outline" className="text-xs">
+                                ⚠️ NO TP
+                              </Badge>
+                            )}
+                          </div>
                         </div>
                         
                         <div className="grid grid-cols-2 gap-2 text-sm mb-3">
@@ -230,26 +283,32 @@ export default function Dashboard() {
 
                         <div className="grid grid-cols-2 gap-2 text-sm mb-3 border-t border-border pt-2">
                           <div>
-                            <span className="text-muted-foreground">SL:</span>{" "}
-                            <span className="font-medium text-loss">${Number(pos.sl_price).toFixed(4)}</span>
-                          </div>
-                          <div>
-                            <span className="text-muted-foreground">TP1:</span>{" "}
-                            <span className="font-medium text-profit">
-                              {pos.tp1_price ? `$${Number(pos.tp1_price).toFixed(4)}` : '-'}
+                            <span className="text-muted-foreground">SL {!pos.has_sl_order && '(DB)'}:</span>{" "}
+                            <span className={`font-medium ${pos.has_sl_order ? 'text-loss' : 'text-muted-foreground'}`}>
+                              ${displaySlPrice.toFixed(4)}
                             </span>
                           </div>
-                          {pos.tp2_price && (
-                            <div>
-                              <span className="text-muted-foreground">TP2:</span>{" "}
-                              <span className="font-medium text-profit">${Number(pos.tp2_price).toFixed(4)}</span>
-                            </div>
-                          )}
-                          {pos.tp3_price && (
-                            <div>
-                              <span className="text-muted-foreground">TP3:</span>{" "}
-                              <span className="font-medium text-profit">${Number(pos.tp3_price).toFixed(4)}</span>
-                            </div>
+                          {displayTpPrices.length > 0 && (
+                            <>
+                              <div>
+                                <span className="text-muted-foreground">TP1 {!pos.has_tp_orders && '(DB)'}:</span>{" "}
+                                <span className={`font-medium ${pos.has_tp_orders ? 'text-profit' : 'text-muted-foreground'}`}>
+                                  ${displayTpPrices[0].toFixed(4)}
+                                </span>
+                              </div>
+                              {displayTpPrices[1] && (
+                                <div>
+                                  <span className="text-muted-foreground">TP2:</span>{" "}
+                                  <span className="font-medium text-profit">${displayTpPrices[1].toFixed(4)}</span>
+                                </div>
+                              )}
+                              {displayTpPrices[2] && (
+                                <div>
+                                  <span className="text-muted-foreground">TP3:</span>{" "}
+                                  <span className="font-medium text-profit">${displayTpPrices[2].toFixed(4)}</span>
+                                </div>
+                              )}
+                            </>
                           )}
                         </div>
 

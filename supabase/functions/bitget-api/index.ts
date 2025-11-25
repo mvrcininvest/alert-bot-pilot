@@ -253,6 +253,12 @@ serve(async (req) => {
         result = await bitgetRequest(config, 'GET', `/api/v2/mix/market/ticker?symbol=${params.symbol}&productType=USDT-FUTURES`);
         break;
 
+      case 'get_plan_orders':
+        // Get all plan orders (SL/TP) for a symbol - v2 API
+        result = await bitgetRequest(config, 'GET', 
+          `/api/v2/mix/order/orders-plan-pending?symbol=${params.symbol}&productType=${params.productType || 'USDT-FUTURES'}`);
+        break;
+
       case 'set_leverage':
         // Set leverage for a symbol - v2 API
         result = await bitgetRequest(config, 'POST', '/api/v2/mix/account/set-leverage', {
