@@ -18,18 +18,18 @@ export default function Settings() {
   const queryClient = useQueryClient();
   const [localSettings, setLocalSettings] = useState<any>(null);
 
-  const { data: settings, isLoading } = useQuery({
+  const { data: settings, isLoading, error } = useQuery({
     queryKey: ["settings"],
     queryFn: async () => {
       const { data, error } = await supabase
         .from("settings")
         .select("*")
-        .maybeSingle();
+        .limit(1);
       
       if (error) throw error;
       
       // If no settings exist, create default settings
-      if (!data) {
+      if (!data || data.length === 0) {
         const { data: newSettings, error: insertError } = await supabase
           .from("settings")
           .insert({
@@ -56,13 +56,13 @@ export default function Settings() {
             monitor_interval_seconds: 60,
           })
           .select()
-          .single();
+          .limit(1);
         
         if (insertError) throw insertError;
-        return newSettings;
+        return newSettings?.[0];
       }
       
-      return data;
+      return data[0];
     },
   });
 
@@ -100,10 +100,26 @@ export default function Settings() {
     setLocalSettings((prev: any) => ({ ...prev, [key]: value }));
   };
 
-  if (isLoading || !localSettings) {
+  if (isLoading) {
     return (
       <div className="flex items-center justify-center min-h-screen">
         <div className="text-muted-foreground">Ładowanie ustawień...</div>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="flex items-center justify-center min-h-screen">
+        <div className="text-destructive">Błąd ładowania ustawień: {error.message}</div>
+      </div>
+    );
+  }
+
+  if (!localSettings) {
+    return (
+      <div className="flex items-center justify-center min-h-screen">
+        <div className="text-muted-foreground">Inicjalizacja ustawień...</div>
       </div>
     );
   }
