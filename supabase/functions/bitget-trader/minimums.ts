@@ -45,12 +45,11 @@ export function adjustPositionSizeToMinimum(
   const calculatedNotional = calculatedSize * price;
   
   if (calculatedNotional < minNotional) {
-    // Add 2% buffer to avoid rounding issues with Bitget minimum
-    const safeMinimum = minNotional * 1.02;
-    const adjustedQuantity = safeMinimum / price;
+    // Use exactly the minimum notional value for this symbol
+    const adjustedQuantity = minNotional / price;
     return {
       adjustedQuantity,
-      adjustedNotional: safeMinimum,
+      adjustedNotional: minNotional,
       wasAdjusted: true
     };
   }
