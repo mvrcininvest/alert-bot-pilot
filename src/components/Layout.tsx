@@ -1,4 +1,4 @@
-import { Home, AlertCircle, TrendingUp, History, BarChart3, Settings, Activity, Webhook } from "lucide-react";
+import { Home, AlertCircle, TrendingUp, History, BarChart3, Settings, Activity, Webhook, FileText } from "lucide-react";
 import { NavLink } from "./NavLink";
 import { cn } from "@/lib/utils";
 
@@ -8,6 +8,7 @@ const navigation = [
   { name: "Otwarte Pozycje", href: "/positions", icon: TrendingUp },
   { name: "Historia", href: "/history", icon: History },
   { name: "Statystyki", href: "/stats", icon: BarChart3 },
+  { name: "Logi", href: "/logs", icon: FileText },
   { name: "Integracja", href: "/integration", icon: Webhook },
   { name: "Ustawienia", href: "/settings", icon: Settings },
 ];
