@@ -1,8 +1,9 @@
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { TrendingUp, TrendingDown, Activity, DollarSign } from "lucide-react";
+import { TrendingUp, Activity, DollarSign, Wallet, AlertCircle } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
+import { ScrollArea } from "@/components/ui/scroll-area";
 
 export default function Dashboard() {
   const { data: positions } = useQuery({
@@ -20,24 +21,46 @@ export default function Dashboard() {
     refetchInterval: 5000,
   });
 
-  const { data: stats } = useQuery({
-    queryKey: ["performance-stats"],
+  const { data: accountBalance } = useQuery({
+    queryKey: ["account-balance"],
     queryFn: async () => {
-      const { data, error } = await supabase
-        .from("positions")
-        .select("realized_pnl, status")
-        .eq("status", "closed");
+      const { data, error } = await supabase.functions.invoke('bitget-api', {
+        body: { action: 'get_account' }
+      });
       
       if (error) throw error;
       
-      const totalPnL = data?.reduce((sum, pos) => sum + (Number(pos.realized_pnl) || 0), 0) || 0;
-      const winningTrades = data?.filter(pos => Number(pos.realized_pnl) > 0).length || 0;
-      const totalTrades = data?.length || 0;
-      const winRate = totalTrades > 0 ? (winningTrades / totalTrades) * 100 : 0;
+      if (data?.success && data.data?.[0]) {
+        const accountInfo = data.data[0];
+        return {
+          equity: Number(accountInfo.accountEquity || accountInfo.available) || 0,
+          available: Number(accountInfo.available || 0) || 0,
+        };
+      }
       
-      return { totalPnL, winRate, totalTrades, openPositions: positions?.length || 0 };
+      return { equity: 0, available: 0 };
     },
+    refetchInterval: 30000,
   });
+
+  // Calculate used margin and unrealized PnL
+  const usedMargin = positions?.reduce((sum, pos) => {
+    const notional = Number(pos.quantity) * Number(pos.entry_price);
+    const margin = notional / Number(pos.leverage);
+    return sum + margin;
+  }, 0) || 0;
+
+  const totalUnrealizedPnL = positions?.reduce((sum, pos) => {
+    return sum + (Number(pos.unrealized_pnl) || 0);
+  }, 0) || 0;
+
+  const usedMarginPercent = accountBalance?.equity 
+    ? (usedMargin / accountBalance.equity) * 100 
+    : 0;
+
+  const unrealizedPnLPercent = accountBalance?.equity 
+    ? (totalUnrealizedPnL / accountBalance.equity) * 100 
+    : 0;
 
   const { data: recentAlerts } = useQuery({
     queryKey: ["recent-alerts"],
@@ -51,31 +74,55 @@ export default function Dashboard() {
       if (error) throw error;
       return data || [];
     },
+    refetchInterval: 5000,
+  });
+
+  const { data: diagnostics } = useQuery({
+    queryKey: ["bot-diagnostics"],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("bot_logs")
+        .select("*")
+        .in("level", ["error", "warn"])
+        .order("created_at", { ascending: false })
+        .limit(10);
+      
+      if (error) throw error;
+      return data || [];
+    },
+    refetchInterval: 5000,
   });
 
   const kpis = [
     {
-      title: "Całkowity PnL",
-      value: `$${(stats?.totalPnL || 0).toFixed(2)}`,
-      icon: DollarSign,
-      trend: (stats?.totalPnL || 0) >= 0 ? "up" : "down",
+      title: "Saldo Portfela",
+      value: `$${(accountBalance?.equity || 0).toFixed(2)}`,
+      icon: Wallet,
+      trend: "neutral",
     },
     {
-      title: "Win Rate",
-      value: `${(stats?.winRate || 0).toFixed(1)}%`,
-      icon: TrendingUp,
+      title: "Dostępne Saldo",
+      value: `$${(accountBalance?.available || 0).toFixed(2)}`,
+      icon: DollarSign,
       trend: "neutral",
+    },
+    {
+      title: "Używane Saldo",
+      value: `$${usedMargin.toFixed(2)} (${usedMarginPercent.toFixed(1)}%)`,
+      icon: Activity,
+      trend: "neutral",
+    },
+    {
+      title: "Unrealized PnL",
+      value: `$${totalUnrealizedPnL.toFixed(2)} (${unrealizedPnLPercent >= 0 ? '+' : ''}${unrealizedPnLPercent.toFixed(2)}%)`,
+      icon: TrendingUp,
+      trend: totalUnrealizedPnL >= 0 ? "up" : "down",
+      textColor: totalUnrealizedPnL >= 0 ? "text-profit" : "text-loss",
     },
     {
       title: "Otwarte Pozycje",
       value: positions?.length || 0,
       icon: Activity,
-      trend: "neutral",
-    },
-    {
-      title: "Wszystkie Trade'y",
-      value: stats?.totalTrades || 0,
-      icon: TrendingDown,
       trend: "neutral",
     },
   ];
@@ -88,7 +135,7 @@ export default function Dashboard() {
       </div>
 
       {/* KPIs */}
-      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-5">
         {kpis.map((kpi) => (
           <Card key={kpi.title}>
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
@@ -96,46 +143,50 @@ export default function Dashboard() {
               <kpi.icon className="h-4 w-4 text-muted-foreground" />
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold">{kpi.value}</div>
+              <div className={`text-2xl font-bold ${kpi.textColor || ''}`}>{kpi.value}</div>
             </CardContent>
           </Card>
         ))}
       </div>
 
       <div className="grid gap-6 lg:grid-cols-2">
-        {/* Otwarte Pozycje */}
+        {/* Diagnostyka */}
         <Card>
           <CardHeader>
-            <CardTitle>Otwarte Pozycje</CardTitle>
+            <CardTitle>Diagnostyka</CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="space-y-4">
-              {positions && positions.length > 0 ? (
-                positions.slice(0, 5).map((position) => (
-                  <div key={position.id} className="flex items-center justify-between border-b border-border pb-3 last:border-0 last:pb-0">
-                    <div>
-                      <div className="font-medium">{position.symbol}</div>
-                      <div className="text-sm text-muted-foreground">
-                        <Badge variant={position.side === "BUY" ? "default" : "destructive"}>
-                          {position.side}
-                        </Badge>
-                        {" "}@ ${Number(position.entry_price).toFixed(4)}
+            <ScrollArea className="h-[300px]">
+              <div className="space-y-3">
+                {diagnostics && diagnostics.length > 0 ? (
+                  diagnostics.map((log) => (
+                    <div key={log.id} className="flex items-start gap-3 border-b border-border pb-3 last:border-0 last:pb-0">
+                      <div className="mt-0.5">
+                        {log.level === "error" ? (
+                          <AlertCircle className="h-4 w-4 text-destructive" />
+                        ) : (
+                          <AlertCircle className="h-4 w-4 text-yellow-500" />
+                        )}
+                      </div>
+                      <div className="flex-1 space-y-1">
+                        <div className="flex items-center gap-2">
+                          <Badge variant={log.level === "error" ? "destructive" : "secondary"}>
+                            {log.level.toUpperCase()}
+                          </Badge>
+                          <span className="text-xs text-muted-foreground">
+                            {new Date(log.created_at).toLocaleTimeString()}
+                          </span>
+                        </div>
+                        <p className="text-sm">{log.message}</p>
+                        <p className="text-xs text-muted-foreground">{log.function_name}</p>
                       </div>
                     </div>
-                    <div className="text-right">
-                      <div className={Number(position.unrealized_pnl || 0) >= 0 ? "text-profit" : "text-loss"}>
-                        ${Number(position.unrealized_pnl || 0).toFixed(2)}
-                      </div>
-                      <div className="text-xs text-muted-foreground">
-                        {Number(position.quantity).toFixed(4)}
-                      </div>
-                    </div>
-                  </div>
-                ))
-              ) : (
-                <p className="text-center text-muted-foreground py-8">Brak otwartych pozycji</p>
-              )}
-            </div>
+                  ))
+                ) : (
+                  <p className="text-center text-muted-foreground py-8">Brak błędów i ostrzeżeń</p>
+                )}
+              </div>
+            </ScrollArea>
           </CardContent>
         </Card>
 
@@ -145,30 +196,32 @@ export default function Dashboard() {
             <CardTitle>Ostatnie Alerty</CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="space-y-4">
-              {recentAlerts && recentAlerts.length > 0 ? (
-                recentAlerts.map((alert) => (
-                  <div key={alert.id} className="flex items-center justify-between border-b border-border pb-3 last:border-0 last:pb-0">
-                    <div>
-                      <div className="font-medium">{alert.symbol}</div>
-                      <div className="text-sm text-muted-foreground">
-                        {alert.tier} • Strength: {Number(alert.strength || 0).toFixed(2)}
+            <ScrollArea className="h-[300px]">
+              <div className="space-y-4">
+                {recentAlerts && recentAlerts.length > 0 ? (
+                  recentAlerts.map((alert) => (
+                    <div key={alert.id} className="flex items-center justify-between border-b border-border pb-3 last:border-0 last:pb-0">
+                      <div>
+                        <div className="font-medium">{alert.symbol}</div>
+                        <div className="text-sm text-muted-foreground">
+                          {alert.tier} • Strength: {Number(alert.strength || 0).toFixed(2)}
+                        </div>
                       </div>
+                      <Badge variant={
+                        alert.status === "executed" ? "default" :
+                        alert.status === "ignored" ? "secondary" :
+                        alert.status === "error" ? "destructive" :
+                        "outline"
+                      }>
+                        {alert.status}
+                      </Badge>
                     </div>
-                    <Badge variant={
-                      alert.status === "executed" ? "default" :
-                      alert.status === "ignored" ? "secondary" :
-                      alert.status === "error" ? "destructive" :
-                      "outline"
-                    }>
-                      {alert.status}
-                    </Badge>
-                  </div>
-                ))
-              ) : (
-                <p className="text-center text-muted-foreground py-8">Brak alertów</p>
-              )}
-            </div>
+                  ))
+                ) : (
+                  <p className="text-center text-muted-foreground py-8">Brak alertów</p>
+                )}
+              </div>
+            </ScrollArea>
           </CardContent>
         </Card>
       </div>
