@@ -247,7 +247,10 @@ export default function Dashboard() {
               <div className="space-y-4">
                 {positionsWithLivePnL && positionsWithLivePnL.length > 0 ? (
                   positionsWithLivePnL.map((pos) => {
-                    const pnlPercent = ((Number(pos.unrealized_pnl) || 0) / (Number(pos.quantity) * Number(pos.entry_price))) * 100;
+                    const positionValue = Number(pos.quantity) * Number(pos.entry_price);
+                    const pnlPercent = positionValue !== 0 
+                      ? ((Number(pos.unrealized_pnl) || 0) / positionValue) * 100 
+                      : 0;
                     const notionalValue = Number(pos.quantity) * Number(pos.entry_price);
                     
                     // Use real SL/TP from exchange, fallback to DB values
@@ -298,32 +301,36 @@ export default function Dashboard() {
 
                         <div className="grid grid-cols-2 gap-2 text-sm mb-3 border-t border-border pt-2">
                           <div>
-                            <span className="text-muted-foreground">SL {!pos.has_sl_order && '(DB)'}:</span>{" "}
-                            <span className={`font-medium ${pos.has_sl_order ? 'text-loss' : 'text-muted-foreground'}`}>
-                              ${displaySlPrice.toFixed(4)}
-                            </span>
+                            <span className="text-muted-foreground">SL:</span>{" "}
+                            {pos.has_sl_order ? (
+                              <span className="font-medium text-loss">
+                                ${(pos.real_sl_price || Number(pos.sl_price)).toFixed(4)}
+                              </span>
+                            ) : (
+                              <span className="font-medium text-muted-foreground">-</span>
+                            )}
                           </div>
-                          {displayTpPrices.length > 0 && (
-                            <>
-                              <div>
-                                <span className="text-muted-foreground">TP1 {!pos.has_tp_orders && '(DB)'}:</span>{" "}
-                                <span className={`font-medium ${pos.has_tp_orders ? 'text-profit' : 'text-muted-foreground'}`}>
-                                  ${displayTpPrices[0].toFixed(4)}
-                                </span>
-                              </div>
-                              {displayTpPrices[1] && (
-                                <div>
-                                  <span className="text-muted-foreground">TP2:</span>{" "}
-                                  <span className="font-medium text-profit">${displayTpPrices[1].toFixed(4)}</span>
-                                </div>
-                              )}
-                              {displayTpPrices[2] && (
-                                <div>
-                                  <span className="text-muted-foreground">TP3:</span>{" "}
-                                  <span className="font-medium text-profit">${displayTpPrices[2].toFixed(4)}</span>
-                                </div>
-                              )}
-                            </>
+                          <div>
+                            <span className="text-muted-foreground">TP1:</span>{" "}
+                            {pos.has_tp_orders && pos.real_tp_prices && pos.real_tp_prices.length > 0 ? (
+                              <span className="font-medium text-profit">
+                                ${pos.real_tp_prices[0].toFixed(4)}
+                              </span>
+                            ) : (
+                              <span className="font-medium text-muted-foreground">-</span>
+                            )}
+                          </div>
+                          {pos.has_tp_orders && pos.real_tp_prices && pos.real_tp_prices[1] && (
+                            <div>
+                              <span className="text-muted-foreground">TP2:</span>{" "}
+                              <span className="font-medium text-profit">${pos.real_tp_prices[1].toFixed(4)}</span>
+                            </div>
+                          )}
+                          {pos.has_tp_orders && pos.real_tp_prices && pos.real_tp_prices[2] && (
+                            <div>
+                              <span className="text-muted-foreground">TP3:</span>{" "}
+                              <span className="font-medium text-profit">${pos.real_tp_prices[2].toFixed(4)}</span>
+                            </div>
                           )}
                         </div>
 
