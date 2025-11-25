@@ -21,6 +21,58 @@ export default function Dashboard() {
     refetchInterval: 5000,
   });
 
+  // Fetch live prices from Bitget for open positions
+  const { data: livePrices } = useQuery({
+    queryKey: ["live-prices", positions?.map(p => p.symbol).join(',')],
+    queryFn: async () => {
+      if (!positions || positions.length === 0) return {};
+      
+      const priceMap: Record<string, number> = {};
+      
+      // Fetch current prices from Bitget for each symbol
+      for (const pos of positions) {
+        try {
+          const { data } = await supabase.functions.invoke('bitget-api', {
+            body: { 
+              action: 'get_ticker',
+              params: { symbol: pos.symbol }
+            }
+          });
+          
+          if (data?.success && data.data?.[0]?.lastPr) {
+            priceMap[pos.symbol] = Number(data.data[0].lastPr);
+          }
+        } catch (err) {
+          console.error(`Failed to fetch price for ${pos.symbol}:`, err);
+        }
+      }
+      
+      return priceMap;
+    },
+    enabled: !!positions && positions.length > 0,
+    refetchInterval: 3000, // Update every 3 seconds
+  });
+
+  // Calculate live PnL for positions
+  const positionsWithLivePnL = positions?.map(pos => {
+    const currentPrice = livePrices?.[pos.symbol] || Number(pos.current_price) || Number(pos.entry_price);
+    const quantity = Number(pos.quantity);
+    const entryPrice = Number(pos.entry_price);
+    
+    let unrealizedPnL = 0;
+    if (pos.side === 'BUY') {
+      unrealizedPnL = (currentPrice - entryPrice) * quantity;
+    } else {
+      unrealizedPnL = (entryPrice - currentPrice) * quantity;
+    }
+    
+    return {
+      ...pos,
+      current_price: currentPrice,
+      unrealized_pnl: unrealizedPnL
+    };
+  }) || [];
+
   const { data: accountBalance } = useQuery({
     queryKey: ["account-balance"],
     queryFn: async () => {
@@ -44,13 +96,13 @@ export default function Dashboard() {
   });
 
   // Calculate used margin and unrealized PnL
-  const usedMargin = positions?.reduce((sum, pos) => {
+  const usedMargin = positionsWithLivePnL?.reduce((sum, pos) => {
     const notional = Number(pos.quantity) * Number(pos.entry_price);
     const margin = notional / Number(pos.leverage);
     return sum + margin;
   }, 0) || 0;
 
-  const totalUnrealizedPnL = positions?.reduce((sum, pos) => {
+  const totalUnrealizedPnL = positionsWithLivePnL?.reduce((sum, pos) => {
     return sum + (Number(pos.unrealized_pnl) || 0);
   }, 0) || 0;
 
@@ -106,7 +158,7 @@ export default function Dashboard() {
     },
     {
       title: "Otwarte Pozycje",
-      value: positions?.length || 0,
+      value: positionsWithLivePnL?.length || 0,
       icon: Activity,
       trend: "neutral",
     },
@@ -143,31 +195,70 @@ export default function Dashboard() {
           <CardContent>
             <ScrollArea className="h-[300px]">
               <div className="space-y-4">
-                {positions && positions.length > 0 ? (
-                  positions.map((pos) => (
-                    <div key={pos.id} className="border-b border-border pb-3 last:border-0 last:pb-0">
-                      <div className="flex items-center justify-between mb-2">
-                        <div className="font-medium">{pos.symbol}</div>
-                        <Badge variant={pos.side === "BUY" ? "default" : "destructive"}>
-                          {pos.side} {pos.leverage}x
-                        </Badge>
+                {positionsWithLivePnL && positionsWithLivePnL.length > 0 ? (
+                  positionsWithLivePnL.map((pos) => {
+                    const pnlPercent = ((Number(pos.unrealized_pnl) || 0) / (Number(pos.quantity) * Number(pos.entry_price))) * 100;
+                    const notionalValue = Number(pos.quantity) * Number(pos.entry_price);
+                    
+                    return (
+                      <div key={pos.id} className="border border-border rounded-lg p-3">
+                        <div className="flex items-center justify-between mb-3">
+                          <div className="font-medium text-lg">{pos.symbol}</div>
+                          <Badge variant={pos.side === "BUY" ? "default" : "destructive"}>
+                            {pos.side} {pos.leverage}x
+                          </Badge>
+                        </div>
+                        
+                        <div className="grid grid-cols-2 gap-2 text-sm mb-3">
+                          <div>
+                            <span className="text-muted-foreground">Entry:</span>{" "}
+                            <span className="font-medium">${Number(pos.entry_price).toFixed(4)}</span>
+                          </div>
+                          <div>
+                            <span className="text-muted-foreground">Current:</span>{" "}
+                            <span className="font-medium">${Number(pos.current_price).toFixed(4)}</span>
+                          </div>
+                          <div>
+                            <span className="text-muted-foreground">Quantity:</span>{" "}
+                            <span className="font-medium">{Number(pos.quantity).toFixed(4)}</span>
+                          </div>
+                          <div>
+                            <span className="text-muted-foreground">Notional:</span>{" "}
+                            <span className="font-medium">${notionalValue.toFixed(2)}</span>
+                          </div>
+                        </div>
+
+                        <div className="grid grid-cols-2 gap-2 text-sm mb-3 border-t border-border pt-2">
+                          <div>
+                            <span className="text-muted-foreground">SL:</span>{" "}
+                            <span className="font-medium text-loss">${Number(pos.sl_price).toFixed(4)}</span>
+                          </div>
+                          <div>
+                            <span className="text-muted-foreground">TP1:</span>{" "}
+                            <span className="font-medium text-profit">
+                              {pos.tp1_price ? `$${Number(pos.tp1_price).toFixed(4)}` : '-'}
+                            </span>
+                          </div>
+                          {pos.tp2_price && (
+                            <div>
+                              <span className="text-muted-foreground">TP2:</span>{" "}
+                              <span className="font-medium text-profit">${Number(pos.tp2_price).toFixed(4)}</span>
+                            </div>
+                          )}
+                          {pos.tp3_price && (
+                            <div>
+                              <span className="text-muted-foreground">TP3:</span>{" "}
+                              <span className="font-medium text-profit">${Number(pos.tp3_price).toFixed(4)}</span>
+                            </div>
+                          )}
+                        </div>
+
+                        <div className={`text-right font-bold text-base ${Number(pos.unrealized_pnl || 0) >= 0 ? "text-profit" : "text-loss"}`}>
+                          PnL: ${Number(pos.unrealized_pnl || 0).toFixed(2)} ({pnlPercent >= 0 ? '+' : ''}{pnlPercent.toFixed(2)}%)
+                        </div>
                       </div>
-                      <div className="grid grid-cols-2 gap-2 text-sm">
-                        <div>
-                          <span className="text-muted-foreground">Entry:</span> ${Number(pos.entry_price).toFixed(4)}
-                        </div>
-                        <div>
-                          <span className="text-muted-foreground">Current:</span> ${Number(pos.current_price || pos.entry_price).toFixed(4)}
-                        </div>
-                        <div>
-                          <span className="text-muted-foreground">Quantity:</span> {Number(pos.quantity).toFixed(4)}
-                        </div>
-                        <div className={Number(pos.unrealized_pnl || 0) >= 0 ? "text-profit" : "text-loss"}>
-                          <span className="text-muted-foreground">PnL:</span> ${Number(pos.unrealized_pnl || 0).toFixed(2)}
-                        </div>
-                      </div>
-                    </div>
-                  ))
+                    );
+                  })
                 ) : (
                   <p className="text-center text-muted-foreground py-8">Brak otwartych pozycji</p>
                 )}
