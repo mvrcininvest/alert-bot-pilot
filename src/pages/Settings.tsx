@@ -24,9 +24,44 @@ export default function Settings() {
       const { data, error } = await supabase
         .from("settings")
         .select("*")
-        .single();
+        .maybeSingle();
       
       if (error) throw error;
+      
+      // If no settings exist, create default settings
+      if (!data) {
+        const { data: newSettings, error: insertError } = await supabase
+          .from("settings")
+          .insert({
+            bot_active: true,
+            position_size_value: 100,
+            position_sizing_type: 'fixed_usdt',
+            calculator_type: 'simple_percent',
+            sl_method: 'percent_entry',
+            simple_sl_percent: 1.5,
+            simple_tp_percent: 3.0,
+            rr_ratio: 2.0,
+            tp_strategy: 'partial_close',
+            tp_levels: 1,
+            tp1_close_percent: 100,
+            max_open_positions: 3,
+            daily_loss_limit: 500,
+            min_strength: 0.3,
+            filter_by_tier: false,
+            allowed_tiers: ['Premium'],
+            sl_to_breakeven: true,
+            breakeven_trigger_tp: 1,
+            trailing_stop: false,
+            auto_repair: true,
+            monitor_interval_seconds: 60,
+          })
+          .select()
+          .single();
+        
+        if (insertError) throw insertError;
+        return newSettings;
+      }
+      
       return data;
     },
   });
