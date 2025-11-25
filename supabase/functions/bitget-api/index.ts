@@ -38,11 +38,11 @@ function getBitgetHeaders(config: BitgetConfig, method: string, requestPath: str
 }
 
 async function bitgetRequest(config: BitgetConfig, method: string, endpoint: string, body?: any): Promise<any> {
-  const requestPath = `/api/mix/v1${endpoint}`;
+  const requestPath = endpoint;
   const bodyStr = body ? JSON.stringify(body) : '';
   const headers = getBitgetHeaders(config, method, requestPath, bodyStr);
 
-  console.log('Bitget request:', method, requestPath);
+  console.log('Bitget request:', method, requestPath, bodyStr ? `Body: ${bodyStr}` : '');
 
   const response = await fetch(`${config.baseUrl}${requestPath}`, {
     method,
@@ -50,11 +50,18 @@ async function bitgetRequest(config: BitgetConfig, method: string, endpoint: str
     body: bodyStr || undefined,
   });
 
+  if (!response.ok) {
+    const errorText = await response.text();
+    console.error('Bitget HTTP error:', response.status, errorText);
+    throw new Error(`Bitget HTTP error ${response.status}: ${errorText}`);
+  }
+
   const data = await response.json();
+  console.log('Bitget response:', JSON.stringify(data));
   
   if (data.code !== '00000') {
     console.error('Bitget API error:', data);
-    throw new Error(`Bitget API error: ${data.msg || 'Unknown error'}`);
+    throw new Error(`Bitget API error (${data.code}): ${data.msg || 'Unknown error'}`);
   }
 
   return data.data;
@@ -80,52 +87,74 @@ serve(async (req) => {
 
     switch (action) {
       case 'get_account':
-        // Get account info
-        result = await bitgetRequest(config, 'GET', `/account/accounts?productType=umcbl`);
+        // Get account info - v2 API
+        result = await bitgetRequest(config, 'GET', `/api/v2/mix/account/accounts?productType=USDT-FUTURES`);
         break;
 
       case 'get_positions':
-        // Get all open positions
-        result = await bitgetRequest(config, 'GET', `/position/allPosition?productType=umcbl`);
+        // Get all open positions - v2 API
+        result = await bitgetRequest(config, 'GET', `/api/v2/mix/position/all-position?productType=USDT-FUTURES&marginCoin=USDT`);
         break;
 
       case 'get_position':
-        // Get specific position
+        // Get specific position - v2 API
         result = await bitgetRequest(config, 'GET', 
-          `/position/singlePosition?symbol=${params.symbol}&marginCoin=USDT`);
+          `/api/v2/mix/position/single-position?symbol=${params.symbol}&productType=USDT-FUTURES&marginCoin=USDT`);
         break;
 
       case 'place_order':
-        // Place market order
-        result = await bitgetRequest(config, 'POST', '/order/placeOrder', {
+        // Place market order - v2 API
+        result = await bitgetRequest(config, 'POST', '/api/v2/mix/order/place-order', {
           symbol: params.symbol,
+          productType: 'USDT-FUTURES',
+          marginMode: 'crossed',
           marginCoin: 'USDT',
-          size: params.size,
-          side: params.side.toLowerCase(), // 'open_long' or 'open_short'
+          size: params.size.toString(),
+          price: '',
+          side: params.side.toLowerCase(), // 'open_long', 'open_short', 'close_long', 'close_short'
+          tradeSide: params.side.toLowerCase().includes('long') ? 'long' : 'short',
           orderType: 'market',
-          timeInForceValue: 'normal',
+          force: 'ioc',
         });
         break;
 
       case 'place_plan_order':
-        // Place stop loss or take profit order
-        result = await bitgetRequest(config, 'POST', '/plan/placePlan', {
+        // Place stop loss or take profit order - v2 API
+        const planOrderBody: any = {
           symbol: params.symbol,
+          productType: 'USDT-FUTURES',
+          marginMode: 'crossed',
           marginCoin: 'USDT',
-          size: params.size,
+          size: params.size.toString(),
           side: params.side, // 'close_long' or 'close_short'
-          orderType: params.orderType, // 'limit' or 'market'
-          triggerPrice: params.triggerPrice,
-          executePrice: params.executePrice || params.triggerPrice,
-          triggerType: params.triggerType || 'fill_price', // 'fill_price' or 'mark_price'
-          planType: params.planType || 'normal_plan', // 'normal_plan', 'profit_plan', 'loss_plan'
-        });
+          tradeSide: params.side.includes('long') ? 'long' : 'short',
+          triggerPrice: params.triggerPrice.toString(),
+          triggerType: params.triggerType || 'mark_price',
+          orderType: params.orderType || 'market',
+        };
+
+        // Add executePrice only for limit orders
+        if (params.orderType === 'limit') {
+          planOrderBody.executePrice = (params.executePrice || params.triggerPrice).toString();
+        }
+
+        // Determine plan type based on parameters
+        if (params.planType === 'loss_plan') {
+          planOrderBody.planType = 'loss_plan';
+        } else if (params.planType === 'profit_plan') {
+          planOrderBody.planType = 'profit_plan';
+        } else {
+          planOrderBody.planType = 'normal_plan';
+        }
+
+        result = await bitgetRequest(config, 'POST', '/api/v2/mix/order/place-plan-order', planOrderBody);
         break;
 
       case 'cancel_plan_order':
-        // Cancel plan order (SL/TP)
-        result = await bitgetRequest(config, 'POST', '/plan/cancelPlan', {
+        // Cancel plan order (SL/TP) - v2 API
+        result = await bitgetRequest(config, 'POST', '/api/v2/mix/order/cancel-plan-order', {
           symbol: params.symbol,
+          productType: 'USDT-FUTURES',
           marginCoin: 'USDT',
           orderId: params.orderId,
           planType: params.planType || 'normal_plan',
@@ -133,31 +162,36 @@ serve(async (req) => {
         break;
 
       case 'modify_plan_order':
-        // Modify plan order (for trailing stop, breakeven)
-        result = await bitgetRequest(config, 'POST', '/plan/modifyPlan', {
+        // Modify plan order (for trailing stop, breakeven) - v2 API
+        result = await bitgetRequest(config, 'POST', '/api/v2/mix/order/modify-plan-order', {
           symbol: params.symbol,
+          productType: 'USDT-FUTURES',
           marginCoin: 'USDT',
           orderId: params.orderId,
-          triggerPrice: params.triggerPrice,
-          executePrice: params.executePrice,
+          triggerPrice: params.triggerPrice.toString(),
+          executePrice: params.executePrice ? params.executePrice.toString() : params.triggerPrice.toString(),
         });
         break;
 
       case 'close_position':
-        // Close entire position
-        result = await bitgetRequest(config, 'POST', '/order/placeOrder', {
+        // Close entire position - v2 API
+        result = await bitgetRequest(config, 'POST', '/api/v2/mix/order/place-order', {
           symbol: params.symbol,
+          productType: 'USDT-FUTURES',
+          marginMode: 'crossed',
           marginCoin: 'USDT',
-          size: params.size,
+          size: params.size.toString(),
+          price: '',
           side: params.side, // 'close_long' or 'close_short'
+          tradeSide: params.side.includes('long') ? 'long' : 'short',
           orderType: 'market',
-          timeInForceValue: 'normal',
+          force: 'ioc',
         });
         break;
 
       case 'get_ticker':
-        // Get current market price
-        result = await bitgetRequest(config, 'GET', `/market/ticker?symbol=${params.symbol}`);
+        // Get current market price - v2 API
+        result = await bitgetRequest(config, 'GET', `/api/v2/mix/market/ticker?symbol=${params.symbol}&productType=USDT-FUTURES`);
         break;
 
       default:
