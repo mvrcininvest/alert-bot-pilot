@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -7,10 +8,18 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from 
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Calendar } from "@/components/ui/calendar";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { format } from "date-fns";
-import { Info, AlertCircle } from "lucide-react";
+import { Info, AlertCircle, Download, Calendar as CalendarIcon } from "lucide-react";
+import { cn } from "@/lib/utils";
+import { useToast } from "@/hooks/use-toast";
 
 export default function History() {
+  const { toast } = useToast();
+  const [dateFrom, setDateFrom] = useState<Date>();
+  const [dateTo, setDateTo] = useState<Date>();
+
   const { data: closedPositions, isLoading } = useQuery({
     queryKey: ["closed-positions"],
     queryFn: async () => {
@@ -43,19 +52,207 @@ export default function History() {
     refetchInterval: 30000, // Refresh every 30 seconds
   });
 
-  const stats = closedPositions ? {
-    totalPnL: closedPositions.reduce((sum, p) => sum + Number(p.realized_pnl || 0), 0),
-    winningTrades: closedPositions.filter(p => Number(p.realized_pnl || 0) > 0).length,
-    losingTrades: closedPositions.filter(p => Number(p.realized_pnl || 0) < 0).length,
-    avgWin: closedPositions.filter(p => Number(p.realized_pnl || 0) > 0).reduce((sum, p) => sum + Number(p.realized_pnl || 0), 0) / closedPositions.filter(p => Number(p.realized_pnl || 0) > 0).length || 0,
-    avgLoss: closedPositions.filter(p => Number(p.realized_pnl || 0) < 0).reduce((sum, p) => sum + Number(p.realized_pnl || 0), 0) / closedPositions.filter(p => Number(p.realized_pnl || 0) < 0).length || 0,
+  // Filter positions by date range
+  const filteredPositions = closedPositions?.filter((position) => {
+    if (!dateFrom && !dateTo) return true;
+    const closedDate = position.closed_at ? new Date(position.closed_at) : null;
+    if (!closedDate) return false;
+    
+    if (dateFrom && closedDate < dateFrom) return false;
+    if (dateTo) {
+      const endOfDay = new Date(dateTo);
+      endOfDay.setHours(23, 59, 59, 999);
+      if (closedDate > endOfDay) return false;
+    }
+    return true;
+  });
+
+  const stats = filteredPositions ? {
+    totalPnL: filteredPositions.reduce((sum, p) => sum + Number(p.realized_pnl || 0), 0),
+    winningTrades: filteredPositions.filter(p => Number(p.realized_pnl || 0) > 0).length,
+    losingTrades: filteredPositions.filter(p => Number(p.realized_pnl || 0) < 0).length,
+    avgWin: filteredPositions.filter(p => Number(p.realized_pnl || 0) > 0).reduce((sum, p) => sum + Number(p.realized_pnl || 0), 0) / filteredPositions.filter(p => Number(p.realized_pnl || 0) > 0).length || 0,
+    avgLoss: filteredPositions.filter(p => Number(p.realized_pnl || 0) < 0).reduce((sum, p) => sum + Number(p.realized_pnl || 0), 0) / filteredPositions.filter(p => Number(p.realized_pnl || 0) < 0).length || 0,
   } : null;
+
+  const exportToCSV = () => {
+    if (!filteredPositions || filteredPositions.length === 0) {
+      toast({
+        title: "Brak danych",
+        description: "Nie ma pozycji do eksportu w wybranym zakresie dat",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    const headers = [
+      "Symbol", "Side", "Entry Price", "Close Price", "Quantity", "Leverage",
+      "Position Value", "Margin Used", "PnL", "PnL %", "Close Reason",
+      "Open Time", "Close Time", "Duration (min)", "Alert ID", "Alert Tier",
+      "Alert Strength", "Alert Entry Price", "Alert SL", "Alert TP"
+    ];
+
+    const rows = filteredPositions.map((position) => {
+      const pnl = Number(position.realized_pnl || 0);
+      const pnlPercent = position.entry_price && position.close_price
+        ? ((Number(position.close_price) - Number(position.entry_price)) / Number(position.entry_price)) * 100 * (position.side === 'BUY' ? 1 : -1)
+        : 0;
+      const duration = position.closed_at && position.created_at
+        ? Math.floor((new Date(position.closed_at).getTime() - new Date(position.created_at).getTime()) / 1000 / 60)
+        : 0;
+      const notionalValue = Number(position.entry_price) * Number(position.quantity);
+      const marginUsed = position.leverage ? notionalValue / Number(position.leverage) : 0;
+      const alert = Array.isArray(position.alerts) ? position.alerts[0] : position.alerts;
+
+      return [
+        position.symbol,
+        position.side === 'BUY' ? 'LONG' : 'SHORT',
+        Number(position.entry_price).toFixed(4),
+        Number(position.close_price).toFixed(4),
+        Number(position.quantity).toFixed(4),
+        position.leverage,
+        notionalValue.toFixed(2),
+        marginUsed.toFixed(2),
+        pnl.toFixed(2),
+        pnlPercent.toFixed(2),
+        position.close_reason || "Unknown",
+        format(new Date(position.created_at), "dd.MM.yyyy HH:mm"),
+        position.closed_at ? format(new Date(position.closed_at), "dd.MM.yyyy HH:mm") : "-",
+        duration,
+        alert?.id || "-",
+        alert?.tier || "-",
+        alert?.strength || "-",
+        alert?.entry_price || "-",
+        alert?.sl || "-",
+        alert?.main_tp || "-"
+      ];
+    });
+
+    const csvContent = [
+      headers.join(","),
+      ...rows.map(row => row.map(cell => `"${cell}"`).join(","))
+    ].join("\n");
+
+    const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
+    const link = document.createElement("a");
+    const url = URL.createObjectURL(blob);
+    link.setAttribute("href", url);
+    link.setAttribute("download", `positions_history_${format(new Date(), "yyyy-MM-dd_HH-mm")}.csv`);
+    link.style.visibility = "hidden";
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+
+    toast({
+      title: "Eksport zakończony",
+      description: `Wyeksportowano ${filteredPositions.length} pozycji do CSV`,
+    });
+  };
+
+  const exportToJSON = () => {
+    if (!filteredPositions || filteredPositions.length === 0) {
+      toast({
+        title: "Brak danych",
+        description: "Nie ma pozycji do eksportu w wybranym zakresie dat",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    const exportData = filteredPositions.map((position) => {
+      const alert = Array.isArray(position.alerts) ? position.alerts[0] : position.alerts;
+      return {
+        position: {
+          id: position.id,
+          symbol: position.symbol,
+          side: position.side,
+          entry_price: Number(position.entry_price),
+          close_price: Number(position.close_price),
+          quantity: Number(position.quantity),
+          leverage: position.leverage,
+          realized_pnl: Number(position.realized_pnl || 0),
+          close_reason: position.close_reason,
+          created_at: position.created_at,
+          closed_at: position.closed_at,
+          status: position.status,
+        },
+        alert: alert ? {
+          id: alert.id,
+          symbol: alert.symbol,
+          side: alert.side,
+          entry_price: alert.entry_price,
+          sl: alert.sl,
+          main_tp: alert.main_tp,
+          tier: alert.tier,
+          strength: alert.strength,
+          leverage: alert.leverage,
+          created_at: alert.created_at,
+          raw_data: alert.raw_data,
+        } : null,
+      };
+    });
+
+    const jsonContent = JSON.stringify(exportData, null, 2);
+    const blob = new Blob([jsonContent], { type: "application/json;charset=utf-8;" });
+    const link = document.createElement("a");
+    const url = URL.createObjectURL(blob);
+    link.setAttribute("href", url);
+    link.setAttribute("download", `positions_history_${format(new Date(), "yyyy-MM-dd_HH-mm")}.json`);
+    link.style.visibility = "hidden";
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+
+    toast({
+      title: "Eksport zakończony",
+      description: `Wyeksportowano ${filteredPositions.length} pozycji do JSON`,
+    });
+  };
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-3xl font-bold">Historia Pozycji</h1>
-        <p className="text-muted-foreground">Wszystkie zamknięte pozycje</p>
+      <div className="flex items-start justify-between">
+        <div>
+          <h1 className="text-3xl font-bold">Historia Pozycji</h1>
+          <p className="text-muted-foreground">Wszystkie zamknięte pozycje</p>
+        </div>
+        <div className="flex gap-2">
+          <Popover>
+            <PopoverTrigger asChild>
+              <Button variant="outline" className={cn("justify-start text-left font-normal", !dateFrom && "text-muted-foreground")}>
+                <CalendarIcon className="mr-2 h-4 w-4" />
+                {dateFrom ? format(dateFrom, "dd.MM.yyyy") : "Data od"}
+              </Button>
+            </PopoverTrigger>
+            <PopoverContent className="w-auto p-0" align="start">
+              <Calendar mode="single" selected={dateFrom} onSelect={setDateFrom} initialFocus />
+            </PopoverContent>
+          </Popover>
+          <Popover>
+            <PopoverTrigger asChild>
+              <Button variant="outline" className={cn("justify-start text-left font-normal", !dateTo && "text-muted-foreground")}>
+                <CalendarIcon className="mr-2 h-4 w-4" />
+                {dateTo ? format(dateTo, "dd.MM.yyyy") : "Data do"}
+              </Button>
+            </PopoverTrigger>
+            <PopoverContent className="w-auto p-0" align="start">
+              <Calendar mode="single" selected={dateTo} onSelect={setDateTo} initialFocus />
+            </PopoverContent>
+          </Popover>
+          {(dateFrom || dateTo) && (
+            <Button variant="ghost" onClick={() => { setDateFrom(undefined); setDateTo(undefined); }}>
+              Wyczyść
+            </Button>
+          )}
+          <Button variant="outline" onClick={exportToCSV}>
+            <Download className="mr-2 h-4 w-4" />
+            CSV
+          </Button>
+          <Button variant="outline" onClick={exportToJSON}>
+            <Download className="mr-2 h-4 w-4" />
+            JSON
+          </Button>
+        </div>
       </div>
 
       {stats && (
@@ -107,7 +304,10 @@ export default function History() {
 
       <Card>
         <CardHeader>
-          <CardTitle>Zamknięte Pozycje ({closedPositions?.length || 0})</CardTitle>
+          <CardTitle>
+            Zamknięte Pozycje ({filteredPositions?.length || 0}
+            {dateFrom || dateTo ? ` z ${closedPositions?.length || 0}` : ""})
+          </CardTitle>
         </CardHeader>
         <CardContent>
           <div className="overflow-x-auto">
@@ -138,8 +338,8 @@ export default function History() {
                       Ładowanie...
                     </TableCell>
                   </TableRow>
-                ) : closedPositions && closedPositions.length > 0 ? (
-                  closedPositions.map((position) => {
+                ) : filteredPositions && filteredPositions.length > 0 ? (
+                  filteredPositions.map((position) => {
                     const pnl = Number(position.realized_pnl || 0);
                     const pnlPercent = position.entry_price && position.close_price
                       ? ((Number(position.close_price) - Number(position.entry_price)) / Number(position.entry_price)) * 100 * (position.side === 'BUY' ? 1 : -1)
