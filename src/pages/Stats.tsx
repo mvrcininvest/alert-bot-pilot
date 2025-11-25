@@ -49,7 +49,8 @@ export default function Stats() {
       const { data, error } = await supabase
         .from("positions")
         .select("*")
-        .eq("status", "closed");
+        .eq("status", "closed")
+        .neq("close_reason", "error"); // Exclude positions from failed alerts
       
       if (error) throw error;
       return data || [];

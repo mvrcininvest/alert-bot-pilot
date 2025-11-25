@@ -3,9 +3,17 @@ import { supabase } from "@/integrations/supabase/client";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { Button } from "@/components/ui/button";
 import { format } from "date-fns";
+import { Info, AlertCircle } from "lucide-react";
+import { ScrollArea } from "@/components/ui/scroll-area";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { useState } from "react";
 
 export default function Alerts() {
+  const [selectedAlert, setSelectedAlert] = useState<any>(null);
+  
   const { data: alerts, isLoading } = useQuery({
     queryKey: ["alerts"],
     queryFn: async () => {
@@ -55,12 +63,13 @@ export default function Alerts() {
                   <TableHead>Strength</TableHead>
                   <TableHead>Leverage</TableHead>
                   <TableHead>Status</TableHead>
+                  <TableHead>Akcje</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {isLoading ? (
                   <TableRow>
-                    <TableCell colSpan={10} className="text-center py-8">
+                    <TableCell colSpan={11} className="text-center py-8">
                       Ładowanie...
                     </TableCell>
                   </TableRow>
@@ -89,11 +98,152 @@ export default function Alerts() {
                           {alert.status}
                         </Badge>
                       </TableCell>
+                      <TableCell>
+                        <Dialog>
+                          <DialogTrigger asChild>
+                            <Button 
+                              variant="outline" 
+                              size="sm"
+                              onClick={() => setSelectedAlert(alert)}
+                            >
+                              <Info className="h-4 w-4" />
+                            </Button>
+                          </DialogTrigger>
+                          <DialogContent className="max-w-4xl max-h-[80vh]">
+                            <DialogHeader>
+                              <DialogTitle>Szczegóły Alertu - {alert.symbol}</DialogTitle>
+                            </DialogHeader>
+                            <ScrollArea className="h-[60vh]">
+                              <Tabs defaultValue="market" className="w-full">
+                                <TabsList className="grid w-full grid-cols-3">
+                                  <TabsTrigger value="market">Warunki Rynkowe</TabsTrigger>
+                                  <TabsTrigger value="raw">Raw JSON</TabsTrigger>
+                                  <TabsTrigger value="error">
+                                    Błąd
+                                    {alert.error_message && <AlertCircle className="h-3 w-3 ml-1" />}
+                                  </TabsTrigger>
+                                </TabsList>
+                                
+                                <TabsContent value="market" className="space-y-4 mt-4">
+                                  {alert.raw_data && typeof alert.raw_data === 'object' && !Array.isArray(alert.raw_data) && (
+                                    <>
+                                      {/* Technical Indicators */}
+                                      {(alert.raw_data as any).technical && (
+                                        <Card>
+                                          <CardHeader>
+                                            <CardTitle className="text-sm">Wskaźniki Techniczne</CardTitle>
+                                          </CardHeader>
+                                          <CardContent className="text-sm space-y-2">
+                                            <div className="grid grid-cols-2 gap-2">
+                                              <div><span className="font-medium">ADX:</span> {(alert.raw_data as any).technical.adx}</div>
+                                              <div><span className="font-medium">MFI:</span> {(alert.raw_data as any).technical.mfi}</div>
+                                              <div><span className="font-medium">MACD Signal:</span> {(alert.raw_data as any).technical.macd_signal}</div>
+                                              <div><span className="font-medium">EMA Alignment:</span> {(alert.raw_data as any).technical.ema_alignment}</div>
+                                              <div><span className="font-medium">MTF Agreement:</span> {(alert.raw_data as any).technical.mtf_agreement}</div>
+                                              <div><span className="font-medium">VWAP Position:</span> {(alert.raw_data as any).technical.vwap_position}</div>
+                                            </div>
+                                          </CardContent>
+                                        </Card>
+                                      )}
+                                      
+                                      {/* Market Filters */}
+                                      {(alert.raw_data as any).filters && (
+                                        <Card>
+                                          <CardHeader>
+                                            <CardTitle className="text-sm">Filtry Rynkowe</CardTitle>
+                                          </CardHeader>
+                                          <CardContent className="text-sm space-y-2">
+                                            <div className="grid grid-cols-2 gap-2">
+                                              <div><span className="font-medium">Market Condition:</span> {(alert.raw_data as any).filters.market_condition}</div>
+                                              <div><span className="font-medium">Room to Target:</span> {(alert.raw_data as any).filters.room_to_target}%</div>
+                                              <div><span className="font-medium">Wave Multiplier:</span> {(alert.raw_data as any).filters.wave_multiplier}</div>
+                                              <div><span className="font-medium">Volume Multiplier:</span> {(alert.raw_data as any).filters.volume_multiplier}</div>
+                                              <div><span className="font-medium">Regime Multiplier:</span> {(alert.raw_data as any).filters.regime_multiplier}</div>
+                                            </div>
+                                          </CardContent>
+                                        </Card>
+                                      )}
+                                      
+                                      {/* SMC Context */}
+                                      {(alert.raw_data as any).smc_context && (
+                                        <Card>
+                                          <CardHeader>
+                                            <CardTitle className="text-sm">SMC Context</CardTitle>
+                                          </CardHeader>
+                                          <CardContent className="text-sm space-y-2">
+                                            <div className="grid grid-cols-2 gap-2">
+                                              <div><span className="font-medium">Regime:</span> {(alert.raw_data as any).smc_context.regime}</div>
+                                              <div><span className="font-medium">BOS Direction:</span> {(alert.raw_data as any).smc_context.bos_direction}</div>
+                                              <div><span className="font-medium">BTC Correlation:</span> {(alert.raw_data as any).smc_context.btc_correlation}</div>
+                                              <div><span className="font-medium">Liquidity Sweep:</span> {(alert.raw_data as any).smc_context.liquidity_sweep ? 'Yes' : 'No'}</div>
+                                            </div>
+                                          </CardContent>
+                                        </Card>
+                                      )}
+                                      
+                                      {/* Diagnostics */}
+                                      {(alert.raw_data as any).diagnostics && (
+                                        <Card>
+                                          <CardHeader>
+                                            <CardTitle className="text-sm">Diagnostyka</CardTitle>
+                                          </CardHeader>
+                                          <CardContent className="text-sm space-y-2">
+                                            <div className="grid grid-cols-2 gap-2">
+                                              <div><span className="font-medium">Health:</span> {(alert.raw_data as any).diagnostics.health}</div>
+                                              <div><span className="font-medium">Regime:</span> {(alert.raw_data as any).diagnostics.regime}</div>
+                                              <div><span className="font-medium">Buy Strength:</span> {(alert.raw_data as any).diagnostics.buy_str}</div>
+                                              <div><span className="font-medium">Sell Strength:</span> {(alert.raw_data as any).diagnostics.sell_str}</div>
+                                              <div><span className="font-medium">Institutional Flow:</span> {(alert.raw_data as any).diagnostics.inst_flow}</div>
+                                              <div><span className="font-medium">MTF Agreement:</span> {(alert.raw_data as any).diagnostics.mtf_agree}</div>
+                                            </div>
+                                          </CardContent>
+                                        </Card>
+                                      )}
+                                    </>
+                                  )}
+                                </TabsContent>
+                                
+                                <TabsContent value="raw" className="mt-4">
+                                  <Card>
+                                    <CardContent className="pt-4">
+                                      <pre className="text-xs overflow-auto bg-muted p-4 rounded">
+                                        {JSON.stringify(alert.raw_data, null, 2)}
+                                      </pre>
+                                    </CardContent>
+                                  </Card>
+                                </TabsContent>
+                                
+                                <TabsContent value="error" className="mt-4">
+                                  {alert.error_message ? (
+                                    <Card className="border-destructive">
+                                      <CardHeader>
+                                        <CardTitle className="text-sm text-destructive flex items-center gap-2">
+                                          <AlertCircle className="h-4 w-4" />
+                                          Błąd wykonania
+                                        </CardTitle>
+                                      </CardHeader>
+                                      <CardContent>
+                                        <p className="text-sm">{alert.error_message}</p>
+                                      </CardContent>
+                                    </Card>
+                                  ) : (
+                                    <Card>
+                                      <CardContent className="pt-6 text-center text-muted-foreground">
+                                        Brak błędów dla tego alertu
+                                      </CardContent>
+                                    </Card>
+                                  )}
+                                </TabsContent>
+                              </Tabs>
+                            </ScrollArea>
+                          </DialogContent>
+                        </Dialog>
+                      </TableCell>
                     </TableRow>
                   ))
                 ) : (
                   <TableRow>
-                    <TableCell colSpan={10} className="text-center py-8 text-muted-foreground">
+                    <TableCell colSpan={11} className="text-center py-8 text-muted-foreground">
                       Brak alertów
                     </TableCell>
                   </TableRow>
