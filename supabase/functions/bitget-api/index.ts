@@ -136,6 +136,10 @@ serve(async (req) => {
 
       case 'place_order':
         // Place market order - v2 API
+        // Determine tradeSide from side param (open_long/open_short/close_long/close_short)
+        const isLong = params.side.toLowerCase().includes('long');
+        const tradeSide = isLong ? 'long' : 'short';
+        
         result = await bitgetRequest(config, 'POST', '/api/v2/mix/order/place-order', {
           symbol: params.symbol,
           productType: 'USDT-FUTURES',
@@ -144,7 +148,7 @@ serve(async (req) => {
           size: params.size.toString(),
           price: '',
           side: params.side.toLowerCase(), // 'open_long', 'open_short', 'close_long', 'close_short'
-          tradeSide: params.side.toLowerCase().includes('long') ? 'long' : 'short',
+          tradeSide: tradeSide,
           orderType: 'market',
           force: 'ioc',
         });
