@@ -225,7 +225,7 @@ async function checkPositionFullVerification(supabase: any, position: any, autoR
 
   // 5. Check if SL order exists
   const slOrders = planOrders.filter((order: any) => 
-    (order.planType === 'loss_plan' || 
+    (order.planType === 'pos_loss' || order.planType === 'loss_plan' || 
      (order.planType === 'profit_loss' && order.stopLossTriggerPrice)) &&
     order.planStatus === 'live'
   );
@@ -272,7 +272,7 @@ async function checkPositionFullVerification(supabase: any, position: any, autoR
 
   // 6. Check if TP orders exist (if configured)
   const tpOrders = planOrders.filter((order: any) => 
-    (order.planType === 'profit_plan' || 
+    (order.planType === 'pos_profit' || order.planType === 'profit_plan' || 
      (order.planType === 'profit_loss' && order.stopSurplusTriggerPrice)) &&
     order.planStatus === 'live'
   );

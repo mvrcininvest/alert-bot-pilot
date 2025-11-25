@@ -57,7 +57,7 @@ export default function Dashboard() {
             slOrders: ordersData?.success && ordersData.data?.entrustedList
               ? ordersData.data.entrustedList.filter((o: any) => 
                   o.symbol.toLowerCase() === pos.symbol.toLowerCase() &&
-                  (o.planType === 'loss_plan' || 
+                  (o.planType === 'pos_loss' || o.planType === 'loss_plan' || 
                    (o.planType === 'profit_loss' && o.stopLossTriggerPrice)) && 
                   o.planStatus === 'live'
                 )
@@ -65,7 +65,7 @@ export default function Dashboard() {
             tpOrders: ordersData?.success && ordersData.data?.entrustedList
               ? ordersData.data.entrustedList.filter((o: any) => 
                   o.symbol.toLowerCase() === pos.symbol.toLowerCase() &&
-                  (o.planType === 'profit_plan' || 
+                  (o.planType === 'pos_profit' || o.planType === 'profit_plan' || 
                    (o.planType === 'profit_loss' && o.stopSurplusTriggerPrice)) && 
                   o.planStatus === 'live'
                 )
@@ -248,8 +248,10 @@ export default function Dashboard() {
                 {positionsWithLivePnL && positionsWithLivePnL.length > 0 ? (
                   positionsWithLivePnL.map((pos) => {
                     const positionValue = Number(pos.quantity) * Number(pos.entry_price);
-                    const pnlPercent = positionValue !== 0 
-                      ? ((Number(pos.unrealized_pnl) || 0) / positionValue) * 100 
+                    const marginUsed = positionValue / Number(pos.leverage);
+                    // PnL% relative to margin (ROI with leverage)
+                    const pnlPercent = marginUsed !== 0 
+                      ? ((Number(pos.unrealized_pnl) || 0) / marginUsed) * 100 
                       : 0;
                     const notionalValue = Number(pos.quantity) * Number(pos.entry_price);
                     
