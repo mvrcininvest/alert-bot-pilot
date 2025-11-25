@@ -50,16 +50,23 @@ export default function Stats() {
         .from("positions")
         .select(`
           *,
-          alerts!inner (
+          alerts (
             is_test
           )
         `)
         .eq("status", "closed")
-        .neq("close_reason", "error") // Exclude positions from failed alerts
-        .eq("alerts.is_test", false); // Exclude test alerts
+        .neq("close_reason", "error"); // Exclude positions from failed alerts
       
       if (error) throw error;
-      return data || [];
+      
+      // Filter out test alerts on client side (for positions that have alerts)
+      return (data || []).filter(position => {
+        // Keep imported positions (no alert_id)
+        if (!position.alert_id) return true;
+        // For positions with alerts, exclude test alerts
+        const alert = Array.isArray(position.alerts) ? position.alerts[0] : position.alerts;
+        return alert && !alert.is_test;
+      });
     },
     refetchInterval: 30000, // Refresh every 30 seconds
   });
