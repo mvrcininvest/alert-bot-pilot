@@ -40,13 +40,12 @@ export default function Dashboard() {
             }
           });
           
-          // Get plan orders (SL/TP)
+  // Get plan orders (SL/TP)
           const { data: ordersData } = await supabase.functions.invoke('bitget-api', {
             body: { 
               action: 'get_plan_orders',
               params: { 
-                symbol: pos.symbol,
-                productType: 'USDT-FUTURES'
+                symbol: pos.symbol
               }
             }
           });
@@ -55,11 +54,21 @@ export default function Dashboard() {
             currentPrice: tickerData?.success && tickerData.data?.[0]?.lastPr 
               ? Number(tickerData.data[0].lastPr) 
               : null,
-            slOrders: ordersData?.success && ordersData.data
-              ? ordersData.data.filter((o: any) => o.planType === 'loss_plan' && o.state === 'live')
+            slOrders: ordersData?.success && ordersData.data?.entrustedList
+              ? ordersData.data.entrustedList.filter((o: any) => 
+                  o.symbol.toLowerCase() === pos.symbol.toLowerCase() &&
+                  (o.planType === 'loss_plan' || 
+                   (o.planType === 'profit_loss' && o.stopLossTriggerPrice)) && 
+                  o.planStatus === 'live'
+                )
               : [],
-            tpOrders: ordersData?.success && ordersData.data
-              ? ordersData.data.filter((o: any) => o.planType === 'profit_plan' && o.state === 'live')
+            tpOrders: ordersData?.success && ordersData.data?.entrustedList
+              ? ordersData.data.entrustedList.filter((o: any) => 
+                  o.symbol.toLowerCase() === pos.symbol.toLowerCase() &&
+                  (o.planType === 'profit_plan' || 
+                   (o.planType === 'profit_loss' && o.stopSurplusTriggerPrice)) && 
+                  o.planStatus === 'live'
+                )
               : []
           };
         } catch (err) {
@@ -92,10 +101,16 @@ export default function Dashboard() {
     const slOrders = liveInfo?.slOrders || [];
     const tpOrders = liveInfo?.tpOrders || [];
     
-    const realSlPrice = slOrders.length > 0 ? Number(slOrders[0].triggerPrice) : null;
-    const realTpPrices = tpOrders.map((o: any) => Number(o.triggerPrice)).sort((a: number, b: number) => 
-      pos.side === 'BUY' ? a - b : b - a
-    );
+    // Extract trigger prices - check both specific fields and general triggerPrice
+    const realSlPrice = slOrders.length > 0 
+      ? Number(slOrders[0].stopLossTriggerPrice || slOrders[0].triggerPrice) 
+      : null;
+    const realTpPrices = tpOrders
+      .map((o: any) => Number(o.stopSurplusTriggerPrice || o.triggerPrice))
+      .filter((price: number) => !isNaN(price))
+      .sort((a: number, b: number) => 
+        pos.side === 'BUY' ? a - b : b - a
+      );
     
     return {
       ...pos,
