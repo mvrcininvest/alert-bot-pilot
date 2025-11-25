@@ -44,12 +44,12 @@ serve(async (req) => {
       .insert({
         symbol: alertData.symbol,
         side: alertData.side,
-        entry_price: alertData.price,
+        entry_price: alertData.entryPrice || alertData.price,  // Try entryPrice first, fallback to price
         sl: alertData.sl,
         tp1: alertData.tp1,
         tp2: alertData.tp2,
         tp3: alertData.tp3,
-        main_tp: alertData.main_tp,
+        main_tp: alertData.mainTp || alertData.main_tp,  // Support both camelCase and snake_case
         atr: alertData.atr,
         leverage: alertData.leverage,
         strength: alertData.strength,

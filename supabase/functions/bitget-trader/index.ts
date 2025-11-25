@@ -20,7 +20,14 @@ serve(async (req) => {
     );
 
     const { alert_id, alert_data, settings } = await req.json();
-    console.log('Opening position for alert:', alert_id);
+    console.log('=== BITGET TRADER STARTED ===');
+    console.log('Alert ID:', alert_id);
+    console.log('Alert symbol:', alert_data.symbol);
+    console.log('Alert side:', alert_data.side);
+    console.log('Alert tier:', alert_data.tier);
+    console.log('Alert strength:', alert_data.strength);
+    console.log('Alert entry price:', alert_data.price);
+    console.log('Alert leverage:', alert_data.leverage);
 
     // Check if we've reached max open positions
     const { data: openPositions, error: countError } = await supabase
@@ -111,24 +118,52 @@ serve(async (req) => {
       }
     }
 
-    // Get account balance (placeholder - would call Bitget API)
-    const accountBalance = 10000; // TODO: Get from Bitget
+    // Get account balance from Bitget
+    console.log('Fetching account balance from Bitget API...');
+    const { data: accountData } = await supabase.functions.invoke('bitget-api', {
+      body: { action: 'get_account' }
+    });
+    
+    let accountBalance = 10000; // fallback if API fails
+    if (accountData?.success && accountData.data?.[0]) {
+      // v2 API returns both 'available' and 'accountEquity' fields
+      // Use accountEquity for more accurate total balance including unrealized PnL
+      const accountInfo = accountData.data[0];
+      accountBalance = Number(accountInfo.accountEquity || accountInfo.available) || 10000;
+      console.log(`✓ Real account balance from Bitget: ${accountBalance} USDT (equity)`);
+      console.log(`  Available margin: ${Number(accountInfo.available || 0).toFixed(2)} USDT`);
+    } else {
+      console.warn('⚠ Failed to get account balance from Bitget, using fallback:', accountBalance);
+      console.warn('Account API response:', JSON.stringify(accountData));
+    }
 
     // Determine leverage to use for this position
     let effectiveLeverage: number;
+    let leverageSource: string;
     
     // Check if we should use alert leverage or settings leverage
     if (settings.use_alert_leverage !== false && alert_data.leverage) {
       // Use leverage from alert
       effectiveLeverage = alert_data.leverage;
+      leverageSource = 'alert';
       console.log(`Using leverage from alert: ${effectiveLeverage}x`);
     } else {
       // Use leverage from settings
       const symbolLeverageOverrides = settings.symbol_leverage_overrides || {};
       const defaultLeverage = settings.default_leverage || 10;
-      effectiveLeverage = symbolLeverageOverrides[alert_data.symbol] || defaultLeverage;
-      console.log(`Using leverage ${effectiveLeverage}x for ${alert_data.symbol} (default: ${defaultLeverage}, custom: ${symbolLeverageOverrides[alert_data.symbol] || 'none'})`);
+      
+      if (symbolLeverageOverrides[alert_data.symbol]) {
+        effectiveLeverage = symbolLeverageOverrides[alert_data.symbol];
+        leverageSource = 'symbol_override';
+      } else {
+        effectiveLeverage = defaultLeverage;
+        leverageSource = 'default';
+      }
+      
+      console.log(`Using leverage ${effectiveLeverage}x for ${alert_data.symbol} (source: ${leverageSource})`);
     }
+    
+    console.log(`Setting leverage on Bitget: ${effectiveLeverage}x for ${alert_data.symbol}`);
     // Set leverage on Bitget before placing order
     await supabase.functions.invoke('bitget-api', {
       body: {
@@ -158,15 +193,30 @@ serve(async (req) => {
     }
 
     // Calculate SL/TP prices
+    console.log('Calculating SL/TP prices...');
     const { sl_price, tp1_price, tp2_price, tp3_price } = calculateSLTP(
       alert_data,
       settings,
       quantity
     );
-    console.log('Calculated prices:', { sl_price, tp1_price, tp2_price, tp3_price });
+    console.log('✓ Calculated prices:', { 
+      entry: alert_data.price,
+      sl_price, 
+      tp1_price, 
+      tp2_price, 
+      tp3_price,
+      quantity 
+    });
 
     // Call Bitget API to place order
     const side = alert_data.side === 'BUY' ? 'open_long' : 'open_short';
+    console.log(`Placing ${side} order on Bitget for ${alert_data.symbol}...`);
+    console.log('Order params:', {
+      symbol: alert_data.symbol,
+      size: quantity.toString(),
+      side: side,
+      leverage: effectiveLeverage
+    });
     
     const { data: orderResult } = await supabase.functions.invoke('bitget-api', {
       body: {
@@ -308,6 +358,26 @@ serve(async (req) => {
       .single();
 
     if (positionError) throw positionError;
+
+    console.log('Position saved to database:', position.id);
+    console.log('=== TRADE EXECUTION SUMMARY ===');
+    console.log('Symbol:', alert_data.symbol);
+    console.log('Side:', alert_data.side);
+    console.log('Tier:', alert_data.tier);
+    console.log('Strength:', alert_data.strength);
+    console.log('Entry Price:', alert_data.price);
+    console.log('Quantity:', quantity);
+    console.log('Notional Value:', (quantity * alert_data.price).toFixed(2), 'USDT');
+    console.log('Leverage:', effectiveLeverage + 'x', `(source: ${leverageSource})`);
+    console.log('Margin Used:', ((quantity * alert_data.price) / effectiveLeverage).toFixed(2), 'USDT');
+    console.log('SL Price:', sl_price);
+    console.log('TP1 Price:', tp1_price);
+    if (tp2_price) console.log('TP2 Price:', tp2_price);
+    if (tp3_price) console.log('TP3 Price:', tp3_price);
+    console.log('Order ID:', orderId);
+    console.log('SL Order ID:', slOrderId);
+    console.log('TP1 Order ID:', tp1OrderId);
+    console.log('============================');
 
     // Update alert status
     await supabase
