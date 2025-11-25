@@ -212,6 +212,11 @@ export default function Settings() {
                   value={localSettings.position_size_value}
                   onChange={(e) => updateLocal("position_size_value", parseFloat(e.target.value))}
                 />
+                {localSettings.position_sizing_type === "fixed_usdt" && (
+                  <p className="text-xs text-muted-foreground">
+                    Wartość kontraktu bez dźwigni (notional). Z dźwignią 10x potrzebujesz 10x mniej marginu.
+                  </p>
+                )}
               </div>
             </CardContent>
           </Card>
