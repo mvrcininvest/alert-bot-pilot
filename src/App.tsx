@@ -11,6 +11,7 @@ import History from "./pages/History";
 import Stats from "./pages/Stats";
 import Integration from "./pages/Integration";
 import Settings from "./pages/Settings";
+import Logs from "./pages/Logs";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -30,6 +31,7 @@ const App = () => (
             <Route path="/stats" element={<Stats />} />
             <Route path="/integration" element={<Integration />} />
             <Route path="/settings" element={<Settings />} />
+            <Route path="/logs" element={<Logs />} />
             <Route path="*" element={<NotFound />} />
           </Routes>
         </Layout>
