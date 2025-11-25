@@ -7,19 +7,22 @@ const corsHeaders = {
 
 interface BitgetHistoricalPosition {
   positionId: string;
-  category: string;
   symbol: string;
-  posSide: 'long' | 'short';
-  openPriceAvg: string;
-  closePriceAvg: string;
+  holdSide: 'long' | 'short';
+  openAvgPrice: string;
+  closeAvgPrice: string;
   openTotalPos: string;
   closeTotalPos: string;
+  pnl: string;
   netProfit: string;
-  cumRealisedPnl: string;
-  createdTime: string;
-  updatedTime: string;
+  totalFee: string;
+  openFee: string;
+  closeFee: string;
+  cTime: string;
+  uTime: string;
   marginMode: string;
   marginCoin: string;
+  leverage: string;
 }
 
 async function signBitgetRequest(
@@ -61,9 +64,9 @@ async function fetchBitgetHistory(startTime: number, endTime: number): Promise<B
   const apiKey = Deno.env.get('BITGET_API_KEY');
   const passphrase = Deno.env.get('BITGET_PASSPHRASE');
   const baseUrl = 'https://api.bitget.com';
-  const path = '/api/v3/position/history-position';
+  const path = '/api/v2/mix/position/history-position';
   
-  const queryString = `?category=USDT-FUTURES&startTime=${startTime}&endTime=${endTime}&limit=100`;
+  const queryString = `?productType=USDT-FUTURES&startTime=${startTime}&endTime=${endTime}&pageSize=100`;
   const timestamp = Date.now().toString();
   const signature = await signBitgetRequest('GET', path, queryString, '', timestamp);
 
@@ -114,15 +117,15 @@ Deno.serve(async (req) => {
     // Map Bitget positions to our database format
     const dbPositions = positions.map(pos => ({
       symbol: pos.symbol.replace('USDT', ''),
-      side: pos.posSide === 'long' ? 'BUY' : 'SELL',
-      entry_price: parseFloat(pos.openPriceAvg),
-      close_price: parseFloat(pos.closePriceAvg),
+      side: pos.holdSide === 'long' ? 'BUY' : 'SELL',
+      entry_price: parseFloat(pos.openAvgPrice),
+      close_price: parseFloat(pos.closeAvgPrice),
       quantity: parseFloat(pos.closeTotalPos),
-      leverage: 10, // Default since not in history
+      leverage: parseInt(pos.leverage) || 10,
       realized_pnl: parseFloat(pos.netProfit),
       status: 'closed',
-      created_at: new Date(parseInt(pos.createdTime)).toISOString(),
-      closed_at: new Date(parseInt(pos.updatedTime)).toISOString(),
+      created_at: new Date(parseInt(pos.cTime)).toISOString(),
+      closed_at: new Date(parseInt(pos.uTime)).toISOString(),
       close_reason: 'imported_from_bitget',
       sl_price: 0,
       metadata: {
@@ -130,7 +133,8 @@ Deno.serve(async (req) => {
         import_date: new Date().toISOString(),
         bitget_position_id: pos.positionId,
         margin_mode: pos.marginMode,
-        cum_realised_pnl: pos.cumRealisedPnl,
+        pnl: pos.pnl,
+        total_fee: pos.totalFee,
         open_total_pos: pos.openTotalPos,
       }
     }));
