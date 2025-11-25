@@ -4,8 +4,11 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { TrendingUp, Activity, DollarSign, Wallet } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { Button } from "@/components/ui/button";
+import { useToast } from "@/hooks/use-toast";
 
 export default function Dashboard() {
+  const { toast } = useToast();
   const { data: positions } = useQuery({
     queryKey: ["open-positions"],
     queryFn: async () => {
@@ -279,6 +282,48 @@ export default function Dashboard() {
                                 ⚠️ NO TP
                               </Badge>
                             )}
+                            <Button
+                              size="sm"
+                              variant="destructive"
+                              onClick={async () => {
+                                if (!confirm(`Zamknąć pozycję ${pos.symbol}?`)) return;
+                                try {
+                                  const closeSide = pos.side === 'BUY' ? 'close_long' : 'close_short';
+                                  const { data, error } = await supabase.functions.invoke('bitget-api', {
+                                    body: {
+                                      action: 'place_order',
+                                      params: {
+                                        symbol: pos.symbol,
+                                        size: pos.quantity.toString(),
+                                        side: closeSide,
+                                      }
+                                    }
+                                  });
+                                  
+                                  if (error || !data?.success) throw new Error('Nie udało się zamknąć pozycji');
+                                  
+                                  // Update position status in DB
+                                  await supabase
+                                    .from('positions')
+                                    .update({
+                                      status: 'closed',
+                                      close_reason: 'Manual close from dashboard',
+                                      closed_at: new Date().toISOString()
+                                    })
+                                    .eq('id', pos.id);
+                                  
+                                  toast({ title: 'Zamknięto pozycję', description: `${pos.symbol} zamknięta` });
+                                } catch (err: any) {
+                                  toast({ 
+                                    title: 'Błąd', 
+                                    description: err.message, 
+                                    variant: 'destructive' 
+                                  });
+                                }
+                              }}
+                            >
+                              Zamknij
+                            </Button>
                           </div>
                         </div>
                         
