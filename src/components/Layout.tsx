@@ -71,11 +71,14 @@ export function Layout({ children }: { children: React.ReactNode }) {
     }
   }, [user, loading, navigate]);
 
-  // Redirect to API keys setup if user doesn't have keys (except on api-keys page)
+  // Redirect to migration/API keys setup if user doesn't have keys
   useEffect(() => {
     const currentPath = window.location.pathname;
-    if (!loading && !checkingApiKeys && user && !hasApiKeys && currentPath !== '/settings/api-keys') {
-      navigate('/settings/api-keys');
+    const allowedPaths = ['/settings/api-keys', '/migrate-api-keys'];
+    
+    if (!loading && !checkingApiKeys && user && !hasApiKeys && !allowedPaths.includes(currentPath)) {
+      // Try migration first (for existing users with global keys)
+      navigate('/migrate-api-keys');
     }
   }, [user, loading, checkingApiKeys, hasApiKeys, navigate]);
 
@@ -129,9 +132,9 @@ export function Layout({ children }: { children: React.ReactNode }) {
     .toUpperCase()
     .slice(0, 2);
 
-  // Show simplified layout for users without API keys on the setup page
-  const isOnApiKeysPage = window.location.pathname === '/settings/api-keys';
-  const showSimplifiedLayout = !hasApiKeys && isOnApiKeysPage;
+  // Show simplified layout for users without API keys on setup/migration pages
+  const isOnSetupPage = ['/settings/api-keys', '/migrate-api-keys'].includes(window.location.pathname);
+  const showSimplifiedLayout = !hasApiKeys && isOnSetupPage;
 
   return (
     <div className="min-h-screen">
