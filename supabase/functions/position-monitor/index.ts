@@ -270,6 +270,10 @@ async function checkPositionFullVerification(supabase: any, position: any, autoR
       const holdSide = position.side === 'BUY' ? 'long' : 'short';
       const roundedSlPrice = roundPrice(position.sl_price, pricePlace);
       
+      // Get repair attempts from metadata
+      const metadata = position.metadata || {};
+      const slRepairAttempts = metadata.sl_repair_attempts || 0;
+      
       const { data: slResult, error: slError } = await supabase.functions.invoke('bitget-api', {
         body: {
           action: 'place_tpsl_order',
@@ -291,15 +295,106 @@ async function checkPositionFullVerification(supabase: any, position: any, autoR
           message: 'Failed to invoke bitget-api for SL',
           level: 'error',
           positionId: position.id,
-          metadata: { error: slError }
+          metadata: { error: slError, attempts: slRepairAttempts + 1 }
         });
+        
+        // Update repair attempts
+        await supabase
+          .from('positions')
+          .update({ 
+            metadata: { ...metadata, sl_repair_attempts: slRepairAttempts + 1 }
+          })
+          .eq('id', position.id);
+          
+        // If 2nd attempt failed, emergency close and ban symbol
+        if (slRepairAttempts >= 1) {
+          console.log(`🚨 EMERGENCY: 2nd SL repair attempt failed for ${position.symbol}, closing position and banning symbol`);
+          
+          // Close position at market
+          const closeSide = position.side === 'BUY' ? 'close_long' : 'close_short';
+          const { data: closeResult } = await supabase.functions.invoke('bitget-api', {
+            body: {
+              action: 'place_order',
+              params: {
+                symbol: position.symbol,
+                size: bitgetQuantity.toString(),
+                side: closeSide,
+              }
+            }
+          });
+          
+          if (closeResult?.success) {
+            await supabase
+              .from('positions')
+              .update({
+                status: 'closed',
+                close_reason: 'Emergency close - failed to set SL after 2 attempts',
+                close_price: currentPrice,
+                closed_at: new Date().toISOString()
+              })
+              .eq('id', position.id);
+            
+            // Ban the symbol
+            await supabase
+              .from('banned_symbols')
+              .insert({
+                symbol: position.symbol,
+                reason: 'Failed to set SL after 2 attempts - emergency close'
+              });
+            
+            actions.push(`🚨 EMERGENCY: Closed position and banned ${position.symbol}`);
+            
+            await log({
+              functionName: 'position-monitor',
+              message: `Emergency close and ban: ${position.symbol}`,
+              level: 'error',
+              positionId: position.id,
+              metadata: { 
+                reason: 'Failed to set SL after 2 attempts',
+                closePrice: currentPrice
+              }
+            });
+            
+            // Log to monitoring_logs
+            await supabase
+              .from('monitoring_logs')
+              .insert({
+                position_id: position.id,
+                check_type: 'emergency_close',
+                status: 'critical',
+                issues: [{
+                  type: 'emergency_close',
+                  reason: 'Failed to set SL after 2 attempts'
+                }],
+                actions_taken: `Closed position at market (${currentPrice}) and banned symbol ${position.symbol}`,
+                expected_data: { sl_price: position.sl_price },
+                actual_data: { current_price: currentPrice, sl_missing: true }
+              });
+          }
+        }
       } else if (slResult?.success) {
         await supabase
           .from('positions')
-          .update({ sl_order_id: slResult.data.orderId })
+          .update({ 
+            sl_order_id: slResult.data.orderId,
+            metadata: { ...metadata, sl_repair_attempts: 0 } // Reset on success
+          })
           .eq('id', position.id);
         actions.push('Placed missing SL order');
         console.log(`✅ SL order placed: ${slResult.data.orderId}`);
+        
+        // Log successful repair
+        await supabase
+          .from('monitoring_logs')
+          .insert({
+            position_id: position.id,
+            check_type: 'sl_repair',
+            status: 'success',
+            issues: [{ type: 'missing_sl', severity: 'critical' }],
+            actions_taken: `Successfully placed SL order: ${slResult.data.orderId}`,
+            expected_data: { sl_price: position.sl_price },
+            actual_data: { sl_order_id: slResult.data.orderId }
+          });
       } else {
         console.error(`❌ Failed to place SL order:`, JSON.stringify(slResult));
         await log({
@@ -307,8 +402,96 @@ async function checkPositionFullVerification(supabase: any, position: any, autoR
           message: 'Failed to place SL order during auto-repair',
           level: 'error',
           positionId: position.id,
-          metadata: { error: slResult?.error || 'Unknown error', result: slResult }
+          metadata: { error: slResult?.error || 'Unknown error', result: slResult, attempts: slRepairAttempts + 1 }
         });
+        
+        // Update repair attempts
+        await supabase
+          .from('positions')
+          .update({ 
+            metadata: { ...metadata, sl_repair_attempts: slRepairAttempts + 1 }
+          })
+          .eq('id', position.id);
+          
+        // If 2nd attempt failed, emergency close and ban symbol
+        if (slRepairAttempts >= 1) {
+          console.log(`🚨 EMERGENCY: 2nd SL repair attempt failed for ${position.symbol}, closing position and banning symbol`);
+          
+          // Close position at market
+          const closeSide = position.side === 'BUY' ? 'close_long' : 'close_short';
+          const { data: closeResult } = await supabase.functions.invoke('bitget-api', {
+            body: {
+              action: 'place_order',
+              params: {
+                symbol: position.symbol,
+                size: bitgetQuantity.toString(),
+                side: closeSide,
+              }
+            }
+          });
+          
+          if (closeResult?.success) {
+            await supabase
+              .from('positions')
+              .update({
+                status: 'closed',
+                close_reason: 'Emergency close - failed to set SL after 2 attempts',
+                close_price: currentPrice,
+                closed_at: new Date().toISOString()
+              })
+              .eq('id', position.id);
+            
+            // Ban the symbol
+            await supabase
+              .from('banned_symbols')
+              .insert({
+                symbol: position.symbol,
+                reason: 'Failed to set SL after 2 attempts - emergency close'
+              });
+            
+            actions.push(`🚨 EMERGENCY: Closed position and banned ${position.symbol}`);
+            
+            await log({
+              functionName: 'position-monitor',
+              message: `Emergency close and ban: ${position.symbol}`,
+              level: 'error',
+              positionId: position.id,
+              metadata: { 
+                reason: 'Failed to set SL after 2 attempts',
+                closePrice: currentPrice
+              }
+            });
+            
+            // Log to monitoring_logs
+            await supabase
+              .from('monitoring_logs')
+              .insert({
+                position_id: position.id,
+                check_type: 'emergency_close',
+                status: 'critical',
+                issues: [{
+                  type: 'emergency_close',
+                  reason: 'Failed to set SL after 2 attempts'
+                }],
+                actions_taken: `Closed position at market (${currentPrice}) and banned symbol ${position.symbol}`,
+                expected_data: { sl_price: position.sl_price },
+                actual_data: { current_price: currentPrice, sl_missing: true }
+              });
+          }
+        } else {
+          // Log failed repair attempt
+          await supabase
+            .from('monitoring_logs')
+            .insert({
+              position_id: position.id,
+              check_type: 'sl_repair',
+              status: 'failed',
+              issues: [{ type: 'missing_sl', severity: 'critical' }],
+              actions_taken: `Failed to place SL order (attempt ${slRepairAttempts + 1}/2)`,
+              expected_data: { sl_price: position.sl_price },
+              actual_data: { error: slResult?.error || 'Unknown error' }
+            });
+        }
       }
     }
   }
@@ -336,6 +519,10 @@ async function checkPositionFullVerification(supabase: any, position: any, autoR
     if (autoRepair) {
       console.log(`🔧 Auto-repairing: Placing TP orders`);
       const holdSide = position.side === 'BUY' ? 'long' : 'short';
+      const metadata = position.metadata || {};
+      const tpRepairAttempts = metadata.tp_repair_attempts || 0;
+      
+      let tpRepairFailed = false;
       
       if (position.tp1_price) {
         const tp1Qty = bitgetQuantity * (settings?.tp1_close_percent || 100) / 100;
@@ -356,16 +543,17 @@ async function checkPositionFullVerification(supabase: any, position: any, autoR
           }
         });
         
-        if (tp1Error) {
-          console.error(`❌ Supabase invoke error for TP1:`, tp1Error);
+        if (tp1Error || !tp1Result?.success) {
+          tpRepairFailed = true;
+          console.error(`❌ Failed to place TP1 order:`, tp1Error || tp1Result);
           await log({
             functionName: 'position-monitor',
-            message: 'Failed to invoke bitget-api for TP1',
+            message: 'Failed to place TP1 order during auto-repair',
             level: 'error',
             positionId: position.id,
-            metadata: { error: tp1Error }
+            metadata: { error: tp1Error || tp1Result?.error || 'Unknown error', attempts: tpRepairAttempts + 1 }
           });
-        } else if (tp1Result?.success) {
+        } else {
           await supabase
             .from('positions')
             .update({ 
@@ -375,19 +563,23 @@ async function checkPositionFullVerification(supabase: any, position: any, autoR
             .eq('id', position.id);
           actions.push('Placed missing TP1 order');
           console.log(`✅ TP1 order placed: ${tp1Result.data.orderId}`);
-        } else {
-          console.error(`❌ Failed to place TP1 order:`, JSON.stringify(tp1Result));
-          await log({
-            functionName: 'position-monitor',
-            message: 'Failed to place TP1 order during auto-repair',
-            level: 'error',
-            positionId: position.id,
-            metadata: { error: tp1Result?.error || 'Unknown error', result: tp1Result }
-          });
+          
+          // Log successful repair
+          await supabase
+            .from('monitoring_logs')
+            .insert({
+              position_id: position.id,
+              check_type: 'tp_repair',
+              status: 'success',
+              issues: [{ type: 'missing_tp', severity: 'high' }],
+              actions_taken: `Successfully placed TP1 order: ${tp1Result.data.orderId}`,
+              expected_data: { tp1_price: position.tp1_price },
+              actual_data: { tp1_order_id: tp1Result.data.orderId }
+            });
         }
       }
       
-      if (position.tp2_price) {
+      if (position.tp2_price && !tpRepairFailed) {
         const tp2Qty = bitgetQuantity * (settings?.tp2_close_percent || 0) / 100;
         if (tp2Qty > 0) {
           const roundedTp2Price = roundPrice(position.tp2_price, pricePlace);
@@ -407,9 +599,10 @@ async function checkPositionFullVerification(supabase: any, position: any, autoR
             }
           });
           
-          if (tp2Error) {
-            console.error(`❌ Supabase invoke error for TP2:`, tp2Error);
-          } else if (tp2Result?.success) {
+          if (tp2Error || !tp2Result?.success) {
+            tpRepairFailed = true;
+            console.error(`❌ Failed to place TP2 order:`, tp2Error || tp2Result);
+          } else {
             await supabase
               .from('positions')
               .update({ 
@@ -421,6 +614,63 @@ async function checkPositionFullVerification(supabase: any, position: any, autoR
             console.log(`✅ TP2 order placed: ${tp2Result.data.orderId}`);
           }
         }
+      }
+      
+      if (tpRepairFailed) {
+        // Update repair attempts
+        await supabase
+          .from('positions')
+          .update({ 
+            metadata: { ...metadata, tp_repair_attempts: tpRepairAttempts + 1 }
+          })
+          .eq('id', position.id);
+          
+        // If 2nd attempt failed, log as failed but don't emergency close (TP is not critical like SL)
+        if (tpRepairAttempts >= 1) {
+          console.log(`⚠️ 2nd TP repair attempt failed for ${position.symbol}`);
+          
+          await log({
+            functionName: 'position-monitor',
+            message: `Failed to set TP after 2 attempts: ${position.symbol}`,
+            level: 'warn',
+            positionId: position.id,
+            metadata: { reason: 'Failed to set TP after 2 attempts' }
+          });
+          
+          // Log to monitoring_logs
+          await supabase
+            .from('monitoring_logs')
+            .insert({
+              position_id: position.id,
+              check_type: 'tp_repair',
+              status: 'failed',
+              issues: [{ type: 'missing_tp', severity: 'high' }],
+              actions_taken: `Failed to place TP order after 2 attempts - position continues without TP`,
+              expected_data: { tp1_price: position.tp1_price, tp2_price: position.tp2_price },
+              actual_data: { tp_missing: true }
+            });
+        } else {
+          // Log failed repair attempt
+          await supabase
+            .from('monitoring_logs')
+            .insert({
+              position_id: position.id,
+              check_type: 'tp_repair',
+              status: 'failed',
+              issues: [{ type: 'missing_tp', severity: 'high' }],
+              actions_taken: `Failed to place TP order (attempt ${tpRepairAttempts + 1}/2)`,
+              expected_data: { tp1_price: position.tp1_price },
+              actual_data: { error: 'Failed to place TP order' }
+            });
+        }
+      } else {
+        // Reset attempts on success
+        await supabase
+          .from('positions')
+          .update({ 
+            metadata: { ...metadata, tp_repair_attempts: 0 }
+          })
+          .eq('id', position.id);
       }
     }
   }

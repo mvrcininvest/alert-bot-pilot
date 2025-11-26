@@ -89,6 +89,30 @@ export type Database = {
         }
         Relationships: []
       }
+      banned_symbols: {
+        Row: {
+          banned_at: string
+          created_at: string
+          id: string
+          reason: string
+          symbol: string
+        }
+        Insert: {
+          banned_at?: string
+          created_at?: string
+          id?: string
+          reason: string
+          symbol: string
+        }
+        Update: {
+          banned_at?: string
+          created_at?: string
+          id?: string
+          reason?: string
+          symbol?: string
+        }
+        Relationships: []
+      }
       bot_logs: {
         Row: {
           alert_id: string | null
