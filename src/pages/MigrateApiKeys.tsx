@@ -10,7 +10,7 @@ import { Loader2, Key, ArrowRight, CheckCircle2, AlertCircle } from "lucide-reac
 export default function MigrateApiKeys() {
   const navigate = useNavigate();
   const { toast } = useToast();
-  const [migrating, setMigrating] = useState(true); // Start with migrating=true
+  const [migrating, setMigrating] = useState(true);
   const [success, setSuccess] = useState(false);
   const hasAttemptedMigration = useRef(false);
 
@@ -26,24 +26,14 @@ export default function MigrateApiKeys() {
       if (error) throw error;
 
       if (data.alreadyExists) {
-        toast({
-          title: "Już skonfigurowane",
-          description: "Twoje klucze API są już ustawione. Przekierowywanie do panelu...",
-        });
-        // Force full page reload to refresh hasApiKeys state in Layout
-        setTimeout(() => {
-          window.location.href = '/';
-        }, 1500);
+        // Keys already configured - redirect immediately without showing UI
+        window.location.href = '/';
         return;
       }
 
       if (!data.success) {
         // No keys to migrate - redirect to manual setup
-        toast({
-          title: "Nie znaleziono kluczy",
-          description: "Nie znaleziono globalnych kluczy API. Skonfiguruj je ręcznie.",
-        });
-        setTimeout(() => navigate('/settings/api-keys'), 1500);
+        navigate('/settings/api-keys');
         return;
       }
 
@@ -62,11 +52,7 @@ export default function MigrateApiKeys() {
       
       // If no keys found in secrets, redirect to manual setup
       if (error.message?.includes('not found')) {
-        toast({
-          title: "Wymagana ręczna konfiguracja",
-          description: "Przekierowywanie do konfiguracji kluczy API...",
-        });
-        setTimeout(() => navigate('/settings/api-keys'), 1500);
+        navigate('/settings/api-keys');
       } else {
         toast({
           title: "Błąd migracji",
