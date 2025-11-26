@@ -29,6 +29,43 @@ serve(async (req) => {
       alert_data.symbol = alert_data.symbol.slice(0, -2);
     }
     
+    // Check if symbol is banned
+    const { data: bannedSymbol } = await supabase
+      .from('banned_symbols')
+      .select('*')
+      .eq('symbol', alert_data.symbol)
+      .maybeSingle();
+    
+    if (bannedSymbol) {
+      await log({
+        functionName: 'bitget-trader',
+        message: 'Symbol is banned - alert rejected',
+        level: 'warn',
+        alertId: alert_id,
+        metadata: { 
+          symbol: alert_data.symbol,
+          bannedReason: bannedSymbol.reason,
+          bannedAt: bannedSymbol.banned_at
+        }
+      });
+      console.log(`⛔ Symbol ${alert_data.symbol} is banned: ${bannedSymbol.reason}`);
+      
+      await supabase
+        .from('alerts')
+        .update({ 
+          status: 'ignored', 
+          error_message: `Symbol banned: ${bannedSymbol.reason}` 
+        })
+        .eq('id', alert_id);
+      
+      return new Response(JSON.stringify({ 
+        success: false, 
+        message: `Symbol ${alert_data.symbol} is banned: ${bannedSymbol.reason}` 
+      }), {
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
+    }
+    
     await log({
       functionName: 'bitget-trader',
       message: 'Trader function started',

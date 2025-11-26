@@ -1,11 +1,16 @@
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { AlertCircle } from "lucide-react";
+import { AlertCircle, Eye, Ban, CheckCircle, XCircle } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { Button } from "@/components/ui/button";
+import { useToast } from "@/hooks/use-toast";
 
 export default function Diagnostics() {
+  const { toast } = useToast();
+  const queryClient = useQueryClient();
+  
   const { data: diagnostics } = useQuery({
     queryKey: ["bot-diagnostics"],
     queryFn: async () => {
@@ -22,19 +27,195 @@ export default function Diagnostics() {
     refetchInterval: 5000,
   });
 
+  const { data: monitoringLogs } = useQuery({
+    queryKey: ["oko-saurona-logs"],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("monitoring_logs")
+        .select("*, positions(symbol)")
+        .order("created_at", { ascending: false })
+        .limit(100);
+      
+      if (error) throw error;
+      return data || [];
+    },
+    refetchInterval: 5000,
+  });
+
+  const { data: bannedSymbols } = useQuery({
+    queryKey: ["banned-symbols"],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("banned_symbols")
+        .select("*")
+        .order("banned_at", { ascending: false });
+      
+      if (error) throw error;
+      return data || [];
+    },
+    refetchInterval: 5000,
+  });
+
+  const unbanMutation = useMutation({
+    mutationFn: async (symbolId: string) => {
+      const { error } = await supabase
+        .from("banned_symbols")
+        .delete()
+        .eq("id", symbolId);
+      
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["banned-symbols"] });
+      toast({
+        title: "Symbol odbanowany",
+        description: "Symbol został usunięty z listy zbanowanych",
+      });
+    },
+    onError: (error) => {
+      toast({
+        title: "Błąd",
+        description: error instanceof Error ? error.message : "Nie udało się odbanować symbolu",
+        variant: "destructive",
+      });
+    },
+  });
+
+  const getStatusColor = (status: string) => {
+    switch (status) {
+      case 'success':
+        return 'default';
+      case 'failed':
+        return 'destructive';
+      case 'critical':
+        return 'destructive';
+      default:
+        return 'secondary';
+    }
+  };
+
+  const getStatusIcon = (status: string) => {
+    switch (status) {
+      case 'success':
+        return <CheckCircle className="h-4 w-4 text-green-500" />;
+      case 'failed':
+      case 'critical':
+        return <XCircle className="h-4 w-4 text-destructive" />;
+      default:
+        return <AlertCircle className="h-4 w-4 text-yellow-500" />;
+    }
+  };
+
   return (
     <div className="space-y-6">
       <div>
         <h1 className="text-3xl font-bold">Diagnostyka</h1>
-        <p className="text-muted-foreground">Błędy i ostrzeżenia bota tradingowego</p>
+        <p className="text-muted-foreground">Monitorowanie i diagnostyka bota tradingowego</p>
       </div>
 
+      {/* Oko Saurona Widget */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Eye className="h-5 w-5" />
+            Oko Saurona - Monitoring Pozycji
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <ScrollArea className="h-[400px]">
+            <div className="space-y-3">
+              {monitoringLogs && monitoringLogs.length > 0 ? (
+                monitoringLogs.map((log) => (
+                  <div key={log.id} className="flex items-start gap-3 border-b border-border pb-3 last:border-0 last:pb-0">
+                    <div className="mt-0.5">
+                      {getStatusIcon(log.status)}
+                    </div>
+                    <div className="flex-1 space-y-1">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <Badge variant={getStatusColor(log.status)}>
+                          {log.check_type.replace(/_/g, ' ').toUpperCase()}
+                        </Badge>
+                        <Badge variant="outline">
+                          {log.positions?.symbol || 'N/A'}
+                        </Badge>
+                        <span className="text-xs text-muted-foreground">
+                          {new Date(log.created_at).toLocaleString()}
+                        </span>
+                      </div>
+                      {log.actions_taken && (
+                        <p className="text-sm font-medium">{log.actions_taken}</p>
+                      )}
+                      {log.issues && Array.isArray(log.issues) && (log.issues as any[]).length > 0 && (
+                        <div className="text-xs text-muted-foreground">
+                          <span className="font-semibold">Problemy:</span>{' '}
+                          {(log.issues as any[]).map((issue: any, i: number) => (
+                            <span key={i}>
+                              {issue.type || issue.reason || JSON.stringify(issue)}
+                              {i < (log.issues as any[]).length - 1 && ', '}
+                            </span>
+                          ))}
+                        </div>
+                      )}
+                      {log.error_message && (
+                        <p className="text-xs text-destructive">{log.error_message}</p>
+                      )}
+                    </div>
+                  </div>
+                ))
+              ) : (
+                <p className="text-center text-muted-foreground py-8">Brak akcji Oka Saurona</p>
+              )}
+            </div>
+          </ScrollArea>
+        </CardContent>
+      </Card>
+
+      {/* Banned Symbols */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Ban className="h-5 w-5" />
+            Zbanowane Symbole
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          {bannedSymbols && bannedSymbols.length > 0 ? (
+            <div className="space-y-3">
+              {bannedSymbols.map((banned) => (
+                <div key={banned.id} className="flex items-center justify-between p-3 border border-border rounded-lg">
+                  <div className="flex-1">
+                    <div className="flex items-center gap-2 mb-1">
+                      <Badge variant="destructive">{banned.symbol}</Badge>
+                      <span className="text-xs text-muted-foreground">
+                        Zbanowany: {new Date(banned.banned_at).toLocaleString()}
+                      </span>
+                    </div>
+                    <p className="text-sm text-muted-foreground">{banned.reason}</p>
+                  </div>
+                  <Button 
+                    variant="outline" 
+                    size="sm"
+                    onClick={() => unbanMutation.mutate(banned.id)}
+                    disabled={unbanMutation.isPending}
+                  >
+                    Odbanuj
+                  </Button>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <p className="text-center text-muted-foreground py-8">Brak zbanowanych symboli</p>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* Diagnostic Logs */}
       <Card>
         <CardHeader>
           <CardTitle>Logi Diagnostyczne</CardTitle>
         </CardHeader>
         <CardContent>
-          <ScrollArea className="h-[600px]">
+          <ScrollArea className="h-[400px]">
             <div className="space-y-3">
               {diagnostics && diagnostics.length > 0 ? (
                 diagnostics.map((log) => (
