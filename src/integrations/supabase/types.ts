@@ -89,6 +89,36 @@ export type Database = {
         }
         Relationships: []
       }
+      ban_history: {
+        Row: {
+          action: string
+          created_at: string
+          id: string
+          performed_at: string
+          performed_by: string
+          reason: string | null
+          user_id: string
+        }
+        Insert: {
+          action: string
+          created_at?: string
+          id?: string
+          performed_at?: string
+          performed_by: string
+          reason?: string | null
+          user_id: string
+        }
+        Update: {
+          action?: string
+          created_at?: string
+          id?: string
+          performed_at?: string
+          performed_by?: string
+          reason?: string | null
+          user_id?: string
+        }
+        Relationships: []
+      }
       banned_symbols: {
         Row: {
           banned_at: string

@@ -13,6 +13,7 @@ import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Textarea } from '@/components/ui/textarea';
 import { Label } from '@/components/ui/label';
+import UserDetailDialog from '@/components/admin/UserDetailDialog';
 
 interface UserData {
   id: string;
@@ -39,6 +40,7 @@ export default function Admin() {
   const [banDialogOpen, setBanDialogOpen] = useState(false);
   const [selectedUser, setSelectedUser] = useState<UserData | null>(null);
   const [banReason, setBanReason] = useState('');
+  const [detailDialogOpen, setDetailDialogOpen] = useState(false);
 
   useEffect(() => {
     if (!authLoading && !isAdmin) {
@@ -423,8 +425,15 @@ export default function Admin() {
                     const hasAdminRole = userData.roles.includes('admin');
 
                     return (
-                      <TableRow key={userData.id} className={userData.is_banned ? 'opacity-60' : ''}>
-                        <TableCell>
+                      <TableRow 
+                        key={userData.id} 
+                        className={`${userData.is_banned ? 'opacity-60' : ''} cursor-pointer hover:bg-accent/50 transition-colors`}
+                        onClick={() => {
+                          setSelectedUser(userData);
+                          setDetailDialogOpen(true);
+                        }}
+                      >
+                        <TableCell onClick={(e) => e.stopPropagation()}>
                           <div className="flex items-center gap-3">
                             <Avatar className="h-8 w-8">
                               <AvatarFallback className="text-xs bg-primary/10 text-primary">
@@ -450,10 +459,10 @@ export default function Admin() {
                             </div>
                           </div>
                         </TableCell>
-                        <TableCell className="text-sm text-muted-foreground">
+                        <TableCell className="text-sm text-muted-foreground" onClick={(e) => e.stopPropagation()}>
                           {userData.email}
                         </TableCell>
-                        <TableCell>
+                        <TableCell onClick={(e) => e.stopPropagation()}>
                           {userData.is_banned ? (
                             <Badge variant="destructive" className="text-xs">
                               <Ban className="h-3 w-3 mr-1" />
@@ -471,7 +480,7 @@ export default function Admin() {
                             </Badge>
                           )}
                         </TableCell>
-                        <TableCell>
+                        <TableCell onClick={(e) => e.stopPropagation()}>
                           <div className="flex items-center gap-2 text-sm">
                             {isUserOnline(userData.last_seen_at) ? (
                               <>
@@ -486,7 +495,7 @@ export default function Admin() {
                             )}
                           </div>
                         </TableCell>
-                        <TableCell>
+                        <TableCell onClick={(e) => e.stopPropagation()}>
                           <div className="flex gap-1">
                             {userData.roles.map(role => (
                               <Badge
@@ -504,7 +513,7 @@ export default function Admin() {
                             ))}
                           </div>
                         </TableCell>
-                        <TableCell>
+                        <TableCell onClick={(e) => e.stopPropagation()}>
                           <Badge
                             variant={userData.bot_active ? 'default' : 'outline'}
                             className="text-xs"
@@ -512,7 +521,7 @@ export default function Admin() {
                             {userData.bot_active ? 'ON' : 'OFF'}
                           </Badge>
                         </TableCell>
-                        <TableCell>
+                        <TableCell onClick={(e) => e.stopPropagation()}>
                           <Badge
                             variant={userData.has_api_keys ? 'default' : 'secondary'}
                             className="text-xs"
@@ -520,7 +529,7 @@ export default function Admin() {
                             {userData.has_api_keys ? '✓' : '✗'}
                           </Badge>
                         </TableCell>
-                        <TableCell>
+                        <TableCell onClick={(e) => e.stopPropagation()}>
                           <Badge
                             variant={userData.email_confirmed ? 'default' : 'secondary'}
                             className="text-xs"
@@ -528,7 +537,7 @@ export default function Admin() {
                             {userData.email_confirmed ? '✓' : '✗'}
                           </Badge>
                         </TableCell>
-                        <TableCell className="text-right">
+                        <TableCell className="text-right" onClick={(e) => e.stopPropagation()}>
                           <div className="flex items-center justify-end gap-2">
                             {userData.is_banned ? (
                               <Button
@@ -617,6 +626,15 @@ export default function Admin() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* User Detail Dialog */}
+      <UserDetailDialog
+        userId={selectedUser?.id || null}
+        userEmail={selectedUser?.email || ''}
+        userName={selectedUser?.display_name || ''}
+        open={detailDialogOpen}
+        onOpenChange={setDetailDialogOpen}
+      />
     </div>
   );
 }
