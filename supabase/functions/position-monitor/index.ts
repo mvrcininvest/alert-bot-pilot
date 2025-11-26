@@ -761,45 +761,47 @@ async function checkPositionFullVerification(supabase: any, position: any, autoR
     });
   }
   
-  // Log deviations if any found (but only once per position)
+  // Log deviations if any found (but only once per position - delete old ones first)
   if (deviations.length > 0) {
-    // Check if we already logged deviations for this position recently (last 24 hours)
-    const { data: existingDeviation } = await supabase
+    // Delete any existing deviation logs for this position to avoid duplicates
+    await supabase
       .from('monitoring_logs')
-      .select('id')
+      .delete()
       .eq('position_id', position.id)
-      .eq('check_type', 'deviations')
-      .gte('created_at', new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString())
-      .limit(1)
-      .maybeSingle();
+      .eq('check_type', 'deviations');
     
-    // Only log if no recent deviation log exists
-    if (!existingDeviation) {
-      await supabase
-        .from('monitoring_logs')
-        .insert({
-          position_id: position.id,
-          check_type: 'deviations',
-          status: 'warning',
-          issues: deviations,
-          actions_taken: `Found ${deviations.length} deviation(s) between planned and actual values`,
-          expected_data: {
-            sl_price: position.sl_price,
-            tp1_price: position.tp1_price,
-            tp2_price: position.tp2_price,
-            tp3_price: position.tp3_price,
-            tp1_quantity: position.tp1_quantity,
-            tp2_quantity: position.tp2_quantity,
-            tp3_quantity: position.tp3_quantity,
-            quantity: dbQuantity
-          },
-          actual_data: {
-            sl_orders: slOrders.map((o: any) => ({ price: o.triggerPrice || o.stopLossTriggerPrice })),
-            tp_orders: tpOrders.map((o: any) => ({ price: o.triggerPrice || o.stopSurplusTriggerPrice, size: o.size })),
-            quantity: bitgetQuantity
-          }
-        });
-    }
+    // Insert fresh deviation log
+    await supabase
+      .from('monitoring_logs')
+      .insert({
+        position_id: position.id,
+        check_type: 'deviations',
+        status: 'warning',
+        issues: deviations,
+        actions_taken: `Found ${deviations.length} deviation(s) between planned and actual values`,
+        expected_data: {
+          sl_price: position.sl_price,
+          tp1_price: position.tp1_price,
+          tp2_price: position.tp2_price,
+          tp3_price: position.tp3_price,
+          tp1_quantity: position.tp1_quantity,
+          tp2_quantity: position.tp2_quantity,
+          tp3_quantity: position.tp3_quantity,
+          quantity: dbQuantity
+        },
+        actual_data: {
+          sl_orders: slOrders.map((o: any) => ({ price: o.triggerPrice || o.stopLossTriggerPrice })),
+          tp_orders: tpOrders.map((o: any) => ({ price: o.triggerPrice || o.stopSurplusTriggerPrice, size: o.size })),
+          quantity: bitgetQuantity
+        }
+      });
+  } else {
+    // If no deviations found, delete any old deviation logs for this position
+    await supabase
+      .from('monitoring_logs')
+      .delete()
+      .eq('position_id', position.id)
+      .eq('check_type', 'deviations');
   }
 
   // 8. Check if price has crossed SL or TP levels
