@@ -1,4 +1,4 @@
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { TrendingUp, Activity, DollarSign, Wallet, TrendingDown, Target } from "lucide-react";
@@ -10,6 +10,7 @@ import { Progress } from "@/components/ui/progress";
 
 export default function Dashboard() {
   const { toast } = useToast();
+  const queryClient = useQueryClient();
   
   const { data: positions } = useQuery({
     queryKey: ["open-positions"],
@@ -359,6 +360,10 @@ export default function Dashboard() {
                                     closed_at: new Date().toISOString()
                                   })
                                   .eq('id', pos.id);
+                                
+                                // Invalidate queries to refresh data immediately
+                                queryClient.invalidateQueries({ queryKey: ["open-positions"] });
+                                queryClient.invalidateQueries({ queryKey: ["live-data"] });
                                 
                                 toast({ title: 'Zamknięto pozycję', description: `${pos.symbol} zamknięta` });
                               } catch (err: any) {

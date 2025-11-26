@@ -327,27 +327,11 @@ export default function History() {
                 }
               }}
             >
-              <Table className="invisible">
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Symbol</TableHead>
-                    <TableHead>Side</TableHead>
-                    <TableHead>Entry</TableHead>
-                    <TableHead>Close</TableHead>
-                    <TableHead>Quantity</TableHead>
-                    <TableHead>Leverage</TableHead>
-                    <TableHead>Wartość</TableHead>
-                    <TableHead>Margin</TableHead>
-                    <TableHead>PnL</TableHead>
-                    <TableHead>PnL %</TableHead>
-                    <TableHead>Powód zamknięcia</TableHead>
-                    <TableHead>Otwarcie</TableHead>
-                    <TableHead>Zamknięcie</TableHead>
-                    <TableHead>Czas</TableHead>
-                    <TableHead>Alert</TableHead>
-                  </TableRow>
-                </TableHeader>
-              </Table>
+              <div style={{ 
+                width: 'max-content',
+                height: '1px',
+                minWidth: '1800px' // Ensure scroll appears
+              }} />
             </div>
             
             {/* Main table with bottom scrollbar synced */}

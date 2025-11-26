@@ -251,25 +251,11 @@ export default function Alerts() {
                 }
               }}
             >
-              <Table className="invisible">
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Data</TableHead>
-                    <TableHead>Symbol</TableHead>
-                    <TableHead>Side</TableHead>
-                    <TableHead>Entry</TableHead>
-                    <TableHead>SL</TableHead>
-                    <TableHead>TP</TableHead>
-                    <TableHead>Tier</TableHead>
-                    <TableHead>Strength</TableHead>
-                    <TableHead>Leverage</TableHead>
-                    <TableHead>Latencja</TableHead>
-                    <TableHead>Status</TableHead>
-                    <TableHead>Test</TableHead>
-                    <TableHead>Akcje</TableHead>
-                  </TableRow>
-                </TableHeader>
-              </Table>
+              <div style={{ 
+                width: 'max-content',
+                height: '1px',
+                minWidth: '1800px' // Ensure scroll appears
+              }} />
             </div>
             
             {/* Main table with bottom scrollbar synced */}
