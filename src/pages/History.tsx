@@ -314,7 +314,53 @@ export default function History() {
           </CardTitle>
         </CardHeader>
         <CardContent>
-          <div className="overflow-x-auto">
+          <div className="space-y-2">
+            {/* Top scrollbar - identical copy for width sync */}
+            <div 
+              id="history-table-top-scroll"
+              className="overflow-x-auto overflow-y-hidden border rounded-md bg-muted/20"
+              style={{ height: '17px' }}
+              onScroll={(e) => {
+                const bottomScroll = document.getElementById('history-table-container');
+                if (bottomScroll) {
+                  bottomScroll.scrollLeft = e.currentTarget.scrollLeft;
+                }
+              }}
+            >
+              <Table className="invisible">
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Symbol</TableHead>
+                    <TableHead>Side</TableHead>
+                    <TableHead>Entry</TableHead>
+                    <TableHead>Close</TableHead>
+                    <TableHead>Quantity</TableHead>
+                    <TableHead>Leverage</TableHead>
+                    <TableHead>Wartość</TableHead>
+                    <TableHead>Margin</TableHead>
+                    <TableHead>PnL</TableHead>
+                    <TableHead>PnL %</TableHead>
+                    <TableHead>Powód zamknięcia</TableHead>
+                    <TableHead>Otwarcie</TableHead>
+                    <TableHead>Zamknięcie</TableHead>
+                    <TableHead>Czas</TableHead>
+                    <TableHead>Alert</TableHead>
+                  </TableRow>
+                </TableHeader>
+              </Table>
+            </div>
+            
+            {/* Main table with bottom scrollbar synced */}
+            <div 
+              id="history-table-container"
+              className="overflow-x-auto"
+              onScroll={(e) => {
+                const topScroll = e.currentTarget.previousElementSibling as HTMLElement;
+                if (topScroll) {
+                  topScroll.scrollLeft = e.currentTarget.scrollLeft;
+                }
+              }}
+            >
             <Table>
               <TableHeader>
                 <TableRow>
@@ -558,6 +604,7 @@ export default function History() {
                 )}
               </TableBody>
             </Table>
+            </div>
           </div>
         </CardContent>
       </Card>
