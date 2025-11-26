@@ -149,9 +149,11 @@ export default function Alerts() {
         </CardHeader>
         <CardContent>
           <div className="space-y-2">
-            {/* Top scrollbar */}
+            {/* Top scrollbar - identical copy for width sync */}
             <div 
-              className="overflow-x-auto overflow-y-hidden h-4"
+              id="alerts-table-top-scroll"
+              className="overflow-x-auto overflow-y-hidden border rounded-md bg-muted/20"
+              style={{ height: '17px' }}
               onScroll={(e) => {
                 const bottomScroll = document.getElementById('alerts-table-container');
                 if (bottomScroll) {
@@ -159,30 +161,25 @@ export default function Alerts() {
                 }
               }}
             >
-              <div style={{ width: 'max-content', height: '1px' }}>
-                {/* Invisible spacer matching table width */}
-                <div className="invisible">
-                  <Table>
-                    <TableHeader>
-                      <TableRow>
-                        <TableHead>Data</TableHead>
-                        <TableHead>Symbol</TableHead>
-                        <TableHead>Side</TableHead>
-                        <TableHead>Entry</TableHead>
-                        <TableHead>SL</TableHead>
-                        <TableHead>TP</TableHead>
-                        <TableHead>Tier</TableHead>
-                        <TableHead>Strength</TableHead>
-                        <TableHead>Leverage</TableHead>
-                        <TableHead>Latencja</TableHead>
-                        <TableHead>Status</TableHead>
-                        <TableHead>Test</TableHead>
-                        <TableHead>Akcje</TableHead>
-                      </TableRow>
-                    </TableHeader>
-                  </Table>
-                </div>
-              </div>
+              <Table className="invisible">
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Data</TableHead>
+                    <TableHead>Symbol</TableHead>
+                    <TableHead>Side</TableHead>
+                    <TableHead>Entry</TableHead>
+                    <TableHead>SL</TableHead>
+                    <TableHead>TP</TableHead>
+                    <TableHead>Tier</TableHead>
+                    <TableHead>Strength</TableHead>
+                    <TableHead>Leverage</TableHead>
+                    <TableHead>Latencja</TableHead>
+                    <TableHead>Status</TableHead>
+                    <TableHead>Test</TableHead>
+                    <TableHead>Akcje</TableHead>
+                  </TableRow>
+                </TableHeader>
+              </Table>
             </div>
             
             {/* Main table with bottom scrollbar synced */}
