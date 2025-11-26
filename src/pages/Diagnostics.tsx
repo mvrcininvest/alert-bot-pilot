@@ -1,7 +1,7 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { AlertCircle, Eye, Ban, CheckCircle, XCircle } from "lucide-react";
+import { AlertCircle, Eye, Ban, CheckCircle, XCircle, TrendingUp } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Button } from "@/components/ui/button";
@@ -11,22 +11,6 @@ export default function Diagnostics() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
   
-  const { data: diagnostics } = useQuery({
-    queryKey: ["bot-diagnostics"],
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from("bot_logs")
-        .select("*")
-        .in("level", ["error", "warn"])
-        .order("created_at", { ascending: false })
-        .limit(50);
-      
-      if (error) throw error;
-      return data || [];
-    },
-    refetchInterval: 5000,
-  });
-
   const { data: monitoringLogs } = useQuery({
     queryKey: ["oko-saurona-logs"],
     queryFn: async () => {
@@ -36,6 +20,22 @@ export default function Diagnostics() {
         .in("check_type", ["sl_repair", "tp_repair", "emergency_close"])
         .order("created_at", { ascending: false })
         .limit(100);
+      
+      if (error) throw error;
+      return data || [];
+    },
+    refetchInterval: 5000,
+  });
+
+  const { data: deviations } = useQuery({
+    queryKey: ["oko-saurona-deviations"],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("monitoring_logs")
+        .select("*, positions(symbol, side)")
+        .eq("check_type", "deviations")
+        .order("created_at", { ascending: false })
+        .limit(50);
       
       if (error) throw error;
       return data || [];
@@ -90,6 +90,8 @@ export default function Diagnostics() {
         return 'destructive';
       case 'critical':
         return 'destructive';
+      case 'warning':
+        return 'secondary';
       default:
         return 'secondary';
     }
@@ -114,12 +116,70 @@ export default function Diagnostics() {
         <p className="text-muted-foreground">Monitorowanie i diagnostyka bota tradingowego</p>
       </div>
 
+      {/* Deviations Widget */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <TrendingUp className="h-5 w-5" />
+            Odchylenia Poziomów i Ilości
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <ScrollArea className="h-[400px]">
+            <div className="space-y-3">
+              {deviations && deviations.length > 0 ? (
+                deviations.map((log) => {
+                  const issues = Array.isArray(log.issues) ? log.issues as any[] : [];
+                  return (
+                    <div key={log.id} className="border border-border rounded-lg p-4 space-y-2">
+                      <div className="flex items-center gap-2 flex-wrap mb-2">
+                        <Badge variant="outline">
+                          {log.positions?.symbol || 'N/A'}
+                        </Badge>
+                        <Badge variant="secondary">
+                          {log.positions?.side || 'N/A'}
+                        </Badge>
+                        <span className="text-xs text-muted-foreground">
+                          {new Date(log.created_at).toLocaleString()}
+                        </span>
+                      </div>
+                      <div className="space-y-1.5">
+                        {issues.map((deviation: any, i: number) => (
+                          <div key={i} className="flex items-start gap-2 text-sm">
+                            <div className="flex-1 grid grid-cols-2 gap-4 bg-muted/50 p-2 rounded">
+                              <div>
+                                <span className="text-xs text-muted-foreground uppercase">{deviation.label || deviation.type}</span>
+                                <div className="font-medium">
+                                  Plan: <span className="text-foreground">{Number(deviation.planned).toFixed(8)}</span>
+                                </div>
+                              </div>
+                              <div>
+                                <span className="text-xs text-muted-foreground">Odchylenie</span>
+                                <div className="font-medium text-yellow-600">
+                                  {Number(deviation.actual).toFixed(8)} ({deviation.deviation_percent}%)
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  );
+                })
+              ) : (
+                <p className="text-center text-muted-foreground py-8">Brak wykrytych odchyleń</p>
+              )}
+            </div>
+          </ScrollArea>
+        </CardContent>
+      </Card>
+
       {/* Oko Saurona Widget */}
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
             <Eye className="h-5 w-5" />
-            Oko Saurona - Monitoring Pozycji
+            Oko Saurona - Interwencje
           </CardTitle>
         </CardHeader>
         <CardContent>
@@ -164,7 +224,7 @@ export default function Diagnostics() {
                   </div>
                 ))
               ) : (
-                <p className="text-center text-muted-foreground py-8">Brak akcji Oka Saurona</p>
+                <p className="text-center text-muted-foreground py-8">Brak interwencji Oka Saurona</p>
               )}
             </div>
           </ScrollArea>
@@ -207,46 +267,6 @@ export default function Diagnostics() {
           ) : (
             <p className="text-center text-muted-foreground py-8">Brak zbanowanych symboli</p>
           )}
-        </CardContent>
-      </Card>
-
-      {/* Diagnostic Logs */}
-      <Card>
-        <CardHeader>
-          <CardTitle>Logi Diagnostyczne</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <ScrollArea className="h-[400px]">
-            <div className="space-y-3">
-              {diagnostics && diagnostics.length > 0 ? (
-                diagnostics.map((log) => (
-                  <div key={log.id} className="flex items-start gap-3 border-b border-border pb-3 last:border-0 last:pb-0">
-                    <div className="mt-0.5">
-                      {log.level === "error" ? (
-                        <AlertCircle className="h-4 w-4 text-destructive" />
-                      ) : (
-                        <AlertCircle className="h-4 w-4 text-yellow-500" />
-                      )}
-                    </div>
-                    <div className="flex-1 space-y-1">
-                      <div className="flex items-center gap-2">
-                        <Badge variant={log.level === "error" ? "destructive" : "secondary"}>
-                          {log.level.toUpperCase()}
-                        </Badge>
-                        <span className="text-xs text-muted-foreground">
-                          {new Date(log.created_at).toLocaleString()}
-                        </span>
-                      </div>
-                      <p className="text-sm">{log.message}</p>
-                      <p className="text-xs text-muted-foreground">{log.function_name}</p>
-                    </div>
-                  </div>
-                ))
-              ) : (
-                <p className="text-center text-muted-foreground py-8">Brak błędów i ostrzeżeń</p>
-              )}
-            </div>
-          </ScrollArea>
         </CardContent>
       </Card>
     </div>

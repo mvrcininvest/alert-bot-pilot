@@ -675,7 +675,121 @@ async function checkPositionFullVerification(supabase: any, position: any, autoR
     }
   }
 
-  // 7. Check if price has crossed SL or TP levels
+  // 7. Compare SL/TP order levels and quantities with planned values
+  const deviations: any[] = [];
+  
+  // Check SL order level deviation
+  if (slOrders.length > 0) {
+    const actualSlPrice = Number(slOrders[0].triggerPrice || slOrders[0].stopLossTriggerPrice);
+    const plannedSlPrice = Number(position.sl_price);
+    const slPriceDiff = Math.abs(actualSlPrice - plannedSlPrice);
+    const slPriceDeviation = (slPriceDiff / plannedSlPrice) * 100;
+    
+    if (slPriceDeviation > 0.1) { // More than 0.1% deviation
+      deviations.push({
+        type: 'sl_price_deviation',
+        planned: plannedSlPrice,
+        actual: actualSlPrice,
+        difference: slPriceDiff,
+        deviation_percent: slPriceDeviation.toFixed(2)
+      });
+      console.log(`📊 SL price deviation: Planned ${plannedSlPrice}, Actual ${actualSlPrice} (${slPriceDeviation.toFixed(2)}%)`);
+    }
+  }
+  
+  // Check TP order levels deviation
+  if (tpOrders.length > 0) {
+    tpOrders.forEach((tpOrder: any, index: number) => {
+      const actualTpPrice = Number(tpOrder.triggerPrice || tpOrder.stopSurplusTriggerPrice);
+      let plannedTpPrice = null;
+      let tpLabel = '';
+      
+      // Match TP order to planned TP level
+      if (position.tp1_price && Math.abs(actualTpPrice - Number(position.tp1_price)) < Math.abs(actualTpPrice - Number(position.tp2_price || 99999999))) {
+        plannedTpPrice = Number(position.tp1_price);
+        tpLabel = 'TP1';
+      } else if (position.tp2_price) {
+        plannedTpPrice = Number(position.tp2_price);
+        tpLabel = 'TP2';
+      } else if (position.tp3_price) {
+        plannedTpPrice = Number(position.tp3_price);
+        tpLabel = 'TP3';
+      }
+      
+      if (plannedTpPrice) {
+        const tpPriceDiff = Math.abs(actualTpPrice - plannedTpPrice);
+        const tpPriceDeviation = (tpPriceDiff / plannedTpPrice) * 100;
+        
+        if (tpPriceDeviation > 0.1) {
+          deviations.push({
+            type: `${tpLabel.toLowerCase()}_price_deviation`,
+            label: tpLabel,
+            planned: plannedTpPrice,
+            actual: actualTpPrice,
+            difference: tpPriceDiff,
+            deviation_percent: tpPriceDeviation.toFixed(2)
+          });
+          console.log(`📊 ${tpLabel} price deviation: Planned ${plannedTpPrice}, Actual ${actualTpPrice} (${tpPriceDeviation.toFixed(2)}%)`);
+        }
+      }
+      
+      // Check TP quantity deviation
+      const actualTpSize = Number(tpOrder.size || 0);
+      if (actualTpSize > 0) {
+        let plannedTpQty = 0;
+        if (tpLabel === 'TP1') plannedTpQty = Number(position.tp1_quantity || 0);
+        else if (tpLabel === 'TP2') plannedTpQty = Number(position.tp2_quantity || 0);
+        else if (tpLabel === 'TP3') plannedTpQty = Number(position.tp3_quantity || 0);
+        
+        if (plannedTpQty > 0) {
+          const qtyDiff = Math.abs(actualTpSize - plannedTpQty);
+          const qtyDeviation = (qtyDiff / plannedTpQty) * 100;
+          
+          if (qtyDeviation > 0.1) {
+            deviations.push({
+              type: `${tpLabel.toLowerCase()}_quantity_deviation`,
+              label: tpLabel,
+              planned: plannedTpQty,
+              actual: actualTpSize,
+              difference: qtyDiff,
+              deviation_percent: qtyDeviation.toFixed(2)
+            });
+            console.log(`📊 ${tpLabel} quantity deviation: Planned ${plannedTpQty}, Actual ${actualTpSize} (${qtyDeviation.toFixed(2)}%)`);
+          }
+        }
+      }
+    });
+  }
+  
+  // Log deviations if any found
+  if (deviations.length > 0) {
+    await supabase
+      .from('monitoring_logs')
+      .insert({
+        position_id: position.id,
+        check_type: 'deviations',
+        status: 'warning',
+        issues: deviations,
+        actions_taken: `Found ${deviations.length} deviation(s) between planned and actual values`,
+        expected_data: {
+          sl_price: position.sl_price,
+          tp1_price: position.tp1_price,
+          tp2_price: position.tp2_price,
+          tp3_price: position.tp3_price,
+          tp1_quantity: position.tp1_quantity,
+          tp2_quantity: position.tp2_quantity,
+          tp3_quantity: position.tp3_quantity,
+          quantity: dbQuantity
+        },
+        actual_data: {
+          sl_orders: slOrders.map((o: any) => ({ price: o.triggerPrice || o.stopLossTriggerPrice })),
+          tp_orders: tpOrders.map((o: any) => ({ price: o.triggerPrice || o.stopSurplusTriggerPrice, size: o.size })),
+          quantity: bitgetQuantity
+        }
+      });
+  }
+
+  // 8. Check if price has crossed SL or TP levels
   const isBuy = position.side === 'BUY';
   const slPrice = Number(position.sl_price);
   const tp1Price = position.tp1_price ? Number(position.tp1_price) : null;
