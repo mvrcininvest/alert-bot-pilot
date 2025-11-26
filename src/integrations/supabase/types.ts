@@ -366,6 +366,36 @@ export type Database = {
           },
         ]
       }
+      profiles: {
+        Row: {
+          avatar_url: string | null
+          created_at: string | null
+          display_name: string | null
+          email: string | null
+          id: string
+          is_active: boolean | null
+          updated_at: string | null
+        }
+        Insert: {
+          avatar_url?: string | null
+          created_at?: string | null
+          display_name?: string | null
+          email?: string | null
+          id: string
+          is_active?: boolean | null
+          updated_at?: string | null
+        }
+        Update: {
+          avatar_url?: string | null
+          created_at?: string | null
+          display_name?: string | null
+          email?: string | null
+          id?: string
+          is_active?: boolean | null
+          updated_at?: string | null
+        }
+        Relationships: []
+      }
       settings: {
         Row: {
           adaptive_rr: boolean | null
@@ -558,18 +588,246 @@ export type Database = {
         }
         Relationships: []
       }
+      user_roles: {
+        Row: {
+          created_at: string | null
+          id: string
+          role: Database["public"]["Enums"]["app_role"]
+          user_id: string
+        }
+        Insert: {
+          created_at?: string | null
+          id?: string
+          role?: Database["public"]["Enums"]["app_role"]
+          user_id: string
+        }
+        Update: {
+          created_at?: string | null
+          id?: string
+          role?: Database["public"]["Enums"]["app_role"]
+          user_id?: string
+        }
+        Relationships: []
+      }
+      user_settings: {
+        Row: {
+          adaptive_rr: boolean | null
+          adaptive_rr_standard: number | null
+          adaptive_rr_strong: number | null
+          adaptive_rr_very_strong: number | null
+          adaptive_rr_weak_signal: number | null
+          adaptive_tp_high_volatility_multiplier: number | null
+          adaptive_tp_low_volatility_multiplier: number | null
+          adaptive_tp_spacing: boolean | null
+          alert_strength_threshold: number | null
+          allowed_tiers: string[] | null
+          atr_sl_multiplier: number | null
+          atr_tp_multiplier: number | null
+          atr_tp2_multiplier: number | null
+          atr_tp3_multiplier: number | null
+          bot_active: boolean | null
+          breakeven_trigger_tp: number | null
+          calculator_type: Database["public"]["Enums"]["calculator_type"] | null
+          created_at: string | null
+          daily_loss_limit: number | null
+          daily_loss_percent: number | null
+          default_leverage: number | null
+          duplicate_alert_handling: boolean | null
+          excluded_tiers: string[] | null
+          filter_by_tier: boolean | null
+          id: string
+          loss_limit_type: string | null
+          max_open_positions: number | null
+          momentum_based_tp: boolean | null
+          momentum_moderate_multiplier: number | null
+          momentum_strong_multiplier: number | null
+          momentum_weak_multiplier: number | null
+          money_mode: Database["public"]["Enums"]["settings_mode"] | null
+          pnl_threshold_percent: number | null
+          position_size_value: number | null
+          position_sizing_type: string | null
+          require_profit_for_same_direction: boolean | null
+          rr_adaptive: boolean | null
+          rr_ratio: number | null
+          rr_sl_percent_margin: number | null
+          simple_sl_percent: number | null
+          simple_tp_percent: number | null
+          simple_tp2_percent: number | null
+          simple_tp3_percent: number | null
+          sl_method: Database["public"]["Enums"]["sl_method"] | null
+          sl_to_breakeven: boolean | null
+          sltp_mode: Database["public"]["Enums"]["settings_mode"] | null
+          symbol_leverage_overrides: Json | null
+          tier_mode: Database["public"]["Enums"]["settings_mode"] | null
+          tp_levels: number | null
+          tp_strategy: Database["public"]["Enums"]["tp_strategy"] | null
+          tp1_close_percent: number | null
+          tp1_rr_ratio: number | null
+          tp2_close_percent: number | null
+          tp2_rr_ratio: number | null
+          tp3_close_percent: number | null
+          tp3_rr_ratio: number | null
+          trailing_stop: boolean | null
+          trailing_stop_distance: number | null
+          trailing_stop_trigger_tp: number | null
+          updated_at: string | null
+          use_alert_leverage: boolean | null
+          user_id: string
+        }
+        Insert: {
+          adaptive_rr?: boolean | null
+          adaptive_rr_standard?: number | null
+          adaptive_rr_strong?: number | null
+          adaptive_rr_very_strong?: number | null
+          adaptive_rr_weak_signal?: number | null
+          adaptive_tp_high_volatility_multiplier?: number | null
+          adaptive_tp_low_volatility_multiplier?: number | null
+          adaptive_tp_spacing?: boolean | null
+          alert_strength_threshold?: number | null
+          allowed_tiers?: string[] | null
+          atr_sl_multiplier?: number | null
+          atr_tp_multiplier?: number | null
+          atr_tp2_multiplier?: number | null
+          atr_tp3_multiplier?: number | null
+          bot_active?: boolean | null
+          breakeven_trigger_tp?: number | null
+          calculator_type?:
+            | Database["public"]["Enums"]["calculator_type"]
+            | null
+          created_at?: string | null
+          daily_loss_limit?: number | null
+          daily_loss_percent?: number | null
+          default_leverage?: number | null
+          duplicate_alert_handling?: boolean | null
+          excluded_tiers?: string[] | null
+          filter_by_tier?: boolean | null
+          id?: string
+          loss_limit_type?: string | null
+          max_open_positions?: number | null
+          momentum_based_tp?: boolean | null
+          momentum_moderate_multiplier?: number | null
+          momentum_strong_multiplier?: number | null
+          momentum_weak_multiplier?: number | null
+          money_mode?: Database["public"]["Enums"]["settings_mode"] | null
+          pnl_threshold_percent?: number | null
+          position_size_value?: number | null
+          position_sizing_type?: string | null
+          require_profit_for_same_direction?: boolean | null
+          rr_adaptive?: boolean | null
+          rr_ratio?: number | null
+          rr_sl_percent_margin?: number | null
+          simple_sl_percent?: number | null
+          simple_tp_percent?: number | null
+          simple_tp2_percent?: number | null
+          simple_tp3_percent?: number | null
+          sl_method?: Database["public"]["Enums"]["sl_method"] | null
+          sl_to_breakeven?: boolean | null
+          sltp_mode?: Database["public"]["Enums"]["settings_mode"] | null
+          symbol_leverage_overrides?: Json | null
+          tier_mode?: Database["public"]["Enums"]["settings_mode"] | null
+          tp_levels?: number | null
+          tp_strategy?: Database["public"]["Enums"]["tp_strategy"] | null
+          tp1_close_percent?: number | null
+          tp1_rr_ratio?: number | null
+          tp2_close_percent?: number | null
+          tp2_rr_ratio?: number | null
+          tp3_close_percent?: number | null
+          tp3_rr_ratio?: number | null
+          trailing_stop?: boolean | null
+          trailing_stop_distance?: number | null
+          trailing_stop_trigger_tp?: number | null
+          updated_at?: string | null
+          use_alert_leverage?: boolean | null
+          user_id: string
+        }
+        Update: {
+          adaptive_rr?: boolean | null
+          adaptive_rr_standard?: number | null
+          adaptive_rr_strong?: number | null
+          adaptive_rr_very_strong?: number | null
+          adaptive_rr_weak_signal?: number | null
+          adaptive_tp_high_volatility_multiplier?: number | null
+          adaptive_tp_low_volatility_multiplier?: number | null
+          adaptive_tp_spacing?: boolean | null
+          alert_strength_threshold?: number | null
+          allowed_tiers?: string[] | null
+          atr_sl_multiplier?: number | null
+          atr_tp_multiplier?: number | null
+          atr_tp2_multiplier?: number | null
+          atr_tp3_multiplier?: number | null
+          bot_active?: boolean | null
+          breakeven_trigger_tp?: number | null
+          calculator_type?:
+            | Database["public"]["Enums"]["calculator_type"]
+            | null
+          created_at?: string | null
+          daily_loss_limit?: number | null
+          daily_loss_percent?: number | null
+          default_leverage?: number | null
+          duplicate_alert_handling?: boolean | null
+          excluded_tiers?: string[] | null
+          filter_by_tier?: boolean | null
+          id?: string
+          loss_limit_type?: string | null
+          max_open_positions?: number | null
+          momentum_based_tp?: boolean | null
+          momentum_moderate_multiplier?: number | null
+          momentum_strong_multiplier?: number | null
+          momentum_weak_multiplier?: number | null
+          money_mode?: Database["public"]["Enums"]["settings_mode"] | null
+          pnl_threshold_percent?: number | null
+          position_size_value?: number | null
+          position_sizing_type?: string | null
+          require_profit_for_same_direction?: boolean | null
+          rr_adaptive?: boolean | null
+          rr_ratio?: number | null
+          rr_sl_percent_margin?: number | null
+          simple_sl_percent?: number | null
+          simple_tp_percent?: number | null
+          simple_tp2_percent?: number | null
+          simple_tp3_percent?: number | null
+          sl_method?: Database["public"]["Enums"]["sl_method"] | null
+          sl_to_breakeven?: boolean | null
+          sltp_mode?: Database["public"]["Enums"]["settings_mode"] | null
+          symbol_leverage_overrides?: Json | null
+          tier_mode?: Database["public"]["Enums"]["settings_mode"] | null
+          tp_levels?: number | null
+          tp_strategy?: Database["public"]["Enums"]["tp_strategy"] | null
+          tp1_close_percent?: number | null
+          tp1_rr_ratio?: number | null
+          tp2_close_percent?: number | null
+          tp2_rr_ratio?: number | null
+          tp3_close_percent?: number | null
+          tp3_rr_ratio?: number | null
+          trailing_stop?: boolean | null
+          trailing_stop_distance?: number | null
+          trailing_stop_trigger_tp?: number | null
+          updated_at?: string | null
+          use_alert_leverage?: boolean | null
+          user_id?: string
+        }
+        Relationships: []
+      }
     }
     Views: {
       [_ in never]: never
     }
     Functions: {
-      [_ in never]: never
+      has_role: {
+        Args: {
+          _role: Database["public"]["Enums"]["app_role"]
+          _user_id: string
+        }
+        Returns: boolean
+      }
     }
     Enums: {
       alert_status: "pending" | "executed" | "ignored" | "error"
+      app_role: "admin" | "user"
       calculator_type: "simple_percent" | "risk_reward" | "atr_based"
       position_side: "BUY" | "SELL"
       position_status: "open" | "closed" | "error"
+      settings_mode: "custom" | "copy_admin"
       sl_method: "percent_margin" | "percent_entry" | "fixed_usdt" | "atr_based"
       tp_strategy: "partial_close" | "main_tp_only" | "trailing_stop"
     }
@@ -700,9 +958,11 @@ export const Constants = {
   public: {
     Enums: {
       alert_status: ["pending", "executed", "ignored", "error"],
+      app_role: ["admin", "user"],
       calculator_type: ["simple_percent", "risk_reward", "atr_based"],
       position_side: ["BUY", "SELL"],
       position_status: ["open", "closed", "error"],
+      settings_mode: ["custom", "copy_admin"],
       sl_method: ["percent_margin", "percent_entry", "fixed_usdt", "atr_based"],
       tp_strategy: ["partial_close", "main_tp_only", "trailing_stop"],
     },

@@ -12,6 +12,7 @@ import Stats from "./pages/Stats";
 import Integration from "./pages/Integration";
 import Settings from "./pages/Settings";
 import Logs from "./pages/Logs";
+import Auth from "./pages/Auth";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -22,19 +23,24 @@ const App = () => (
       <Toaster />
       <Sonner />
       <BrowserRouter>
-        <Layout>
-          <Routes>
-            <Route path="/" element={<Dashboard />} />
-            <Route path="/alerts" element={<Alerts />} />
-            <Route path="/diagnostics" element={<Diagnostics />} />
-            <Route path="/history" element={<History />} />
-            <Route path="/stats" element={<Stats />} />
-            <Route path="/integration" element={<Integration />} />
-            <Route path="/settings" element={<Settings />} />
-            <Route path="/logs" element={<Logs />} />
-            <Route path="*" element={<NotFound />} />
-          </Routes>
-        </Layout>
+        <Routes>
+          <Route path="/auth" element={<Auth />} />
+          <Route path="*" element={
+            <Layout>
+              <Routes>
+                <Route path="/" element={<Dashboard />} />
+                <Route path="/alerts" element={<Alerts />} />
+                <Route path="/diagnostics" element={<Diagnostics />} />
+                <Route path="/history" element={<History />} />
+                <Route path="/stats" element={<Stats />} />
+                <Route path="/integration" element={<Integration />} />
+                <Route path="/settings" element={<Settings />} />
+                <Route path="/logs" element={<Logs />} />
+                <Route path="*" element={<NotFound />} />
+              </Routes>
+            </Layout>
+          } />
+        </Routes>
       </BrowserRouter>
     </TooltipProvider>
   </QueryClientProvider>

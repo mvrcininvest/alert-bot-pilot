@@ -1,11 +1,15 @@
-import { Home, AlertCircle, History, BarChart3, Settings, FileText, Webhook, Power, AlertTriangle } from "lucide-react";
+import { Home, AlertCircle, History, BarChart3, Settings, FileText, Webhook, Power, AlertTriangle, LogOut } from "lucide-react";
 import { NavLink } from "./NavLink";
 import { cn } from "@/lib/utils";
 import logoAristoEdge from "@/assets/logo-aristoedge.png";
 import { Button } from "@/components/ui/button";
+import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
+import { useAuth } from "@/hooks/useAuth";
+import { useNavigate } from "react-router-dom";
+import { useEffect } from "react";
 
 const navigation = [
   { name: "Dashboard", href: "/", icon: Home },
@@ -21,6 +25,15 @@ const navigation = [
 export function Layout({ children }: { children: React.ReactNode }) {
   const { toast } = useToast();
   const queryClient = useQueryClient();
+  const { user, loading, signOut } = useAuth();
+  const navigate = useNavigate();
+
+  // Redirect to auth if not logged in
+  useEffect(() => {
+    if (!loading && !user) {
+      navigate('/auth');
+    }
+  }, [user, loading, navigate]);
 
   const emergencyShutdownMutation = useMutation({
     mutationFn: async () => {
@@ -47,6 +60,31 @@ export function Layout({ children }: { children: React.ReactNode }) {
     },
   });
 
+  const handleLogout = async () => {
+    await signOut();
+    navigate('/auth');
+  };
+
+  if (loading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-background">
+        <div className="animate-pulse text-muted-foreground">Ładowanie...</div>
+      </div>
+    );
+  }
+
+  if (!user) {
+    return null;
+  }
+
+  const displayName = user.user_metadata?.display_name || user.email?.split('@')[0] || 'User';
+  const initials = displayName
+    .split(' ')
+    .map((n: string) => n[0])
+    .join('')
+    .toUpperCase()
+    .slice(0, 2);
+
   return (
     <div className="min-h-screen">
       {/* Top Navigation Bar */}
@@ -72,8 +110,30 @@ export function Layout({ children }: { children: React.ReactNode }) {
             </nav>
           </div>
 
-          {/* Right side - Status & Emergency */}
+          {/* Right side - User Info, Status & Emergency */}
           <div className="flex items-center gap-4">
+            {/* User Info */}
+            <div className="hidden lg:flex items-center gap-3 px-3 py-2 rounded-lg bg-secondary/50 border border-border/50">
+              <Avatar className="h-8 w-8">
+                <AvatarFallback className="text-xs font-semibold bg-primary text-primary-foreground">
+                  {initials}
+                </AvatarFallback>
+              </Avatar>
+              <div className="flex flex-col">
+                <span className="text-sm font-medium text-foreground">{displayName}</span>
+                <span className="text-xs text-muted-foreground truncate max-w-[150px]">{user?.email}</span>
+              </div>
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={handleLogout}
+                className="h-8 w-8 text-muted-foreground hover:text-foreground"
+                title="Wyloguj"
+              >
+                <LogOut className="h-4 w-4" />
+              </Button>
+            </div>
+
             {/* Bot Status */}
             <div className="hidden md:flex items-center gap-2 px-3 py-1.5 rounded-full bg-profit/10 border border-profit/20">
               <div className="h-2 w-2 rounded-full bg-profit animate-pulse" />
