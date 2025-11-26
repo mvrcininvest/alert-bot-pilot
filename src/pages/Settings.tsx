@@ -1601,6 +1601,21 @@ export default function Settings() {
                     </p>
                   </div>
 
+                  <div className="space-y-2">
+                    <Label>Próg PnL (USDT)</Label>
+                    <Input
+                      type="number"
+                      min="0"
+                      step="0.1"
+                      value={localSettings.pnl_threshold_usdt || 1.0}
+                      onChange={(e) => updateLocal("pnl_threshold_usdt", parseFloat(e.target.value))}
+                    />
+                    <p className="text-xs text-muted-foreground">
+                      Minimalny zysk/strata w USDT aby uznać pozycję za "na plusie" lub "na minusie". 
+                      Poniżej tego progu pozycja jest traktowana jako break-even. Domyślnie: 1 USDT
+                    </p>
+                  </div>
+
                   <Separator />
 
                   <div className="p-4 bg-muted/50 rounded-lg space-y-3">
@@ -1610,8 +1625,8 @@ export default function Settings() {
                       <div className="font-semibold">Alert w tym samym kierunku (LONG → LONG):</div>
                       <ul className="list-disc list-inside space-y-1 text-muted-foreground ml-2">
                         <li>Słabszy lub &lt;{Math.round((localSettings.alert_strength_threshold || 0.20) * 100)} pkt mocniejszy → ❌ Odrzuć</li>
-                        <li>≥{Math.round((localSettings.alert_strength_threshold || 0.20) * 100)} pkt mocniejszy + pozycja na minusie → ❌ Odrzuć</li>
-                        <li>≥{Math.round((localSettings.alert_strength_threshold || 0.20) * 100)} pkt mocniejszy + pozycja na plusie → ✅ Zamknij i otwórz nową</li>
+                        <li>≥{Math.round((localSettings.alert_strength_threshold || 0.20) * 100)} pkt mocniejszy + pozycja na minusie/break-even → ❌ Odrzuć</li>
+                        <li>≥{Math.round((localSettings.alert_strength_threshold || 0.20) * 100)} pkt mocniejszy + pozycja na plusie (&gt;{localSettings.pnl_threshold_usdt || 1} USDT) → ✅ Zamknij i otwórz nową</li>
                       </ul>
                     </div>
 
@@ -1619,15 +1634,16 @@ export default function Settings() {
                       <div className="font-semibold">Alert w przeciwnym kierunku (LONG → SHORT):</div>
                       <ul className="list-disc list-inside space-y-1 text-muted-foreground ml-2">
                         <li>Słabszy lub &lt;{Math.round((localSettings.alert_strength_threshold || 0.20) * 100)} pkt mocniejszy → ❌ Odrzuć</li>
-                        <li>≥{Math.round((localSettings.alert_strength_threshold || 0.20) * 100)} pkt mocniejszy + pozycja na minusie → ✅ Zamknij i otwórz nową</li>
-                        <li>≥{Math.round((localSettings.alert_strength_threshold || 0.20) * 100)} pkt mocniejszy + pozycja na plusie → ❌ Odrzuć (chroń zysk)</li>
+                        <li>≥{Math.round((localSettings.alert_strength_threshold || 0.20) * 100)} pkt mocniejszy + pozycja na minusie/break-even → ✅ Zamknij i otwórz nową</li>
+                        <li>≥{Math.round((localSettings.alert_strength_threshold || 0.20) * 100)} pkt mocniejszy + pozycja na plusie (&gt;{localSettings.pnl_threshold_usdt || 1} USDT) → ❌ Odrzuć (chroń zysk)</li>
                       </ul>
                     </div>
 
                     <div className="p-3 bg-background/50 rounded text-xs text-muted-foreground">
                       <strong>Jak to działa:</strong> Gdy pojawia się nowy alert na symbolu z już otwartą pozycją, 
                       system porównuje siłę sygnałów i stan PnL. Silniejsze sygnały (różnica ≥{Math.round((localSettings.alert_strength_threshold || 0.20) * 100)} pkt) 
-                      mogą zamknąć istniejącą pozycję jeśli warunki są spełnione. Pozycje na plusie są chronione.
+                      mogą zamknąć istniejącą pozycję jeśli warunki są spełnione. Pozycje ze znaczącym zyskiem (&gt;{localSettings.pnl_threshold_usdt || 1} USDT) 
+                      są chronione. Pozycje z PnL między -{localSettings.pnl_threshold_usdt || 1} a +{localSettings.pnl_threshold_usdt || 1} USDT traktowane jako break-even.
                     </div>
                   </div>
                 </>

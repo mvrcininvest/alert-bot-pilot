@@ -377,6 +377,7 @@ export type Database = {
           momentum_strong_multiplier: number | null
           momentum_weak_multiplier: number | null
           monitor_interval_seconds: number | null
+          pnl_threshold_usdt: number | null
           position_size_value: number
           position_sizing_type: string
           profile_name: string | null
@@ -439,6 +440,7 @@ export type Database = {
           momentum_strong_multiplier?: number | null
           momentum_weak_multiplier?: number | null
           monitor_interval_seconds?: number | null
+          pnl_threshold_usdt?: number | null
           position_size_value?: number
           position_sizing_type?: string
           profile_name?: string | null
@@ -501,6 +503,7 @@ export type Database = {
           momentum_strong_multiplier?: number | null
           momentum_weak_multiplier?: number | null
           monitor_interval_seconds?: number | null
+          pnl_threshold_usdt?: number | null
           position_size_value?: number
           position_sizing_type?: string
           profile_name?: string | null
