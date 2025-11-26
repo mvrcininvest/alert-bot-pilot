@@ -211,39 +211,12 @@ export default function History() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-start justify-between">
+      <div className="flex items-center justify-between">
         <div>
           <h1 className="text-3xl font-bold">Historia Pozycji</h1>
           <p className="text-muted-foreground">Wszystkie zamknięte pozycje</p>
         </div>
         <div className="flex gap-2">
-          <Popover>
-            <PopoverTrigger asChild>
-              <Button variant="outline" className={cn("justify-start text-left font-normal", !dateFrom && "text-muted-foreground")}>
-                <CalendarIcon className="mr-2 h-4 w-4" />
-                {dateFrom ? format(dateFrom, "dd.MM.yyyy") : "Data od"}
-              </Button>
-            </PopoverTrigger>
-            <PopoverContent className="w-auto p-0" align="start">
-              <Calendar mode="single" selected={dateFrom} onSelect={setDateFrom} initialFocus />
-            </PopoverContent>
-          </Popover>
-          <Popover>
-            <PopoverTrigger asChild>
-              <Button variant="outline" className={cn("justify-start text-left font-normal", !dateTo && "text-muted-foreground")}>
-                <CalendarIcon className="mr-2 h-4 w-4" />
-                {dateTo ? format(dateTo, "dd.MM.yyyy") : "Data do"}
-              </Button>
-            </PopoverTrigger>
-            <PopoverContent className="w-auto p-0" align="start">
-              <Calendar mode="single" selected={dateTo} onSelect={setDateTo} initialFocus />
-            </PopoverContent>
-          </Popover>
-          {(dateFrom || dateTo) && (
-            <Button variant="ghost" onClick={() => { setDateFrom(undefined); setDateTo(undefined); }}>
-              Wyczyść
-            </Button>
-          )}
           <Button variant="outline" onClick={exportToCSV}>
             <Download className="mr-2 h-4 w-4" />
             CSV
@@ -253,6 +226,36 @@ export default function History() {
             JSON
           </Button>
         </div>
+      </div>
+      
+      <div className="flex gap-2">
+        <Popover>
+          <PopoverTrigger asChild>
+            <Button variant="outline" className={cn("justify-start text-left font-normal", !dateFrom && "text-muted-foreground")}>
+              <CalendarIcon className="mr-2 h-4 w-4" />
+              {dateFrom ? format(dateFrom, "dd.MM.yyyy") : "Data od"}
+            </Button>
+          </PopoverTrigger>
+          <PopoverContent className="w-auto p-0" align="start">
+            <Calendar mode="single" selected={dateFrom} onSelect={setDateFrom} initialFocus />
+          </PopoverContent>
+        </Popover>
+        <Popover>
+          <PopoverTrigger asChild>
+            <Button variant="outline" className={cn("justify-start text-left font-normal", !dateTo && "text-muted-foreground")}>
+              <CalendarIcon className="mr-2 h-4 w-4" />
+              {dateTo ? format(dateTo, "dd.MM.yyyy") : "Data do"}
+            </Button>
+          </PopoverTrigger>
+          <PopoverContent className="w-auto p-0" align="start">
+            <Calendar mode="single" selected={dateTo} onSelect={setDateTo} initialFocus />
+          </PopoverContent>
+        </Popover>
+        {(dateFrom || dateTo) && (
+          <Button variant="ghost" onClick={() => { setDateFrom(undefined); setDateTo(undefined); }}>
+            Wyczyść
+          </Button>
+        )}
       </div>
 
       {stats && (
@@ -358,11 +361,14 @@ export default function History() {
                     const closeReasonMap: Record<string, string> = {
                       'imported_from_bitget': 'Import z Bitget',
                       'tp_hit': 'TP osiągnięty',
-                      'sl_hit': 'SL osiągnięty',
+                      'tp1_hit': 'TP1 osiągnięty',
+                      'tp2_hit': 'TP2 osiągnięty',
+                      'tp3_hit': 'TP3 osiągnięty',
+                      'sl_hit': 'SL wybity',
                       'manual_close': 'Zamknięcie ręczne',
                       'trailing_stop': 'Trailing Stop',
                       'breakeven_stop': 'Breakeven',
-                      'position_not_found_on_exchange': 'Pozycja nie znaleziona na giełdzie',
+                      'unknown': 'Nieznany',
                       'error': 'Błąd'
                     };
                     

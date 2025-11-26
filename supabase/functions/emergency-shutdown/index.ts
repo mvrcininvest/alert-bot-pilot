@@ -87,9 +87,9 @@ serve(async (req) => {
         });
 
         if (!positionResult?.success || !positionResult.data || !positionResult.data[0]) {
-          console.log(`Position ${position.symbol} not found on exchange, marking as closed in DB`);
+          console.log(`Position ${position.symbol} not found on exchange, determining close reason...`);
           
-          // Get current price for PnL calculation
+          // Get current price to determine close reason
           const { data: tickerResult } = await supabase.functions.invoke('bitget-api', {
             body: {
               action: 'get_ticker',
@@ -98,16 +98,52 @@ serve(async (req) => {
           });
           
           const currentPrice = tickerResult?.success ? Number(tickerResult.data[0].lastPr) : Number(position.entry_price);
-          const priceDiff = position.side === 'BUY'
-            ? currentPrice - Number(position.entry_price)
-            : Number(position.entry_price) - currentPrice;
+          const entryPrice = Number(position.entry_price);
+          const slPrice = Number(position.sl_price);
+          const isBuy = position.side === 'BUY';
+          
+          // Determine close reason based on price
+          let closeReason = 'unknown';
+          if (isBuy) {
+            if (currentPrice <= slPrice * 1.005) {
+              closeReason = 'sl_hit';
+            } else if (position.tp3_price && currentPrice >= Number(position.tp3_price) * 0.995) {
+              closeReason = 'tp3_hit';
+            } else if (position.tp2_price && currentPrice >= Number(position.tp2_price) * 0.995) {
+              closeReason = 'tp2_hit';
+            } else if (position.tp1_price && currentPrice >= Number(position.tp1_price) * 0.995) {
+              closeReason = 'tp1_hit';
+            } else if (currentPrice > entryPrice) {
+              closeReason = 'tp_hit';
+            } else {
+              closeReason = 'sl_hit';
+            }
+          } else {
+            if (currentPrice >= slPrice * 0.995) {
+              closeReason = 'sl_hit';
+            } else if (position.tp3_price && currentPrice <= Number(position.tp3_price) * 1.005) {
+              closeReason = 'tp3_hit';
+            } else if (position.tp2_price && currentPrice <= Number(position.tp2_price) * 1.005) {
+              closeReason = 'tp2_hit';
+            } else if (position.tp1_price && currentPrice <= Number(position.tp1_price) * 1.005) {
+              closeReason = 'tp1_hit';
+            } else if (currentPrice < entryPrice) {
+              closeReason = 'tp_hit';
+            } else {
+              closeReason = 'sl_hit';
+            }
+          }
+          
+          const priceDiff = isBuy
+            ? currentPrice - entryPrice
+            : entryPrice - currentPrice;
           const realizedPnl = priceDiff * Number(position.quantity);
           
           await supabase
             .from('positions')
             .update({
               status: 'closed',
-              close_reason: 'Emergency shutdown - position not found on exchange',
+              close_reason: closeReason,
               close_price: currentPrice,
               realized_pnl: realizedPnl,
               closed_at: new Date().toISOString()
@@ -115,6 +151,7 @@ serve(async (req) => {
             .eq('id', position.id);
           
           closedPositions.push(position.symbol);
+          console.log(`✅ Marked ${position.symbol} as closed with reason: ${closeReason}`);
           continue;
         }
 
@@ -122,9 +159,9 @@ serve(async (req) => {
         const bitgetQuantity = Number(bitgetPosition.total || 0);
 
         if (bitgetQuantity === 0) {
-          console.log(`Position ${position.symbol} has 0 quantity, marking as closed in DB`);
+          console.log(`Position ${position.symbol} has 0 quantity, determining close reason...`);
           
-          // Get current price for PnL calculation
+          // Get current price
           const { data: tickerResult } = await supabase.functions.invoke('bitget-api', {
             body: {
               action: 'get_ticker',
@@ -133,16 +170,52 @@ serve(async (req) => {
           });
           
           const currentPrice = tickerResult?.success ? Number(tickerResult.data[0].lastPr) : Number(position.entry_price);
-          const priceDiff = position.side === 'BUY'
-            ? currentPrice - Number(position.entry_price)
-            : Number(position.entry_price) - currentPrice;
+          const entryPrice = Number(position.entry_price);
+          const slPrice = Number(position.sl_price);
+          const isBuy = position.side === 'BUY';
+          
+          // Determine close reason
+          let closeReason = 'unknown';
+          if (isBuy) {
+            if (currentPrice <= slPrice * 1.005) {
+              closeReason = 'sl_hit';
+            } else if (position.tp3_price && currentPrice >= Number(position.tp3_price) * 0.995) {
+              closeReason = 'tp3_hit';
+            } else if (position.tp2_price && currentPrice >= Number(position.tp2_price) * 0.995) {
+              closeReason = 'tp2_hit';
+            } else if (position.tp1_price && currentPrice >= Number(position.tp1_price) * 0.995) {
+              closeReason = 'tp1_hit';
+            } else if (currentPrice > entryPrice) {
+              closeReason = 'tp_hit';
+            } else {
+              closeReason = 'sl_hit';
+            }
+          } else {
+            if (currentPrice >= slPrice * 0.995) {
+              closeReason = 'sl_hit';
+            } else if (position.tp3_price && currentPrice <= Number(position.tp3_price) * 1.005) {
+              closeReason = 'tp3_hit';
+            } else if (position.tp2_price && currentPrice <= Number(position.tp2_price) * 1.005) {
+              closeReason = 'tp2_hit';
+            } else if (position.tp1_price && currentPrice <= Number(position.tp1_price) * 1.005) {
+              closeReason = 'tp1_hit';
+            } else if (currentPrice < entryPrice) {
+              closeReason = 'tp_hit';
+            } else {
+              closeReason = 'sl_hit';
+            }
+          }
+          
+          const priceDiff = isBuy
+            ? currentPrice - entryPrice
+            : entryPrice - currentPrice;
           const realizedPnl = priceDiff * Number(position.quantity);
           
           await supabase
             .from('positions')
             .update({
               status: 'closed',
-              close_reason: 'Emergency shutdown - zero quantity',
+              close_reason: closeReason,
               close_price: currentPrice,
               realized_pnl: realizedPnl,
               closed_at: new Date().toISOString()
@@ -150,6 +223,7 @@ serve(async (req) => {
             .eq('id', position.id);
           
           closedPositions.push(position.symbol);
+          console.log(`✅ Marked ${position.symbol} as closed with reason: ${closeReason}`);
           continue;
         }
 

@@ -183,11 +183,28 @@ async function checkPositionFullVerification(supabase: any, position: any, autoR
     await log({
       functionName: 'position-monitor',
       message: `❌ Position not found on exchange: ${position.symbol}`,
-      level: 'error',
+      level: 'warn',
       positionId: position.id
     });
     
-    // Get current market price for proper PnL calculation
+    // Position already closed on exchange - try to determine why
+    let closeReason = 'unknown';
+    
+    // Check if any TP orders were filled by checking order history
+    const { data: ordersResult } = await supabase.functions.invoke('bitget-api', {
+      body: {
+        action: 'get_plan_orders',
+        params: { symbol: position.symbol }
+      }
+    });
+    
+    // If TP/SL orders don't exist anymore, they were likely triggered
+    const hasSlOrder = position.sl_order_id;
+    const hasTp1Order = position.tp1_order_id;
+    const hasTp2Order = position.tp2_order_id;
+    const hasTp3Order = position.tp3_order_id;
+    
+    // Get current price to determine direction
     const { data: tickerResult } = await supabase.functions.invoke('bitget-api', {
       body: {
         action: 'get_ticker',
@@ -195,23 +212,70 @@ async function checkPositionFullVerification(supabase: any, position: any, autoR
       }
     });
     
-    const closePrice = tickerResult?.success && tickerResult.data?.[0]
+    const currentPrice = tickerResult?.success && tickerResult.data?.[0]
       ? Number(tickerResult.data[0].lastPr)
-      : Number(position.entry_price); // Fallback to entry if can't get current price
+      : Number(position.entry_price);
     
-    // Calculate PnL properly
-    const priceDiff = position.side === 'BUY'
-      ? closePrice - Number(position.entry_price)
-      : Number(position.entry_price) - closePrice;
+    const entryPrice = Number(position.entry_price);
+    const slPrice = Number(position.sl_price);
+    const isBuy = position.side === 'BUY';
+    
+    // Determine close reason based on price movement and which orders existed
+    if (isBuy) {
+      // For LONG positions
+      if (currentPrice <= slPrice * 1.005) { // Within 0.5% of SL
+        closeReason = 'sl_hit';
+      } else if (hasTp3Order && position.tp3_price && currentPrice >= Number(position.tp3_price) * 0.995) {
+        closeReason = 'tp3_hit';
+      } else if (hasTp2Order && position.tp2_price && currentPrice >= Number(position.tp2_price) * 0.995) {
+        closeReason = 'tp2_hit';
+      } else if (hasTp1Order && position.tp1_price && currentPrice >= Number(position.tp1_price) * 0.995) {
+        closeReason = 'tp1_hit';
+      } else if (currentPrice > entryPrice) {
+        closeReason = 'tp_hit'; // Some TP was hit
+      } else {
+        closeReason = 'sl_hit'; // Price below entry, likely SL
+      }
+    } else {
+      // For SHORT positions
+      if (currentPrice >= slPrice * 0.995) { // Within 0.5% of SL
+        closeReason = 'sl_hit';
+      } else if (hasTp3Order && position.tp3_price && currentPrice <= Number(position.tp3_price) * 1.005) {
+        closeReason = 'tp3_hit';
+      } else if (hasTp2Order && position.tp2_price && currentPrice <= Number(position.tp2_price) * 1.005) {
+        closeReason = 'tp2_hit';
+      } else if (hasTp1Order && position.tp1_price && currentPrice <= Number(position.tp1_price) * 1.005) {
+        closeReason = 'tp1_hit';
+      } else if (currentPrice < entryPrice) {
+        closeReason = 'tp_hit'; // Some TP was hit
+      } else {
+        closeReason = 'sl_hit'; // Price above entry, likely SL
+      }
+    }
+    
+    // Calculate PnL
+    const priceDiff = isBuy
+      ? currentPrice - entryPrice
+      : entryPrice - currentPrice;
     const realizedPnl = priceDiff * Number(position.quantity);
     
-    // Position in DB but not on exchange - close it in DB with proper data
+    console.log(`📊 Position ${position.symbol} closed on exchange. Determined reason: ${closeReason}, PnL: ${realizedPnl.toFixed(2)}`);
+    
+    await log({
+      functionName: 'position-monitor',
+      message: `Position closed on exchange: ${closeReason}`,
+      level: 'info',
+      positionId: position.id,
+      metadata: { closeReason, realizedPnl, currentPrice }
+    });
+    
+    // Update position in DB with proper close reason and PnL
     await supabase
       .from('positions')
       .update({
         status: 'closed',
-        close_reason: 'position_not_found_on_exchange',
-        close_price: closePrice,
+        close_reason: closeReason,
+        close_price: currentPrice,
         realized_pnl: realizedPnl,
         closed_at: new Date().toISOString()
       })
