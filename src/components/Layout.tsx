@@ -4,12 +4,13 @@ import { cn } from "@/lib/utils";
 import logoAristoEdge from "@/assets/logo-aristoedge.png";
 import { Button } from "@/components/ui/button";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/useAuth";
 import { useNavigate } from "react-router-dom";
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 
 const navigation = [
   { name: "Dashboard", href: "/", icon: Home },
@@ -36,10 +37,17 @@ export function Layout({ children }: { children: React.ReactNode }) {
   const navigate = useNavigate();
   const [checkingApiKeys, setCheckingApiKeys] = useState(true);
   const [hasApiKeys, setHasApiKeys] = useState(false);
+  const hasCheckedOnce = useRef(false);
 
   // Check if user has API keys
   useEffect(() => {
     if (!user) {
+      setCheckingApiKeys(false);
+      return;
+    }
+
+    // Only check once per session
+    if (hasCheckedOnce.current) {
       setCheckingApiKeys(false);
       return;
     }
@@ -74,9 +82,12 @@ export function Layout({ children }: { children: React.ReactNode }) {
         } else {
           setHasApiKeys(false);
         }
+        
+        hasCheckedOnce.current = true;
       } catch (error) {
         console.error('Error checking API keys:', error);
         setHasApiKeys(false);
+        hasCheckedOnce.current = true;
       } finally {
         setCheckingApiKeys(false);
       }
@@ -176,32 +187,46 @@ export function Layout({ children }: { children: React.ReactNode }) {
 
             {/* Navigation - only show if user has API keys */}
             {!showSimplifiedLayout && (
-              <nav className="hidden lg:flex items-center gap-1">
-                {navigation.map((item) => (
-                  <NavLink
-                    key={item.name}
-                    to={item.href}
-                    className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium text-muted-foreground transition-all hover:text-foreground hover:bg-secondary/50"
-                    activeClassName="text-primary bg-primary/10 hover:bg-primary/15"
-                  >
-                    <item.icon className="h-4 w-4" />
-                    <span className="hidden xl:inline">{item.name}</span>
-                  </NavLink>
-                ))}
-                
-                {/* Admin Navigation */}
-                {isAdmin && adminNavigation.map((item) => (
-                  <NavLink
-                    key={item.name}
-                    to={item.href}
-                    className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium text-muted-foreground transition-all hover:text-foreground hover:bg-secondary/50 border-l border-border/50 ml-1 pl-4"
-                    activeClassName="text-primary bg-primary/10 hover:bg-primary/15"
-                  >
-                    <item.icon className="h-4 w-4" />
-                    <span className="hidden xl:inline">{item.name}</span>
-                  </NavLink>
-                ))}
-              </nav>
+              <TooltipProvider delayDuration={300}>
+                <nav className="hidden lg:flex items-center gap-1">
+                  {navigation.map((item) => (
+                    <Tooltip key={item.name}>
+                      <TooltipTrigger asChild>
+                        <NavLink
+                          to={item.href}
+                          className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium text-muted-foreground transition-all hover:text-foreground hover:bg-secondary/50"
+                          activeClassName="text-primary bg-primary/10 hover:bg-primary/15"
+                        >
+                          <item.icon className="h-4 w-4" />
+                          <span className="hidden xl:inline">{item.name}</span>
+                        </NavLink>
+                      </TooltipTrigger>
+                      <TooltipContent>
+                        <p>{item.name}</p>
+                      </TooltipContent>
+                    </Tooltip>
+                  ))}
+                  
+                  {/* Admin Navigation */}
+                  {isAdmin && adminNavigation.map((item) => (
+                    <Tooltip key={item.name}>
+                      <TooltipTrigger asChild>
+                        <NavLink
+                          to={item.href}
+                          className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium text-muted-foreground transition-all hover:text-foreground hover:bg-secondary/50 border-l border-border/50 ml-1 pl-4"
+                          activeClassName="text-primary bg-primary/10 hover:bg-primary/15"
+                        >
+                          <item.icon className="h-4 w-4" />
+                          <span className="hidden xl:inline">{item.name}</span>
+                        </NavLink>
+                      </TooltipTrigger>
+                      <TooltipContent>
+                        <p>{item.name}</p>
+                      </TooltipContent>
+                    </Tooltip>
+                  ))}
+                </nav>
+              </TooltipProvider>
             )}
           </div>
 
