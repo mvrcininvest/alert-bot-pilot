@@ -362,6 +362,7 @@ export default function History() {
                       'manual_close': 'Zamknięcie ręczne',
                       'trailing_stop': 'Trailing Stop',
                       'breakeven_stop': 'Breakeven',
+                      'position_not_found_on_exchange': 'Pozycja nie znaleziona na giełdzie',
                       'error': 'Błąd'
                     };
                     
