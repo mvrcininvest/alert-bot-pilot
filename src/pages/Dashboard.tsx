@@ -12,7 +12,7 @@ export default function Dashboard() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
   
-  const { data: positions } = useQuery({
+  const { data: positions, refetch: refetchPositions } = useQuery({
     queryKey: ["open-positions"],
     queryFn: async () => {
       const { data, error } = await supabase
@@ -352,17 +352,23 @@ export default function Dashboard() {
                                 
                                 if (error || !data?.success) throw new Error('Nie udało się zamknąć pozycji');
                                 
-                                await supabase
+                                const updateResult = await supabase
                                   .from('positions')
                                   .update({
                                     status: 'closed',
                                     close_reason: 'Manual close from dashboard',
-                                    closed_at: new Date().toISOString()
+                                    closed_at: new Date().toISOString(),
+                                    close_price: Number(pos.current_price),
+                                    realized_pnl: Number(pos.unrealized_pnl)
                                   })
                                   .eq('id', pos.id);
                                 
-                                // Invalidate queries to refresh data immediately
-                                queryClient.invalidateQueries({ queryKey: ["open-positions"] });
+                                if (updateResult.error) {
+                                  throw new Error('Nie udało się zaktualizować pozycji w bazie');
+                                }
+                                
+                                // Force immediate refresh
+                                await refetchPositions();
                                 queryClient.invalidateQueries({ queryKey: ["live-data"] });
                                 
                                 toast({ title: 'Zamknięto pozycję', description: `${pos.symbol} zamknięta` });

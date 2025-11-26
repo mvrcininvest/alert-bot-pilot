@@ -9,13 +9,16 @@ import { format } from "date-fns";
 import { Info, AlertCircle, TestTube, Download } from "lucide-react";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { useState } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useToast } from "@/hooks/use-toast";
 
 export default function Alerts() {
   const [selectedAlert, setSelectedAlert] = useState<any>(null);
   const { toast } = useToast();
   const queryClient = useQueryClient();
+  const tableRef = useRef<HTMLTableElement>(null);
+  const topScrollRef = useRef<HTMLDivElement>(null);
+  const [tableWidth, setTableWidth] = useState(1800);
   
   const { data: alerts, isLoading } = useQuery({
     queryKey: ["alerts"],
@@ -55,6 +58,19 @@ export default function Alerts() {
       });
     },
   });
+
+  // Update scrollbar width when table renders
+  useEffect(() => {
+    if (tableRef.current) {
+      const updateWidth = () => {
+        const width = tableRef.current?.scrollWidth || 1800;
+        setTableWidth(width);
+      };
+      updateWidth();
+      window.addEventListener('resize', updateWidth);
+      return () => window.removeEventListener('resize', updateWidth);
+    }
+  }, [alerts]);
 
   const stats = alerts ? {
     total: alerts.length,
@@ -241,6 +257,7 @@ export default function Alerts() {
           <div className="space-y-2">
             {/* Top scrollbar - identical copy for width sync */}
             <div 
+              ref={topScrollRef}
               id="alerts-table-top-scroll"
               className="overflow-x-auto overflow-y-hidden border rounded-md bg-muted/20"
               style={{ height: '17px' }}
@@ -252,9 +269,8 @@ export default function Alerts() {
               }}
             >
               <div style={{ 
-                width: 'max-content',
+                width: `${tableWidth}px`,
                 height: '1px',
-                minWidth: '1800px' // Ensure scroll appears
               }} />
             </div>
             
@@ -263,13 +279,13 @@ export default function Alerts() {
               id="alerts-table-container"
               className="overflow-x-auto"
               onScroll={(e) => {
-                const topScroll = e.currentTarget.previousElementSibling as HTMLElement;
+                const topScroll = topScrollRef.current;
                 if (topScroll) {
                   topScroll.scrollLeft = e.currentTarget.scrollLeft;
                 }
               }}
             >
-            <Table>
+            <Table ref={tableRef}>
               <TableHeader>
                 <TableRow>
                   <TableHead>Data</TableHead>

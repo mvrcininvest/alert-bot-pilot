@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -19,6 +19,9 @@ export default function History() {
   const { toast } = useToast();
   const [dateFrom, setDateFrom] = useState<Date>();
   const [dateTo, setDateTo] = useState<Date>();
+  const tableRef = useRef<HTMLTableElement>(null);
+  const topScrollRef = useRef<HTMLDivElement>(null);
+  const [tableWidth, setTableWidth] = useState(1800);
 
   const { data: closedPositions, isLoading } = useQuery({
     queryKey: ["closed-positions"],
@@ -52,6 +55,19 @@ export default function History() {
     refetchInterval: 30000, // Refresh every 30 seconds
   });
 
+
+  // Update scrollbar width when table renders
+  useEffect(() => {
+    if (tableRef.current) {
+      const updateWidth = () => {
+        const width = tableRef.current?.scrollWidth || 1800;
+        setTableWidth(width);
+      };
+      updateWidth();
+      window.addEventListener('resize', updateWidth);
+      return () => window.removeEventListener('resize', updateWidth);
+    }
+  }, [closedPositions]);
 
   // Filter positions by date range
   const filteredPositions = closedPositions?.filter((position) => {
@@ -317,6 +333,7 @@ export default function History() {
           <div className="space-y-2">
             {/* Top scrollbar - identical copy for width sync */}
             <div 
+              ref={topScrollRef}
               id="history-table-top-scroll"
               className="overflow-x-auto overflow-y-hidden border rounded-md bg-muted/20"
               style={{ height: '17px' }}
@@ -328,9 +345,8 @@ export default function History() {
               }}
             >
               <div style={{ 
-                width: 'max-content',
+                width: `${tableWidth}px`,
                 height: '1px',
-                minWidth: '1800px' // Ensure scroll appears
               }} />
             </div>
             
@@ -339,13 +355,13 @@ export default function History() {
               id="history-table-container"
               className="overflow-x-auto"
               onScroll={(e) => {
-                const topScroll = e.currentTarget.previousElementSibling as HTMLElement;
+                const topScroll = topScrollRef.current;
                 if (topScroll) {
                   topScroll.scrollLeft = e.currentTarget.scrollLeft;
                 }
               }}
             >
-            <Table>
+            <Table ref={tableRef}>
               <TableHeader>
                 <TableRow>
                   <TableHead>Symbol</TableHead>
