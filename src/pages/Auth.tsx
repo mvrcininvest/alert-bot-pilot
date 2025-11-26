@@ -81,7 +81,15 @@ export default function Auth() {
       });
       
       setLoading(true);
-      await signUp(signupEmail, signupPassword, displayName);
+      const result = await signUp(signupEmail, signupPassword, displayName);
+      
+      // If email confirmation is needed, clear the form
+      if (result && 'needsConfirmation' in result && result.needsConfirmation) {
+        setSignupEmail('');
+        setSignupPassword('');
+        setConfirmPassword('');
+        setDisplayName('');
+      }
     } catch (error) {
       if (error instanceof z.ZodError) {
         const newErrors: Record<string, string> = {};
@@ -121,6 +129,12 @@ export default function Auth() {
                 <TabsTrigger value="login">Logowanie</TabsTrigger>
                 <TabsTrigger value="signup">Rejestracja</TabsTrigger>
               </TabsList>
+              
+              <div className="mt-4 p-3 rounded-lg bg-primary/5 border border-primary/20">
+                <p className="text-xs text-muted-foreground">
+                  ℹ️ Po rejestracji otrzymasz email z linkiem aktywacyjnym. Kliknij w link, aby aktywować konto i móc się zalogować.
+                </p>
+              </div>
 
               {/* Login Tab */}
               <TabsContent value="login">
