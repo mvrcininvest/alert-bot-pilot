@@ -1,6 +1,8 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { log } from "../_shared/logger.ts";
+import { getUserApiKeys } from "../_shared/userKeys.ts";
+import { getUserSettings } from "../_shared/userSettings.ts";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -18,32 +20,58 @@ serve(async (req) => {
       Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
     );
 
+    const { user_id } = await req.json();
+
+    if (!user_id) {
+      throw new Error('user_id is required');
+    }
+
     await log({
       functionName: 'emergency-shutdown',
-      message: '🚨 EMERGENCY SHUTDOWN INITIATED',
+      message: `🚨 EMERGENCY SHUTDOWN INITIATED for user ${user_id}`,
       level: 'error'
     });
 
-    console.log('🚨 EMERGENCY SHUTDOWN - Starting...');
+    console.log(`🚨 EMERGENCY SHUTDOWN - Starting for user ${user_id}...`);
 
-    // 1. Disable bot immediately
-    const { error: settingsError } = await supabase
-      .from('settings')
-      .update({ bot_active: false })
-      .eq('id', (await supabase.from('settings').select('id').single()).data?.id);
-
-    if (settingsError) {
-      console.error('Failed to disable bot:', settingsError);
-      throw settingsError;
+    // Get user API keys
+    const userKeys = await getUserApiKeys(user_id);
+    if (!userKeys) {
+      throw new Error('User API keys not found or inactive');
     }
 
-    console.log('✅ Bot disabled');
+    const apiCredentials = {
+      apiKey: userKeys.apiKey,
+      secretKey: userKeys.secretKey,
+      passphrase: userKeys.passphrase
+    };
 
-    // 2. Get all open positions
+    // 1. Disable bot for this user
+    const { data: userSettingsData } = await supabase
+      .from('user_settings')
+      .select('id')
+      .eq('user_id', user_id)
+      .single();
+
+    if (userSettingsData) {
+      const { error: settingsError } = await supabase
+        .from('user_settings')
+        .update({ bot_active: false })
+        .eq('user_id', user_id);
+
+      if (settingsError) {
+        console.error('Failed to disable bot:', settingsError);
+      } else {
+        console.log('✅ Bot disabled for user');
+      }
+    }
+
+    // 2. Get all open positions for this user
     const { data: openPositions, error: positionsError } = await supabase
       .from('positions')
       .select('*')
-      .eq('status', 'open');
+      .eq('status', 'open')
+      .eq('user_id', user_id);
 
     if (positionsError) {
       console.error('Failed to fetch open positions:', positionsError);
@@ -82,7 +110,8 @@ serve(async (req) => {
         const { data: positionResult } = await supabase.functions.invoke('bitget-api', {
           body: {
             action: 'get_position',
-            params: { symbol: position.symbol }
+            params: { symbol: position.symbol },
+            apiCredentials
           }
         });
 
@@ -93,7 +122,8 @@ serve(async (req) => {
           const { data: tickerResult } = await supabase.functions.invoke('bitget-api', {
             body: {
               action: 'get_ticker',
-              params: { symbol: position.symbol }
+              params: { symbol: position.symbol },
+              apiCredentials
             }
           });
           
@@ -148,7 +178,8 @@ serve(async (req) => {
               realized_pnl: realizedPnl,
               closed_at: new Date().toISOString()
             })
-            .eq('id', position.id);
+            .eq('id', position.id)
+            .eq('user_id', user_id);
           
           closedPositions.push(position.symbol);
           console.log(`✅ Marked ${position.symbol} as closed with reason: ${closeReason}`);
@@ -159,71 +190,8 @@ serve(async (req) => {
         const bitgetQuantity = Number(bitgetPosition.total || 0);
 
         if (bitgetQuantity === 0) {
-          console.log(`Position ${position.symbol} has 0 quantity, determining close reason...`);
-          
-          // Get current price
-          const { data: tickerResult } = await supabase.functions.invoke('bitget-api', {
-            body: {
-              action: 'get_ticker',
-              params: { symbol: position.symbol }
-            }
-          });
-          
-          const currentPrice = tickerResult?.success ? Number(tickerResult.data[0].lastPr) : Number(position.entry_price);
-          const entryPrice = Number(position.entry_price);
-          const slPrice = Number(position.sl_price);
-          const isBuy = position.side === 'BUY';
-          
-          // Determine close reason
-          let closeReason = 'unknown';
-          if (isBuy) {
-            if (currentPrice <= slPrice * 1.005) {
-              closeReason = 'sl_hit';
-            } else if (position.tp3_price && currentPrice >= Number(position.tp3_price) * 0.995) {
-              closeReason = 'tp3_hit';
-            } else if (position.tp2_price && currentPrice >= Number(position.tp2_price) * 0.995) {
-              closeReason = 'tp2_hit';
-            } else if (position.tp1_price && currentPrice >= Number(position.tp1_price) * 0.995) {
-              closeReason = 'tp1_hit';
-            } else if (currentPrice > entryPrice) {
-              closeReason = 'tp_hit';
-            } else {
-              closeReason = 'sl_hit';
-            }
-          } else {
-            if (currentPrice >= slPrice * 0.995) {
-              closeReason = 'sl_hit';
-            } else if (position.tp3_price && currentPrice <= Number(position.tp3_price) * 1.005) {
-              closeReason = 'tp3_hit';
-            } else if (position.tp2_price && currentPrice <= Number(position.tp2_price) * 1.005) {
-              closeReason = 'tp2_hit';
-            } else if (position.tp1_price && currentPrice <= Number(position.tp1_price) * 1.005) {
-              closeReason = 'tp1_hit';
-            } else if (currentPrice < entryPrice) {
-              closeReason = 'tp_hit';
-            } else {
-              closeReason = 'sl_hit';
-            }
-          }
-          
-          const priceDiff = isBuy
-            ? currentPrice - entryPrice
-            : entryPrice - currentPrice;
-          const realizedPnl = priceDiff * Number(position.quantity);
-          
-          await supabase
-            .from('positions')
-            .update({
-              status: 'closed',
-              close_reason: closeReason,
-              close_price: currentPrice,
-              realized_pnl: realizedPnl,
-              closed_at: new Date().toISOString()
-            })
-            .eq('id', position.id);
-          
+          console.log(`Position ${position.symbol} has 0 quantity, skipping...`);
           closedPositions.push(position.symbol);
-          console.log(`✅ Marked ${position.symbol} as closed with reason: ${closeReason}`);
           continue;
         }
 
@@ -236,7 +204,8 @@ serve(async (req) => {
                 symbol: position.symbol,
                 orderId: position.sl_order_id,
                 planType: 'pos_loss'
-              }
+              },
+              apiCredentials
             }
           });
         }
@@ -249,20 +218,8 @@ serve(async (req) => {
                 symbol: position.symbol,
                 orderId: position.tp1_order_id,
                 planType: 'pos_profit'
-              }
-            }
-          });
-        }
-
-        if (position.tp2_order_id) {
-          await supabase.functions.invoke('bitget-api', {
-            body: {
-              action: 'cancel_plan_order',
-              params: {
-                symbol: position.symbol,
-                orderId: position.tp2_order_id,
-                planType: 'pos_profit'
-              }
+              },
+              apiCredentials
             }
           });
         }
@@ -278,7 +235,8 @@ serve(async (req) => {
               symbol: position.symbol,
               size: bitgetQuantity.toString(),
               side: closeSide,
-            }
+            },
+            apiCredentials
           }
         });
 
@@ -295,7 +253,8 @@ serve(async (req) => {
         const { data: fillsResult } = await supabase.functions.invoke('bitget-api', {
           body: {
             action: 'get_fills',
-            params: { symbol: position.symbol }
+            params: { symbol: position.symbol },
+            apiCredentials
           }
         });
 
@@ -329,22 +288,6 @@ serve(async (req) => {
               const entryPrice = Number(position.entry_price);
               const priceDiff = isBuy ? actualClosePrice - entryPrice : entryPrice - actualClosePrice;
               realizedPnl = priceDiff * totalQty;
-
-              // Determine close reason from price
-              const slPrice = Number(position.sl_price);
-              if (isBuy) {
-                if (actualClosePrice <= slPrice * 1.005) {
-                  closeReason = 'sl_hit (emergency)';
-                } else if (position.tp1_price && actualClosePrice >= Number(position.tp1_price) * 0.995) {
-                  closeReason = 'tp_hit (emergency)';
-                }
-              } else {
-                if (actualClosePrice >= slPrice * 0.995) {
-                  closeReason = 'sl_hit (emergency)';
-                } else if (position.tp1_price && actualClosePrice <= Number(position.tp1_price) * 1.005) {
-                  closeReason = 'tp_hit (emergency)';
-                }
-              }
             }
           }
         }
@@ -359,7 +302,8 @@ serve(async (req) => {
             realized_pnl: realizedPnl,
             closed_at: new Date().toISOString()
           })
-          .eq('id', position.id);
+          .eq('id', position.id)
+          .eq('user_id', user_id);
 
         closedPositions.push(position.symbol);
         console.log(`✅ Closed ${position.symbol} at ${actualClosePrice} (PnL: ${realizedPnl.toFixed(2)} USDT)`);

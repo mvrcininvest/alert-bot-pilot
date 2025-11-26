@@ -1,6 +1,7 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { log } from "../_shared/logger.ts";
+import { getUserApiKeys } from "../_shared/userKeys.ts";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -65,6 +66,18 @@ serve(async (req) => {
       throw new Error('Position is not open');
     }
 
+    // Get user API keys
+    const userKeys = await getUserApiKeys(position.user_id);
+    if (!userKeys) {
+      throw new Error('User API keys not found or inactive');
+    }
+
+    const apiCredentials = {
+      apiKey: userKeys.apiKey,
+      secretKey: userKeys.secretKey,
+      passphrase: userKeys.passphrase
+    };
+
     // Get current market price
     await log({
       functionName: 'close-position',
@@ -77,7 +90,8 @@ serve(async (req) => {
     const { data: tickerResult } = await supabase.functions.invoke('bitget-api', {
       body: {
         action: 'get_ticker',
-        params: { symbol: position.symbol }
+        params: { symbol: position.symbol },
+        apiCredentials
       }
     });
 
@@ -103,7 +117,8 @@ serve(async (req) => {
           symbol: position.symbol,
           size: position.quantity.toString(),
           side: closeSide,
-        }
+        },
+        apiCredentials
       }
     });
 
@@ -140,7 +155,8 @@ serve(async (req) => {
             params: {
               symbol: position.symbol,
               orderId: orderId,
-            }
+            },
+            apiCredentials
           }
         });
       } catch (error) {
@@ -169,7 +185,8 @@ serve(async (req) => {
     const { data: fillsResult } = await supabase.functions.invoke('bitget-api', {
       body: {
         action: 'get_fills',
-        params: { symbol: position.symbol }
+        params: { symbol: position.symbol },
+        apiCredentials
       }
     });
 
@@ -279,7 +296,8 @@ serve(async (req) => {
         closed_at: new Date().toISOString(),
         realized_pnl: realizedPnl,
       })
-      .eq('id', position_id);
+      .eq('id', position_id)
+      .eq('user_id', position.user_id);
 
     if (updateError) {
       await log({
