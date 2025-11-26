@@ -38,6 +38,7 @@ export type Database = {
           tp1: number | null
           tp2: number | null
           tp3: number | null
+          user_id: string | null
         }
         Insert: {
           atr?: number | null
@@ -62,6 +63,7 @@ export type Database = {
           tp1?: number | null
           tp2?: number | null
           tp3?: number | null
+          user_id?: string | null
         }
         Update: {
           atr?: number | null
@@ -86,6 +88,7 @@ export type Database = {
           tp1?: number | null
           tp2?: number | null
           tp3?: number | null
+          user_id?: string | null
         }
         Relationships: []
       }
@@ -311,6 +314,7 @@ export type Database = {
           tp3_quantity: number | null
           unrealized_pnl: number | null
           updated_at: string
+          user_id: string | null
         }
         Insert: {
           alert_id?: string | null
@@ -348,6 +352,7 @@ export type Database = {
           tp3_quantity?: number | null
           unrealized_pnl?: number | null
           updated_at?: string
+          user_id?: string | null
         }
         Update: {
           alert_id?: string | null
@@ -385,6 +390,7 @@ export type Database = {
           tp3_quantity?: number | null
           unrealized_pnl?: number | null
           updated_at?: string
+          user_id?: string | null
         }
         Relationships: [
           {

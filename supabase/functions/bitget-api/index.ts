@@ -99,14 +99,20 @@ serve(async (req) => {
   }
 
   try {
+    const { action, params, apiCredentials } = await req.json();
+    
+    // Use provided API credentials or fall back to env vars (for backward compatibility)
     const config: BitgetConfig = {
-      apiKey: Deno.env.get('BITGET_API_KEY') ?? '',
-      secretKey: Deno.env.get('BITGET_SECRET_KEY') ?? '',
-      passphrase: Deno.env.get('BITGET_PASSPHRASE') ?? '',
+      apiKey: apiCredentials?.apiKey || Deno.env.get('BITGET_API_KEY') || '',
+      secretKey: apiCredentials?.secretKey || Deno.env.get('BITGET_SECRET_KEY') || '',
+      passphrase: apiCredentials?.passphrase || Deno.env.get('BITGET_PASSPHRASE') || '',
       baseUrl: 'https://api.bitget.com',
     };
-
-    const { action, params } = await req.json();
+    
+    // Validate credentials
+    if (!config.apiKey || !config.secretKey || !config.passphrase) {
+      throw new Error('Missing API credentials');
+    }
     await log({
       functionName: 'bitget-api',
       message: `Processing action: ${action}`,
