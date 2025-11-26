@@ -1,7 +1,7 @@
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { TrendingUp, Activity, DollarSign, Wallet } from "lucide-react";
+import { TrendingUp, Activity, DollarSign, Wallet, AlertTriangle } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Button } from "@/components/ui/button";
@@ -9,6 +9,7 @@ import { useToast } from "@/hooks/use-toast";
 
 export default function Dashboard() {
   const { toast } = useToast();
+  const queryClient = useQueryClient();
   const { data: positions } = useQuery({
     queryKey: ["open-positions"],
     queryFn: async () => {
@@ -182,6 +183,31 @@ export default function Dashboard() {
     refetchInterval: 5000,
   });
 
+  const emergencyShutdownMutation = useMutation({
+    mutationFn: async () => {
+      const { data, error } = await supabase.functions.invoke('emergency-shutdown');
+      
+      if (error) throw error;
+      if (!data?.success) throw new Error(data?.message || 'Emergency shutdown failed');
+      
+      return data;
+    },
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ["open-positions"] });
+      toast({
+        title: "🚨 Awaryjne Wyłączenie Wykonane",
+        description: `Zamknięto ${data.positions_closed} pozycji. Bot wyłączony.`,
+      });
+    },
+    onError: (error) => {
+      toast({
+        title: "Błąd Awaryjnego Wyłączenia",
+        description: error instanceof Error ? error.message : "Nie udało się wykonać awaryjnego wyłączenia",
+        variant: "destructive",
+      });
+    },
+  });
+
 
   const kpis = [
     {
@@ -219,9 +245,25 @@ export default function Dashboard() {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-3xl font-bold">Dashboard</h1>
-        <p className="text-muted-foreground">Przegląd aktywności bota tradingowego</p>
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-3xl font-bold">Dashboard</h1>
+          <p className="text-muted-foreground">Przegląd aktywności bota tradingowego</p>
+        </div>
+        <Button 
+          variant="destructive" 
+          size="lg"
+          onClick={() => {
+            if (confirm('⚠️ UWAGA!\n\nTo zamknie WSZYSTKIE otwarte pozycje i wyłączy bota.\n\nCzy na pewno chcesz kontynuować?')) {
+              emergencyShutdownMutation.mutate();
+            }
+          }}
+          disabled={emergencyShutdownMutation.isPending}
+          className="gap-2"
+        >
+          <AlertTriangle className="h-5 w-5" />
+          {emergencyShutdownMutation.isPending ? 'Wyłączanie...' : 'Awaryjne Wyłączenie'}
+        </Button>
       </div>
 
       {/* KPIs */}

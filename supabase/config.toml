@@ -20,3 +20,6 @@ verify_jwt = true
 
 [functions.recalculate-sltp]
 verify_jwt = false
+
+[functions.emergency-shutdown]
+verify_jwt = true
