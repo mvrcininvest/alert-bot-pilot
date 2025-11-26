@@ -44,6 +44,25 @@ export function Layout({ children }: { children: React.ReactNode }) {
 
     const checkApiKeys = async () => {
       try {
+        // First check if user is banned
+        const { data: profile } = await supabase
+          .from('profiles')
+          .select('is_banned, ban_reason')
+          .eq('id', user.id)
+          .single();
+
+        if (profile?.is_banned) {
+          await signOut();
+          toast({
+            title: "Konto zablokowane",
+            description: profile.ban_reason || "Twoje konto zostało zablokowane. Skontaktuj się z administratorem.",
+            variant: "destructive",
+          });
+          navigate('/auth');
+          return;
+        }
+
+        // Then check API keys
         const { data, error } = await supabase.functions.invoke('manage-api-keys', {
           body: { action: 'get' }
         });
@@ -64,12 +83,20 @@ export function Layout({ children }: { children: React.ReactNode }) {
     checkApiKeys();
   }, [user]);
 
-  // Redirect to auth if not logged in
+  // Check if user is online (seen in last 2 minutes)
   useEffect(() => {
-    if (!loading && !user) {
-      navigate('/auth');
-    }
-  }, [user, loading, navigate]);
+    if (!user || !isAdmin) return;
+
+    // Update own last_seen
+    const updateLastSeen = async () => {
+      await supabase.rpc('update_last_seen');
+    };
+    
+    updateLastSeen();
+    const interval = setInterval(updateLastSeen, 60000); // Every minute
+
+    return () => clearInterval(interval);
+  }, [user, isAdmin]);
 
   // Redirect to migration/API keys setup if user doesn't have keys
   useEffect(() => {
