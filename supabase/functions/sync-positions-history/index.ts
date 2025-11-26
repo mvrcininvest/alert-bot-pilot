@@ -47,8 +47,14 @@ serve(async (req) => {
     let updatedCount = 0;
     const errors: any[] = [];
 
+    // Normalize symbols (add USDT if not present)
+    const normalizeSymbol = (symbol: string) => {
+      if (symbol.endsWith('USDT')) return symbol;
+      return symbol + 'USDT';
+    };
+
     // Get unique symbols to fetch history
-    const symbols = [...new Set(dbPositions.map(p => p.symbol))];
+    const symbols = [...new Set(dbPositions.map(p => normalizeSymbol(p.symbol)))];
 
     for (const symbol of symbols) {
       try {
@@ -100,11 +106,22 @@ serve(async (req) => {
           const totalFee = orderFills.reduce((sum, f) => sum + Number(f.fee), 0);
           const closeTime = Number(orderFills[0].cTime);
 
-          // Try to match with database position by symbol and approximate time
-          const dbPos = dbPositions.find(p => 
-            p.symbol === symbol && 
-            p.bitget_order_id === orderId
-          );
+          // Try to match with database position by order ID or by symbol + time window
+          let dbPos = dbPositions.find(p => p.bitget_order_id === orderId);
+          
+          // If no match by order ID, try to match by symbol and approximate time (within 1 hour)
+          if (!dbPos) {
+            dbPos = dbPositions.find(p => {
+              const normalizedPosSymbol = normalizeSymbol(p.symbol);
+              if (normalizedPosSymbol !== symbol) return false;
+              if (!p.closed_at) return false;
+              
+              const posCloseTime = new Date(p.closed_at).getTime();
+              const timeDiff = Math.abs(posCloseTime - closeTime);
+              // Match if within 1 hour
+              return timeDiff < (60 * 60 * 1000);
+            });
+          }
 
           if (dbPos) {
             // Calculate correct PnL from Bitget data
