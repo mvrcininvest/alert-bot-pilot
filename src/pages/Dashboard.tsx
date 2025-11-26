@@ -1,15 +1,16 @@
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { TrendingUp, Activity, DollarSign, Wallet, AlertTriangle } from "lucide-react";
+import { TrendingUp, Activity, DollarSign, Wallet, TrendingDown, Target } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/hooks/use-toast";
+import { Progress } from "@/components/ui/progress";
 
 export default function Dashboard() {
   const { toast } = useToast();
-  const queryClient = useQueryClient();
+  
   const { data: positions } = useQuery({
     queryKey: ["open-positions"],
     queryFn: async () => {
@@ -25,7 +26,6 @@ export default function Dashboard() {
     refetchInterval: 5000,
   });
 
-  // Fetch live prices and orders from Bitget for open positions
   const { data: liveData } = useQuery({
     queryKey: ["live-data", positions?.map(p => p.symbol).join(',')],
     queryFn: async () => {
@@ -33,10 +33,8 @@ export default function Dashboard() {
       
       const dataMap: Record<string, any> = {};
       
-      // Fetch current prices and orders from Bitget for each symbol
       for (const pos of positions) {
         try {
-          // Get current price
           const { data: tickerData } = await supabase.functions.invoke('bitget-api', {
             body: { 
               action: 'get_ticker',
@@ -44,13 +42,10 @@ export default function Dashboard() {
             }
           });
           
-  // Get plan orders (SL/TP)
           const { data: ordersData } = await supabase.functions.invoke('bitget-api', {
             body: { 
               action: 'get_plan_orders',
-              params: { 
-                symbol: pos.symbol
-              }
+              params: { symbol: pos.symbol }
             }
           });
           
@@ -84,10 +79,9 @@ export default function Dashboard() {
       return dataMap;
     },
     enabled: !!positions && positions.length > 0,
-    refetchInterval: 3000, // Update every 3 seconds
+    refetchInterval: 3000,
   });
 
-  // Calculate live PnL for positions
   const positionsWithLivePnL = positions?.map(pos => {
     const liveInfo = liveData?.[pos.symbol];
     const currentPrice = liveInfo?.currentPrice || Number(pos.current_price) || Number(pos.entry_price);
@@ -101,11 +95,9 @@ export default function Dashboard() {
       unrealizedPnL = (entryPrice - currentPrice) * quantity;
     }
     
-    // Get SL/TP from exchange orders
     const slOrders = liveInfo?.slOrders || [];
     const tpOrders = liveInfo?.tpOrders || [];
     
-    // Extract trigger prices - check both specific fields and general triggerPrice
     const realSlPrice = slOrders.length > 0 
       ? Number(slOrders[0].stopLossTriggerPrice || slOrders[0].triggerPrice) 
       : null;
@@ -149,7 +141,6 @@ export default function Dashboard() {
     refetchInterval: 30000,
   });
 
-  // Calculate used margin and unrealized PnL
   const usedMargin = positionsWithLivePnL?.reduce((sum, pos) => {
     const notional = Number(pos.quantity) * Number(pos.entry_price);
     const margin = notional / Number(pos.leverage);
@@ -183,288 +174,345 @@ export default function Dashboard() {
     refetchInterval: 5000,
   });
 
-  const emergencyShutdownMutation = useMutation({
-    mutationFn: async () => {
-      const { data, error } = await supabase.functions.invoke('emergency-shutdown');
-      
-      if (error) throw error;
-      if (!data?.success) throw new Error(data?.message || 'Emergency shutdown failed');
-      
-      return data;
-    },
-    onSuccess: (data) => {
-      queryClient.invalidateQueries({ queryKey: ["open-positions"] });
-      toast({
-        title: "🚨 Awaryjne Wyłączenie Wykonane",
-        description: `Zamknięto ${data.positions_closed} pozycji. Bot wyłączony.`,
-      });
-    },
-    onError: (error) => {
-      toast({
-        title: "Błąd Awaryjnego Wyłączenia",
-        description: error instanceof Error ? error.message : "Nie udało się wykonać awaryjnego wyłączenia",
-        variant: "destructive",
-      });
-    },
-  });
-
-
   const kpis = [
     {
       title: "Saldo Portfela",
       value: `$${(accountBalance?.equity || 0).toFixed(2)}`,
       icon: Wallet,
-      trend: "neutral",
+      gradient: "from-primary to-accent",
+      iconBg: "bg-primary/10",
     },
     {
       title: "Dostępne Saldo",
       value: `$${(accountBalance?.available || 0).toFixed(2)}`,
       icon: DollarSign,
-      trend: "neutral",
+      gradient: "from-accent to-accent-pink",
+      iconBg: "bg-accent/10",
     },
     {
       title: "Używane Saldo",
-      value: `$${usedMargin.toFixed(2)} (${usedMarginPercent.toFixed(1)}%)`,
+      value: `$${usedMargin.toFixed(2)}`,
+      subtitle: `${usedMarginPercent.toFixed(1)}%`,
       icon: Activity,
-      trend: "neutral",
+      gradient: "from-info to-primary",
+      iconBg: "bg-info/10",
     },
     {
       title: "Unrealized PnL",
-      value: `$${totalUnrealizedPnL.toFixed(2)} (${unrealizedPnLPercent >= 0 ? '+' : ''}${unrealizedPnLPercent.toFixed(2)}%)`,
-      icon: TrendingUp,
-      trend: totalUnrealizedPnL >= 0 ? "up" : "down",
+      value: `$${totalUnrealizedPnL.toFixed(2)}`,
+      subtitle: `${unrealizedPnLPercent >= 0 ? '+' : ''}${unrealizedPnLPercent.toFixed(2)}%`,
+      icon: totalUnrealizedPnL >= 0 ? TrendingUp : TrendingDown,
+      gradient: totalUnrealizedPnL >= 0 ? "from-profit to-profit-glow" : "from-loss to-loss-glow",
+      iconBg: totalUnrealizedPnL >= 0 ? "bg-profit/10" : "bg-loss/10",
       textColor: totalUnrealizedPnL >= 0 ? "text-profit" : "text-loss",
     },
     {
       title: "Otwarte Pozycje",
       value: positionsWithLivePnL?.length || 0,
-      icon: Activity,
-      trend: "neutral",
+      icon: Target,
+      gradient: "from-accent-pink to-destructive",
+      iconBg: "bg-accent-pink/10",
     },
   ];
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-3xl font-bold">Dashboard</h1>
-          <p className="text-muted-foreground">Przegląd aktywności bota tradingowego</p>
-        </div>
-        <Button 
-          variant="destructive" 
-          size="lg"
-          onClick={() => {
-            if (confirm('⚠️ UWAGA!\n\nTo zamknie WSZYSTKIE otwarte pozycje i wyłączy bota.\n\nCzy na pewno chcesz kontynuować?')) {
-              emergencyShutdownMutation.mutate();
-            }
-          }}
-          disabled={emergencyShutdownMutation.isPending}
-          className="gap-2"
-        >
-          <AlertTriangle className="h-5 w-5" />
-          {emergencyShutdownMutation.isPending ? 'Wyłączanie...' : 'Awaryjne Wyłączenie'}
-        </Button>
+      {/* Header */}
+      <div className="space-y-2">
+        <h1 className="text-4xl font-bold tracking-tight">
+          <span className="text-gradient">Dashboard</span>
+        </h1>
+        <p className="text-muted-foreground text-lg">Przegląd aktywności bota tradingowego w czasie rzeczywistym</p>
       </div>
 
-      {/* KPIs */}
+      {/* KPI Cards */}
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-5">
-        {kpis.map((kpi) => (
-          <Card key={kpi.title}>
+        {kpis.map((kpi, index) => (
+          <Card 
+            key={kpi.title} 
+            className="glass-card glass-card-hover gradient-border animate-fade-in-up relative overflow-hidden group"
+            style={{ animationDelay: `${index * 0.1}s` }}
+          >
+            <div className={`absolute inset-0 bg-gradient-to-br ${kpi.gradient} opacity-0 group-hover:opacity-5 transition-opacity duration-500`} />
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">{kpi.title}</CardTitle>
-              <kpi.icon className="h-4 w-4 text-muted-foreground" />
+              <CardTitle className="text-sm font-medium text-muted-foreground">{kpi.title}</CardTitle>
+              <div className={`${kpi.iconBg} p-2 rounded-lg`}>
+                <kpi.icon className="h-4 w-4 text-primary" />
+              </div>
             </CardHeader>
             <CardContent>
-              <div className={`text-2xl font-bold ${kpi.textColor || ''}`}>{kpi.value}</div>
+              <div className={`text-2xl font-bold ${kpi.textColor || ''}`}>
+                {kpi.value}
+              </div>
+              {kpi.subtitle && (
+                <p className={`text-xs mt-1 ${kpi.textColor || 'text-muted-foreground'}`}>
+                  {kpi.subtitle}
+                </p>
+              )}
             </CardContent>
           </Card>
         ))}
       </div>
 
-      {/* Otwarte Pozycje - Pełna szerokość */}
-      <Card>
+      {/* Open Positions */}
+      <Card className="glass-card glass-card-hover gradient-border">
         <CardHeader>
-          <CardTitle>Otwarte Pozycje</CardTitle>
+          <div className="flex items-center justify-between">
+            <CardTitle className="text-2xl font-bold">Otwarte Pozycje</CardTitle>
+            <Badge variant="outline" className="text-sm">
+              {positionsWithLivePnL?.length || 0} pozycji
+            </Badge>
+          </div>
         </CardHeader>
         <CardContent>
-          <ScrollArea className="h-[400px]">
+          <ScrollArea className="h-[450px] pr-4">
             <div className="space-y-4">
-                {positionsWithLivePnL && positionsWithLivePnL.length > 0 ? (
-                  positionsWithLivePnL.map((pos) => {
-                    const positionValue = Number(pos.quantity) * Number(pos.entry_price);
-                    const marginUsed = positionValue / Number(pos.leverage);
-                    // PnL% relative to margin (ROI with leverage)
-                    const pnlPercent = marginUsed !== 0 
-                      ? ((Number(pos.unrealized_pnl) || 0) / marginUsed) * 100 
-                      : 0;
-                    const notionalValue = Number(pos.quantity) * Number(pos.entry_price);
-                    
-                    // Use real SL/TP from exchange, fallback to DB values
-                    const displaySlPrice = pos.real_sl_price || Number(pos.sl_price);
-                    const displayTpPrices = pos.real_tp_prices && pos.real_tp_prices.length > 0 
-                      ? pos.real_tp_prices 
-                      : [pos.tp1_price, pos.tp2_price, pos.tp3_price].filter(Boolean).map(Number);
-                    
-                    return (
-                      <div key={pos.id} className="border border-border rounded-lg p-3">
-                        <div className="flex items-center justify-between mb-3">
-                          <div className="font-medium text-lg">{pos.symbol}</div>
-                          <div className="flex gap-2">
-                            <Badge variant={pos.side === "BUY" ? "default" : "destructive"}>
-                              {pos.side} {pos.leverage}x
+              {positionsWithLivePnL && positionsWithLivePnL.length > 0 ? (
+                positionsWithLivePnL.map((pos, index) => {
+                  const positionValue = Number(pos.quantity) * Number(pos.entry_price);
+                  const marginUsed = positionValue / Number(pos.leverage);
+                  const pnlPercent = marginUsed !== 0 
+                    ? ((Number(pos.unrealized_pnl) || 0) / marginUsed) * 100 
+                    : 0;
+                  const notionalValue = Number(pos.quantity) * Number(pos.entry_price);
+                  
+                  const displaySlPrice = pos.real_sl_price || Number(pos.sl_price);
+                  const displayTpPrices = pos.real_tp_prices && pos.real_tp_prices.length > 0 
+                    ? pos.real_tp_prices 
+                    : [pos.tp1_price, pos.tp2_price, pos.tp3_price].filter(Boolean).map(Number);
+                  
+                  // Calculate progress to TP/SL
+                  const currentPrice = Number(pos.current_price);
+                  const entryPrice = Number(pos.entry_price);
+                  const slPrice = displaySlPrice;
+                  const tpPrice = displayTpPrices[0] || 0;
+                  
+                  let progressToTP = 0;
+                  if (pos.side === 'BUY' && tpPrice > entryPrice) {
+                    progressToTP = ((currentPrice - entryPrice) / (tpPrice - entryPrice)) * 100;
+                  } else if (pos.side === 'SELL' && tpPrice < entryPrice) {
+                    progressToTP = ((entryPrice - currentPrice) / (entryPrice - tpPrice)) * 100;
+                  }
+                  progressToTP = Math.max(0, Math.min(100, progressToTP));
+                  
+                  return (
+                    <div 
+                      key={pos.id} 
+                      className="glass-card p-4 relative overflow-hidden group animate-fade-in"
+                      style={{ animationDelay: `${index * 0.05}s` }}
+                    >
+                      {/* Side accent bar */}
+                      <div className={`absolute left-0 top-0 bottom-0 w-1 ${pos.side === 'BUY' ? 'bg-gradient-to-b from-profit to-profit-glow' : 'bg-gradient-to-b from-loss to-loss-glow'}`} />
+                      
+                      {/* Header */}
+                      <div className="flex items-center justify-between mb-4 pl-3">
+                        <div className="flex items-center gap-3">
+                          <div>
+                            <h3 className="text-xl font-bold">{pos.symbol}</h3>
+                            <p className="text-xs text-muted-foreground">
+                              {new Date(pos.created_at).toLocaleString('pl-PL')}
+                            </p>
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <Badge 
+                            variant={pos.side === "BUY" ? "default" : "destructive"}
+                            className={pos.side === "BUY" ? "bg-profit/20 text-profit border-profit/30" : "bg-loss/20 text-loss border-loss/30"}
+                          >
+                            {pos.side} {pos.leverage}x
+                          </Badge>
+                          {!pos.has_sl_order && (
+                            <Badge variant="destructive" className="text-xs animate-pulse">
+                              ⚠️ NO SL
                             </Badge>
-                            {!pos.has_sl_order && (
-                              <Badge variant="destructive" className="text-xs">
-                                ⚠️ NO SL
-                              </Badge>
-                            )}
-                            {!pos.has_tp_orders && displayTpPrices.length > 0 && (
-                              <Badge variant="outline" className="text-xs">
-                                ⚠️ NO TP
-                              </Badge>
-                            )}
-                            <Button
-                              size="sm"
-                              variant="destructive"
-                              onClick={async () => {
-                                if (!confirm(`Zamknąć pozycję ${pos.symbol}?`)) return;
-                                try {
-                                  const closeSide = pos.side === 'BUY' ? 'close_long' : 'close_short';
-                                  const { data, error } = await supabase.functions.invoke('bitget-api', {
-                                    body: {
-                                      action: 'place_order',
-                                      params: {
-                                        symbol: pos.symbol,
-                                        size: pos.quantity.toString(),
-                                        side: closeSide,
-                                      }
+                          )}
+                          {!pos.has_tp_orders && displayTpPrices.length > 0 && (
+                            <Badge variant="outline" className="text-xs">
+                              ⚠️ NO TP
+                            </Badge>
+                          )}
+                          <Button
+                            size="sm"
+                            variant="destructive"
+                            onClick={async () => {
+                              if (!confirm(`Zamknąć pozycję ${pos.symbol}?`)) return;
+                              try {
+                                const closeSide = pos.side === 'BUY' ? 'close_long' : 'close_short';
+                                const { data, error } = await supabase.functions.invoke('bitget-api', {
+                                  body: {
+                                    action: 'place_order',
+                                    params: {
+                                      symbol: pos.symbol,
+                                      size: pos.quantity.toString(),
+                                      side: closeSide,
                                     }
-                                  });
-                                  
-                                  if (error || !data?.success) throw new Error('Nie udało się zamknąć pozycji');
-                                  
-                                  // Update position status in DB
-                                  await supabase
-                                    .from('positions')
-                                    .update({
-                                      status: 'closed',
-                                      close_reason: 'Manual close from dashboard',
-                                      closed_at: new Date().toISOString()
-                                    })
-                                    .eq('id', pos.id);
-                                  
-                                  toast({ title: 'Zamknięto pozycję', description: `${pos.symbol} zamknięta` });
-                                } catch (err: any) {
-                                  toast({ 
-                                    title: 'Błąd', 
-                                    description: err.message, 
-                                    variant: 'destructive' 
-                                  });
-                                }
-                              }}
-                            >
-                              Zamknij
-                            </Button>
-                          </div>
-                        </div>
-                        
-                        <div className="grid grid-cols-2 gap-2 text-sm mb-3">
-                          <div>
-                            <span className="text-muted-foreground">Entry:</span>{" "}
-                            <span className="font-medium">${Number(pos.entry_price).toFixed(4)}</span>
-                          </div>
-                          <div>
-                            <span className="text-muted-foreground">Current:</span>{" "}
-                            <span className="font-medium">${Number(pos.current_price).toFixed(4)}</span>
-                          </div>
-                          <div>
-                            <span className="text-muted-foreground">Quantity:</span>{" "}
-                            <span className="font-medium">{Number(pos.quantity).toFixed(4)}</span>
-                          </div>
-                          <div>
-                            <span className="text-muted-foreground">Notional:</span>{" "}
-                            <span className="font-medium">${notionalValue.toFixed(2)}</span>
-                          </div>
-                        </div>
-
-                        <div className="grid grid-cols-2 gap-2 text-sm mb-3 border-t border-border pt-2">
-                          <div>
-                            <span className="text-muted-foreground">SL:</span>{" "}
-                            {pos.has_sl_order ? (
-                              <span className="font-medium text-loss">
-                                ${(pos.real_sl_price || Number(pos.sl_price)).toFixed(4)}
-                              </span>
-                            ) : (
-                              <span className="font-medium text-muted-foreground">-</span>
-                            )}
-                          </div>
-                          <div>
-                            <span className="text-muted-foreground">TP1:</span>{" "}
-                            {pos.has_tp_orders && pos.real_tp_prices && pos.real_tp_prices.length > 0 ? (
-                              <span className="font-medium text-profit">
-                                ${pos.real_tp_prices[0].toFixed(4)}
-                              </span>
-                            ) : (
-                              <span className="font-medium text-muted-foreground">-</span>
-                            )}
-                          </div>
-                          {pos.has_tp_orders && pos.real_tp_prices && pos.real_tp_prices[1] && (
-                            <div>
-                              <span className="text-muted-foreground">TP2:</span>{" "}
-                              <span className="font-medium text-profit">${pos.real_tp_prices[1].toFixed(4)}</span>
-                            </div>
-                          )}
-                          {pos.has_tp_orders && pos.real_tp_prices && pos.real_tp_prices[2] && (
-                            <div>
-                              <span className="text-muted-foreground">TP3:</span>{" "}
-                              <span className="font-medium text-profit">${pos.real_tp_prices[2].toFixed(4)}</span>
-                            </div>
-                          )}
-                        </div>
-
-                        <div className={`text-right font-bold text-base ${Number(pos.unrealized_pnl || 0) >= 0 ? "text-profit" : "text-loss"}`}>
-                          PnL: ${Number(pos.unrealized_pnl || 0).toFixed(2)} ({pnlPercent >= 0 ? '+' : ''}{pnlPercent.toFixed(2)}%)
+                                  }
+                                });
+                                
+                                if (error || !data?.success) throw new Error('Nie udało się zamknąć pozycji');
+                                
+                                await supabase
+                                  .from('positions')
+                                  .update({
+                                    status: 'closed',
+                                    close_reason: 'Manual close from dashboard',
+                                    closed_at: new Date().toISOString()
+                                  })
+                                  .eq('id', pos.id);
+                                
+                                toast({ title: 'Zamknięto pozycję', description: `${pos.symbol} zamknięta` });
+                              } catch (err: any) {
+                                toast({ 
+                                  title: 'Błąd', 
+                                  description: err.message, 
+                                  variant: 'destructive' 
+                                });
+                              }
+                            }}
+                            className="gap-1"
+                          >
+                            Zamknij
+                          </Button>
                         </div>
                       </div>
-                    );
-                  })
-                ) : (
-                  <p className="text-center text-muted-foreground py-8">Brak otwartych pozycji</p>
-                )}
-              </div>
-            </ScrollArea>
-          </CardContent>
-        </Card>
+                      
+                      {/* Price Info Grid */}
+                      <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4 pl-3">
+                        <div className="space-y-1">
+                          <p className="text-xs text-muted-foreground">Entry Price</p>
+                          <p className="text-sm font-semibold">${Number(pos.entry_price).toFixed(4)}</p>
+                        </div>
+                        <div className="space-y-1">
+                          <p className="text-xs text-muted-foreground">Current Price</p>
+                          <p className="text-sm font-semibold">${Number(pos.current_price).toFixed(4)}</p>
+                        </div>
+                        <div className="space-y-1">
+                          <p className="text-xs text-muted-foreground">Quantity</p>
+                          <p className="text-sm font-semibold">{Number(pos.quantity).toFixed(4)}</p>
+                        </div>
+                        <div className="space-y-1">
+                          <p className="text-xs text-muted-foreground">Notional</p>
+                          <p className="text-sm font-semibold">${notionalValue.toFixed(2)}</p>
+                        </div>
+                      </div>
 
-      {/* Ostatnie Alerty - Pełna szerokość */}
-      <Card>
+                      {/* SL/TP Section */}
+                      <div className="grid grid-cols-2 gap-3 mb-4 pl-3 pt-3 border-t border-border/50">
+                        <div className="space-y-1">
+                          <p className="text-xs text-muted-foreground">Stop Loss</p>
+                          {pos.has_sl_order ? (
+                            <p className="text-sm font-semibold text-loss">
+                              ${(pos.real_sl_price || Number(pos.sl_price)).toFixed(4)}
+                            </p>
+                          ) : (
+                            <p className="text-sm text-muted-foreground">-</p>
+                          )}
+                        </div>
+                        <div className="space-y-1">
+                          <p className="text-xs text-muted-foreground">Take Profit</p>
+                          {pos.has_tp_orders && pos.real_tp_prices && pos.real_tp_prices.length > 0 ? (
+                            <div className="flex gap-2">
+                              {pos.real_tp_prices.slice(0, 3).map((tp, i) => (
+                                <p key={i} className="text-xs font-semibold text-profit">
+                                  TP{i+1}: ${tp.toFixed(4)}
+                                </p>
+                              ))}
+                            </div>
+                          ) : (
+                            <p className="text-sm text-muted-foreground">-</p>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* Progress bar to TP */}
+                      {tpPrice > 0 && (
+                        <div className="space-y-2 mb-4 pl-3">
+                          <div className="flex items-center justify-between text-xs">
+                            <span className="text-muted-foreground">Postęp do TP1</span>
+                            <span className="font-medium">{progressToTP.toFixed(1)}%</span>
+                          </div>
+                          <Progress 
+                            value={progressToTP} 
+                            className={`h-2 ${pos.side === 'BUY' ? '[&>div]:bg-profit' : '[&>div]:bg-loss'}`}
+                          />
+                        </div>
+                      )}
+
+                      {/* PnL Display */}
+                      <div className={`text-right pl-3 pt-3 border-t border-border/50`}>
+                        <p className="text-xs text-muted-foreground mb-1">Unrealized P&L</p>
+                        <p className={`text-2xl font-bold ${Number(pos.unrealized_pnl || 0) >= 0 ? "text-profit glow-text" : "text-loss glow-text"}`}>
+                          ${Number(pos.unrealized_pnl || 0).toFixed(2)}
+                          <span className="text-sm ml-2">
+                            ({pnlPercent >= 0 ? '+' : ''}{pnlPercent.toFixed(2)}%)
+                          </span>
+                        </p>
+                      </div>
+                    </div>
+                  );
+                })
+              ) : (
+                <div className="text-center py-12">
+                  <Target className="h-12 w-12 mx-auto text-muted-foreground/50 mb-3" />
+                  <p className="text-muted-foreground">Brak otwartych pozycji</p>
+                </div>
+              )}
+            </div>
+          </ScrollArea>
+        </CardContent>
+      </Card>
+
+      {/* Recent Alerts */}
+      <Card className="glass-card glass-card-hover gradient-border">
         <CardHeader>
-          <CardTitle>Ostatnie Alerty</CardTitle>
+          <CardTitle className="text-2xl font-bold">Ostatnie Alerty</CardTitle>
         </CardHeader>
         <CardContent>
           <ScrollArea className="h-[300px]">
-            <div className="space-y-4">
+            <div className="space-y-3">
               {recentAlerts && recentAlerts.length > 0 ? (
-                recentAlerts.map((alert) => (
-                  <div key={alert.id} className="flex items-center justify-between border-b border-border pb-3 last:border-0 last:pb-0">
-                    <div>
-                      <div className="font-medium">{alert.symbol}</div>
-                      <div className="text-sm text-muted-foreground">
-                        {alert.tier} • Strength: {Number(alert.strength || 0).toFixed(2)}
+                recentAlerts.map((alert, index) => (
+                  <div 
+                    key={alert.id} 
+                    className="flex items-center justify-between p-3 rounded-lg bg-secondary/30 border border-border/50 hover:border-primary/30 transition-all animate-fade-in"
+                    style={{ animationDelay: `${index * 0.05}s` }}
+                  >
+                    <div className="flex items-center gap-3">
+                      <div className={`w-1 h-12 rounded-full ${
+                        alert.status === "executed" ? "bg-profit" :
+                        alert.status === "ignored" ? "bg-muted" :
+                        alert.status === "error" ? "bg-loss" :
+                        "bg-info"
+                      }`} />
+                      <div>
+                        <div className="font-semibold text-lg">{alert.symbol}</div>
+                        <div className="text-sm text-muted-foreground">
+                          {alert.tier} • Siła: {Number(alert.strength || 0).toFixed(2)}
+                        </div>
                       </div>
                     </div>
-                    <Badge variant={
-                      alert.status === "executed" ? "default" :
-                      alert.status === "ignored" ? "secondary" :
-                      alert.status === "error" ? "destructive" :
-                      "outline"
-                    }>
+                    <Badge 
+                      variant={
+                        alert.status === "executed" ? "default" :
+                        alert.status === "ignored" ? "secondary" :
+                        alert.status === "error" ? "destructive" :
+                        "outline"
+                      }
+                      className={
+                        alert.status === "executed" ? "bg-profit/20 text-profit border-profit/30" :
+                        alert.status === "error" ? "bg-loss/20 text-loss border-loss/30" :
+                        ""
+                      }
+                    >
                       {alert.status}
                     </Badge>
                   </div>
                 ))
               ) : (
-                <p className="text-center text-muted-foreground py-8">Brak alertów</p>
+                <div className="text-center py-12">
+                  <Activity className="h-12 w-12 mx-auto text-muted-foreground/50 mb-3" />
+                  <p className="text-muted-foreground">Brak alertów</p>
+                </div>
               )}
             </div>
           </ScrollArea>
