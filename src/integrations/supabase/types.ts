@@ -352,6 +352,7 @@ export type Database = {
           adaptive_tp_high_volatility_multiplier: number | null
           adaptive_tp_low_volatility_multiplier: number | null
           adaptive_tp_spacing: boolean | null
+          alert_strength_threshold: number | null
           allowed_tiers: string[] | null
           atr_sl_multiplier: number | null
           atr_tp_multiplier: number | null
@@ -365,6 +366,7 @@ export type Database = {
           daily_loss_limit: number | null
           daily_loss_percent: number | null
           default_leverage: number | null
+          duplicate_alert_handling: boolean | null
           excluded_tiers: string[] | null
           filter_by_tier: boolean | null
           id: string
@@ -378,6 +380,7 @@ export type Database = {
           position_size_value: number
           position_sizing_type: string
           profile_name: string | null
+          require_profit_for_same_direction: boolean | null
           rr_adaptive: boolean | null
           rr_ratio: number | null
           rr_sl_percent_margin: number | null
@@ -411,6 +414,7 @@ export type Database = {
           adaptive_tp_high_volatility_multiplier?: number | null
           adaptive_tp_low_volatility_multiplier?: number | null
           adaptive_tp_spacing?: boolean | null
+          alert_strength_threshold?: number | null
           allowed_tiers?: string[] | null
           atr_sl_multiplier?: number | null
           atr_tp_multiplier?: number | null
@@ -424,6 +428,7 @@ export type Database = {
           daily_loss_limit?: number | null
           daily_loss_percent?: number | null
           default_leverage?: number | null
+          duplicate_alert_handling?: boolean | null
           excluded_tiers?: string[] | null
           filter_by_tier?: boolean | null
           id?: string
@@ -437,6 +442,7 @@ export type Database = {
           position_size_value?: number
           position_sizing_type?: string
           profile_name?: string | null
+          require_profit_for_same_direction?: boolean | null
           rr_adaptive?: boolean | null
           rr_ratio?: number | null
           rr_sl_percent_margin?: number | null
@@ -470,6 +476,7 @@ export type Database = {
           adaptive_tp_high_volatility_multiplier?: number | null
           adaptive_tp_low_volatility_multiplier?: number | null
           adaptive_tp_spacing?: boolean | null
+          alert_strength_threshold?: number | null
           allowed_tiers?: string[] | null
           atr_sl_multiplier?: number | null
           atr_tp_multiplier?: number | null
@@ -483,6 +490,7 @@ export type Database = {
           daily_loss_limit?: number | null
           daily_loss_percent?: number | null
           default_leverage?: number | null
+          duplicate_alert_handling?: boolean | null
           excluded_tiers?: string[] | null
           filter_by_tier?: boolean | null
           id?: string
@@ -496,6 +504,7 @@ export type Database = {
           position_size_value?: number
           position_sizing_type?: string
           profile_name?: string | null
+          require_profit_for_same_direction?: boolean | null
           rr_adaptive?: boolean | null
           rr_ratio?: number | null
           rr_sl_percent_margin?: number | null

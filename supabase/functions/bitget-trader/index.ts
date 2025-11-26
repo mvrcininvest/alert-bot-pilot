@@ -97,6 +97,164 @@ serve(async (req) => {
       }
     });
 
+    // Check if duplicate alert handling is enabled and if there's an existing position
+    if (settings.duplicate_alert_handling !== false) {
+      const symbol = alert_data.symbol;
+      const { data: existingPosition } = await supabase
+        .from('positions')
+        .select('*, alerts!positions_alert_id_fkey(strength)')
+        .eq('symbol', symbol)
+        .eq('status', 'open')
+        .maybeSingle();
+
+      if (existingPosition) {
+        const currentStrength = existingPosition.alerts?.strength || 0;
+        const newStrength = alert_data.strength || 0;
+        const strengthDiff = newStrength - currentStrength;
+        const threshold = settings.alert_strength_threshold || 0.20;
+        
+        const isSameDirection = existingPosition.side === alert_data.side;
+        const currentPnL = Number(existingPosition.unrealized_pnl) || 0;
+        const isInProfit = currentPnL >= 0;
+        const isStrongerEnough = strengthDiff >= threshold;
+        
+        let shouldReplace = false;
+        let ignoreReason = '';
+        
+        if (isSameDirection) {
+          // SAME DIRECTION LOGIC
+          if (!isStrongerEnough) {
+            ignoreReason = `Same direction - new alert not strong enough (diff: ${(strengthDiff*100).toFixed(1)} < ${(threshold*100).toFixed(0)} pts)`;
+          } else if (!isInProfit) {
+            ignoreReason = `Same direction - new alert stronger but position at loss (PnL: ${currentPnL.toFixed(2)} USDT)`;
+          } else {
+            shouldReplace = true; // Stronger AND in profit
+          }
+        } else {
+          // OPPOSITE DIRECTION LOGIC
+          if (!isStrongerEnough) {
+            ignoreReason = `Reversal - new alert not strong enough (diff: ${(strengthDiff*100).toFixed(1)} < ${(threshold*100).toFixed(0)} pts)`;
+          } else if (isInProfit) {
+            ignoreReason = `Reversal - protecting profit (PnL: ${currentPnL.toFixed(2)} USDT) - stronger signal required at loss`;
+          } else {
+            shouldReplace = true; // Stronger AND at loss
+          }
+        }
+        
+        if (!shouldReplace) {
+          // REJECT ALERT
+          await log({
+            functionName: 'bitget-trader',
+            message: 'Alert rejected - duplicate alert logic',
+            level: 'warn',
+            alertId: alert_id,
+            metadata: { 
+              reason: ignoreReason,
+              existingPositionId: existingPosition.id,
+              currentStrength,
+              newStrength,
+              strengthDiff,
+              isSameDirection,
+              currentPnL,
+              isInProfit
+            }
+          });
+          
+          await supabase.from('alerts').update({ 
+            status: 'ignored', 
+            error_message: ignoreReason 
+          }).eq('id', alert_id);
+          
+          return new Response(JSON.stringify({ 
+            success: false, 
+            message: ignoreReason 
+          }), {
+            headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+          });
+        }
+        
+        // CLOSE EXISTING POSITION
+        const closeReason = isSameDirection ? 'replaced_by_stronger_signal' : 'reversed_by_signal';
+        
+        await log({
+          functionName: 'bitget-trader',
+          message: `Closing existing position for replacement: ${closeReason}`,
+          level: 'info',
+          alertId: alert_id,
+          metadata: { 
+            existingPositionId: existingPosition.id,
+            closeReason,
+            currentStrength,
+            newStrength,
+            strengthDiff,
+            currentPnL
+          }
+        });
+        
+        // Cancel SL/TP orders
+        const orderIds = [
+          existingPosition.sl_order_id, 
+          existingPosition.tp1_order_id, 
+          existingPosition.tp2_order_id, 
+          existingPosition.tp3_order_id
+        ].filter(Boolean);
+        
+        for (const orderId of orderIds) {
+          try {
+            await supabase.functions.invoke('bitget-api', {
+              body: {
+                action: 'cancel_plan_order',
+                params: {
+                  symbol: existingPosition.symbol,
+                  orderId
+                }
+              }
+            });
+          } catch (error) {
+            console.warn(`Failed to cancel order ${orderId}:`, error);
+          }
+        }
+        
+        // Flash close position on exchange
+        const holdSide = existingPosition.side === 'BUY' ? 'long' : 'short';
+        try {
+          await supabase.functions.invoke('bitget-api', {
+            body: {
+              action: 'close_position',
+              params: {
+                symbol: existingPosition.symbol,
+                holdSide
+              }
+            }
+          });
+        } catch (error) {
+          console.error('Failed to close position on exchange:', error);
+          throw new Error('Failed to close existing position on exchange');
+        }
+        
+        // Update position in database
+        await supabase.from('positions').update({
+          status: 'closed',
+          close_reason: closeReason,
+          closed_at: new Date().toISOString()
+        }).eq('id', existingPosition.id);
+        
+        await log({
+          functionName: 'bitget-trader',
+          message: `Position closed for replacement: ${closeReason}`,
+          level: 'info',
+          alertId: alert_id,
+          positionId: existingPosition.id,
+          metadata: { 
+            positionId: existingPosition.id,
+            closeReason
+          }
+        });
+        
+        console.log(`✓ Existing position closed for replacement: ${closeReason}`);
+      }
+    }
+
     // Check daily loss limit
     const today = new Date().toISOString().split('T')[0];
     const { data: todayPositions } = await supabase
