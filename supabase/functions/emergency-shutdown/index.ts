@@ -89,11 +89,27 @@ serve(async (req) => {
         if (!positionResult?.success || !positionResult.data || !positionResult.data[0]) {
           console.log(`Position ${position.symbol} not found on exchange, marking as closed in DB`);
           
+          // Get current price for PnL calculation
+          const { data: tickerResult } = await supabase.functions.invoke('bitget-api', {
+            body: {
+              action: 'get_ticker',
+              params: { symbol: position.symbol }
+            }
+          });
+          
+          const currentPrice = tickerResult?.success ? Number(tickerResult.data[0].lastPr) : Number(position.entry_price);
+          const priceDiff = position.side === 'BUY'
+            ? currentPrice - Number(position.entry_price)
+            : Number(position.entry_price) - currentPrice;
+          const realizedPnl = priceDiff * Number(position.quantity);
+          
           await supabase
             .from('positions')
             .update({
               status: 'closed',
               close_reason: 'Emergency shutdown - position not found on exchange',
+              close_price: currentPrice,
+              realized_pnl: realizedPnl,
               closed_at: new Date().toISOString()
             })
             .eq('id', position.id);
@@ -108,11 +124,27 @@ serve(async (req) => {
         if (bitgetQuantity === 0) {
           console.log(`Position ${position.symbol} has 0 quantity, marking as closed in DB`);
           
+          // Get current price for PnL calculation
+          const { data: tickerResult } = await supabase.functions.invoke('bitget-api', {
+            body: {
+              action: 'get_ticker',
+              params: { symbol: position.symbol }
+            }
+          });
+          
+          const currentPrice = tickerResult?.success ? Number(tickerResult.data[0].lastPr) : Number(position.entry_price);
+          const priceDiff = position.side === 'BUY'
+            ? currentPrice - Number(position.entry_price)
+            : Number(position.entry_price) - currentPrice;
+          const realizedPnl = priceDiff * Number(position.quantity);
+          
           await supabase
             .from('positions')
             .update({
               status: 'closed',
               close_reason: 'Emergency shutdown - zero quantity',
+              close_price: currentPrice,
+              realized_pnl: realizedPnl,
               closed_at: new Date().toISOString()
             })
             .eq('id', position.id);

@@ -187,15 +187,67 @@ async function checkPositionFullVerification(supabase: any, position: any, autoR
       positionId: position.id
     });
     
-    // Position in DB but not on exchange - close it in DB
+    // Get current market price for proper PnL calculation
+    const { data: tickerResult } = await supabase.functions.invoke('bitget-api', {
+      body: {
+        action: 'get_ticker',
+        params: { symbol: position.symbol }
+      }
+    });
+    
+    const closePrice = tickerResult?.success && tickerResult.data?.[0]
+      ? Number(tickerResult.data[0].lastPr)
+      : Number(position.entry_price); // Fallback to entry if can't get current price
+    
+    // Calculate PnL properly
+    const priceDiff = position.side === 'BUY'
+      ? closePrice - Number(position.entry_price)
+      : Number(position.entry_price) - closePrice;
+    const realizedPnl = priceDiff * Number(position.quantity);
+    
+    // Position in DB but not on exchange - close it in DB with proper data
     await supabase
       .from('positions')
       .update({
         status: 'closed',
-        close_reason: 'Position not found on exchange',
+        close_reason: 'position_not_found_on_exchange',
+        close_price: closePrice,
+        realized_pnl: realizedPnl,
         closed_at: new Date().toISOString()
       })
       .eq('id', position.id);
+    
+    // Update performance metrics
+    const today = new Date().toISOString().split('T')[0];
+    const { data: existingMetrics } = await supabase
+      .from('performance_metrics')
+      .select('*')
+      .eq('date', today)
+      .eq('symbol', position.symbol)
+      .single();
+
+    if (existingMetrics) {
+      await supabase
+        .from('performance_metrics')
+        .update({
+          total_trades: existingMetrics.total_trades + 1,
+          winning_trades: realizedPnl > 0 ? existingMetrics.winning_trades + 1 : existingMetrics.winning_trades,
+          losing_trades: realizedPnl < 0 ? existingMetrics.losing_trades + 1 : existingMetrics.losing_trades,
+          total_pnl: Number(existingMetrics.total_pnl) + realizedPnl,
+        })
+        .eq('id', existingMetrics.id);
+    } else {
+      await supabase
+        .from('performance_metrics')
+        .insert({
+          date: today,
+          symbol: position.symbol,
+          total_trades: 1,
+          winning_trades: realizedPnl > 0 ? 1 : 0,
+          losing_trades: realizedPnl < 0 ? 1 : 0,
+          total_pnl: realizedPnl,
+        });
+    }
     
     return;
   }
@@ -324,12 +376,19 @@ async function checkPositionFullVerification(supabase: any, position: any, autoR
           });
           
           if (closeResult?.success) {
+            // Calculate PnL
+            const priceDiff = position.side === 'BUY'
+              ? currentPrice - Number(position.entry_price)
+              : Number(position.entry_price) - currentPrice;
+            const realizedPnl = priceDiff * Number(position.quantity);
+            
             await supabase
               .from('positions')
               .update({
                 status: 'closed',
                 close_reason: 'Emergency close - failed to set SL after 2 attempts',
                 close_price: currentPrice,
+                realized_pnl: realizedPnl,
                 closed_at: new Date().toISOString()
               })
               .eq('id', position.id);

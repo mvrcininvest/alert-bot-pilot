@@ -155,11 +155,11 @@ serve(async (req) => {
       }
     }
 
-    // Calculate realized PnL
+    // Calculate realized PnL (without leverage multiplier - quantity is already leveraged)
     const priceDiff = position.side === 'BUY'
       ? closePrice - Number(position.entry_price)
       : Number(position.entry_price) - closePrice;
-    const realizedPnl = priceDiff * Number(position.quantity) * position.leverage;
+    const realizedPnl = priceDiff * Number(position.quantity);
 
     await log({
       functionName: 'close-position',
