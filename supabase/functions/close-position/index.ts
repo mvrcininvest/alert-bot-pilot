@@ -155,11 +155,106 @@ serve(async (req) => {
       }
     }
 
-    // Calculate realized PnL (without leverage multiplier - quantity is already leveraged)
-    const priceDiff = position.side === 'BUY'
-      ? closePrice - Number(position.entry_price)
-      : Number(position.entry_price) - closePrice;
-    const realizedPnl = priceDiff * Number(position.quantity);
+    // Wait a moment for fills to be recorded
+    await new Promise(resolve => setTimeout(resolve, 2000));
+
+    // Fetch fill history from Bitget to get accurate close data
+    await log({
+      functionName: 'close-position',
+      message: 'Fetching fill history from Bitget',
+      level: 'info',
+      positionId: position_id
+    });
+
+    const { data: fillsResult } = await supabase.functions.invoke('bitget-api', {
+      body: {
+        action: 'get_fills',
+        params: { symbol: position.symbol }
+      }
+    });
+
+    let actualClosePrice = closePrice;
+    let realizedPnl = 0;
+    let closeReasonFromFills = reason || 'manual';
+
+    if (fillsResult?.success && fillsResult.data?.fillList?.length > 0) {
+      const recentFills = fillsResult.data.fillList
+        .filter((fill: any) => {
+          const fillTime = Number(fill.cTime);
+          const now = Date.now();
+          return (now - fillTime) < 60000; // Last minute
+        })
+        .filter((fill: any) => {
+          const fillSide = fill.side?.toLowerCase() || '';
+          const expectedSide = position.side === 'BUY' ? 'close_long' : 'close_short';
+          return fillSide === expectedSide || fillSide.includes('close');
+        });
+
+      if (recentFills.length > 0) {
+        // Calculate average close price from fills
+        const totalQty = recentFills.reduce((sum: number, fill: any) => sum + Number(fill.baseVolume || fill.size || 0), 0);
+        const totalValue = recentFills.reduce((sum: number, fill: any) => {
+          const qty = Number(fill.baseVolume || fill.size || 0);
+          const price = Number(fill.price || fill.fillPrice || 0);
+          return sum + (qty * price);
+        }, 0);
+        
+        if (totalQty > 0) {
+          actualClosePrice = totalValue / totalQty;
+          
+          // Calculate PnL from fills
+          const priceDiff = position.side === 'BUY'
+            ? actualClosePrice - Number(position.entry_price)
+            : Number(position.entry_price) - actualClosePrice;
+          realizedPnl = priceDiff * totalQty;
+
+          // Determine close reason from price
+          const slPrice = Number(position.sl_price);
+          const isBuy = position.side === 'BUY';
+          
+          if (isBuy) {
+            if (actualClosePrice <= slPrice * 1.005) {
+              closeReasonFromFills = 'sl_hit';
+            } else if (position.tp3_price && actualClosePrice >= Number(position.tp3_price) * 0.995) {
+              closeReasonFromFills = 'tp3_hit';
+            } else if (position.tp2_price && actualClosePrice >= Number(position.tp2_price) * 0.995) {
+              closeReasonFromFills = 'tp2_hit';
+            } else if (position.tp1_price && actualClosePrice >= Number(position.tp1_price) * 0.995) {
+              closeReasonFromFills = 'tp1_hit';
+            }
+          } else {
+            if (actualClosePrice >= slPrice * 0.995) {
+              closeReasonFromFills = 'sl_hit';
+            } else if (position.tp3_price && actualClosePrice <= Number(position.tp3_price) * 1.005) {
+              closeReasonFromFills = 'tp3_hit';
+            } else if (position.tp2_price && actualClosePrice <= Number(position.tp2_price) * 1.005) {
+              closeReasonFromFills = 'tp2_hit';
+            } else if (position.tp1_price && actualClosePrice <= Number(position.tp1_price) * 1.005) {
+              closeReasonFromFills = 'tp1_hit';
+            }
+          }
+
+          await log({
+            functionName: 'close-position',
+            message: 'Calculated from fills',
+            level: 'info',
+            positionId: position_id,
+            metadata: { 
+              actualClosePrice,
+              realizedPnl,
+              closeReason: closeReasonFromFills,
+              fillsCount: recentFills.length
+            }
+          });
+        }
+      }
+    } else {
+      // Fallback to simple calculation
+      const priceDiff = position.side === 'BUY'
+        ? closePrice - Number(position.entry_price)
+        : Number(position.entry_price) - closePrice;
+      realizedPnl = priceDiff * Number(position.quantity);
+    }
 
     await log({
       functionName: 'close-position',
@@ -167,8 +262,9 @@ serve(async (req) => {
       level: 'info',
       positionId: position_id,
       metadata: { 
-        closePrice, 
+        closePrice: actualClosePrice, 
         realizedPnl,
+        closeReason: closeReasonFromFills,
         entryPrice: position.entry_price
       }
     });
@@ -178,8 +274,8 @@ serve(async (req) => {
       .from('positions')
       .update({
         status: 'closed',
-        close_price: closePrice,
-        close_reason: reason || 'manual',
+        close_price: actualClosePrice,
+        close_reason: closeReasonFromFills,
         closed_at: new Date().toISOString(),
         realized_pnl: realizedPnl,
       })
@@ -244,7 +340,8 @@ serve(async (req) => {
     return new Response(JSON.stringify({ 
       success: true, 
       realized_pnl: realizedPnl,
-      close_price: closePrice 
+      close_price: actualClosePrice,
+      close_reason: closeReasonFromFills
     }), {
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
     });
