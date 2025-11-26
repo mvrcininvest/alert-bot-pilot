@@ -6,7 +6,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { format } from "date-fns";
-import { Info, AlertCircle, TestTube } from "lucide-react";
+import { Info, AlertCircle, TestTube, Download } from "lucide-react";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useState } from "react";
@@ -75,11 +75,101 @@ export default function Alerts() {
     }
   };
 
+  const exportToCSV = () => {
+    if (!alerts || alerts.length === 0) {
+      toast({
+        title: "Brak danych",
+        description: "Nie ma alertów do eksportu",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    const headers = [
+      "Data", "Symbol", "Side", "Entry Price", "SL", "TP", "Tier", 
+      "Strength", "Leverage", "Latencja (ms)", "Status", "Testowy"
+    ];
+
+    const rows = alerts.map((alert) => [
+      format(new Date(alert.created_at), "dd.MM.yyyy HH:mm"),
+      alert.symbol,
+      alert.side,
+      Number(alert.entry_price).toFixed(4),
+      Number(alert.sl).toFixed(4),
+      Number(alert.main_tp).toFixed(4),
+      alert.tier || "-",
+      Number(alert.strength || 0).toFixed(2),
+      alert.leverage,
+      alert.latency_ms || "-",
+      alert.status,
+      alert.is_test ? "Tak" : "Nie"
+    ]);
+
+    const csvContent = [
+      headers.join(","),
+      ...rows.map(row => row.map(cell => `"${cell}"`).join(","))
+    ].join("\n");
+
+    const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
+    const link = document.createElement("a");
+    const url = URL.createObjectURL(blob);
+    link.setAttribute("href", url);
+    link.setAttribute("download", `alerts_${format(new Date(), "yyyy-MM-dd_HH-mm")}.csv`);
+    link.style.visibility = "hidden";
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+
+    toast({
+      title: "Eksport zakończony",
+      description: `Wyeksportowano ${alerts.length} alertów do CSV`,
+    });
+  };
+
+  const exportToJSON = () => {
+    if (!alerts || alerts.length === 0) {
+      toast({
+        title: "Brak danych",
+        description: "Nie ma alertów do eksportu",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    const jsonContent = JSON.stringify(alerts, null, 2);
+    const blob = new Blob([jsonContent], { type: "application/json;charset=utf-8;" });
+    const link = document.createElement("a");
+    const url = URL.createObjectURL(blob);
+    link.setAttribute("href", url);
+    link.setAttribute("download", `alerts_${format(new Date(), "yyyy-MM-dd_HH-mm")}.json`);
+    link.style.visibility = "hidden";
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+
+    toast({
+      title: "Eksport zakończony",
+      description: `Wyeksportowano ${alerts.length} alertów do JSON`,
+    });
+  };
+
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-3xl font-bold">Historia Alertów</h1>
-        <p className="text-muted-foreground">Wszystkie alerty otrzymane z TradingView</p>
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-3xl font-bold">Historia Alertów</h1>
+          <p className="text-muted-foreground">Wszystkie alerty otrzymane z TradingView</p>
+        </div>
+        <div className="flex gap-2">
+          <Button variant="outline" onClick={exportToCSV}>
+            <Download className="mr-2 h-4 w-4" />
+            CSV
+          </Button>
+          <Button variant="outline" onClick={exportToJSON}>
+            <Download className="mr-2 h-4 w-4" />
+            JSON
+          </Button>
+        </div>
       </div>
 
       {stats && (
