@@ -133,6 +133,19 @@ serve(async (req) => {
         result = await bitgetRequest(config, 'GET', 
           `/api/v2/mix/position/single-position?symbol=${params.symbol}&productType=USDT-FUTURES&marginCoin=USDT`);
         break;
+      
+      case 'get_history_positions':
+        // Get closed positions fill history - v2 API
+        const historyParams = new URLSearchParams({
+          productType: 'USDT-FUTURES',
+        });
+        if (params.symbol) historyParams.append('symbol', params.symbol);
+        if (params.startTime) historyParams.append('startTime', params.startTime);
+        if (params.endTime) historyParams.append('endTime', params.endTime);
+        if (params.limit) historyParams.append('limit', params.limit);
+        
+        result = await bitgetRequest(config, 'GET', `/api/v2/mix/order/fill-history?${historyParams.toString()}`);
+        break;
 
       case 'place_order':
         // Place market order - v2 API
