@@ -1,4 +1,4 @@
-import { Home, AlertCircle, History, BarChart3, Settings, FileText, Webhook, Power, AlertTriangle, LogOut } from "lucide-react";
+import { Home, AlertCircle, History, BarChart3, Settings, FileText, Webhook, Power, AlertTriangle, LogOut, Shield } from "lucide-react";
 import { NavLink } from "./NavLink";
 import { cn } from "@/lib/utils";
 import logoAristoEdge from "@/assets/logo-aristoedge.png";
@@ -22,10 +22,14 @@ const navigation = [
   { name: "Ustawienia", href: "/settings", icon: Settings },
 ];
 
+const adminNavigation = [
+  { name: "Panel Admina", href: "/admin", icon: Shield },
+];
+
 export function Layout({ children }: { children: React.ReactNode }) {
   const { toast } = useToast();
   const queryClient = useQueryClient();
-  const { user, loading, signOut } = useAuth();
+  const { user, loading, isAdmin, signOut } = useAuth();
   const navigate = useNavigate();
 
   // Redirect to auth if not logged in
@@ -107,6 +111,19 @@ export function Layout({ children }: { children: React.ReactNode }) {
                   <span className="hidden xl:inline">{item.name}</span>
                 </NavLink>
               ))}
+              
+              {/* Admin Navigation */}
+              {isAdmin && adminNavigation.map((item) => (
+                <NavLink
+                  key={item.name}
+                  to={item.href}
+                  className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium text-muted-foreground transition-all hover:text-foreground hover:bg-secondary/50 border-l border-border/50 ml-1 pl-4"
+                  activeClassName="text-primary bg-primary/10 hover:bg-primary/15"
+                >
+                  <item.icon className="h-4 w-4" />
+                  <span className="hidden xl:inline">{item.name}</span>
+                </NavLink>
+              ))}
             </nav>
           </div>
 
@@ -119,8 +136,16 @@ export function Layout({ children }: { children: React.ReactNode }) {
                   {initials}
                 </AvatarFallback>
               </Avatar>
-              <div className="flex flex-col">
-                <span className="text-sm font-medium text-foreground">{displayName}</span>
+              <div className="flex flex-col gap-0.5">
+                <div className="flex items-center gap-2">
+                  <span className="text-sm font-medium text-foreground">{displayName}</span>
+                  {isAdmin && (
+                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-primary/10 border border-primary/20">
+                      <Shield className="h-3 w-3 text-primary" />
+                      <span className="text-[10px] font-semibold text-primary">ADMIN</span>
+                    </span>
+                  )}
+                </div>
                 <span className="text-xs text-muted-foreground truncate max-w-[150px]">{user?.email}</span>
               </div>
               <Button
