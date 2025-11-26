@@ -1,6 +1,8 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { log } from "../_shared/logger.ts";
+import { getUserApiKeys } from "../_shared/userKeys.ts";
+import { getUserSettings } from "../_shared/userSettings.ts";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -8,11 +10,12 @@ const corsHeaders = {
 };
 
 // Helper function to get price precision from Bitget API
-async function getPricePrecision(supabase: any, symbol: string): Promise<number> {
+async function getPricePrecision(supabase: any, symbol: string, apiCredentials: any): Promise<number> {
   const { data: symbolInfoResult } = await supabase.functions.invoke('bitget-api', {
     body: {
       action: 'get_symbol_info',
-      params: { symbol }
+      params: { symbol },
+      apiCredentials
     }
   });
   
@@ -83,21 +86,6 @@ serve(async (req) => {
     });
     console.log(`🔥 OKO SAURONA: Monitoring ${positions.length} positions`);
 
-    // Get settings
-    const { data: settings } = await supabase
-      .from('settings')
-      .select('*')
-      .single();
-
-    const autoRepair = settings?.auto_repair || false;
-    
-    await log({
-      functionName: 'position-monitor',
-      message: 'Settings loaded',
-      level: 'info',
-      metadata: { autoRepair }
-    });
-
     // Check each position with full verification
     for (const position of positions) {
       try {
@@ -108,7 +96,11 @@ serve(async (req) => {
           positionId: position.id,
           metadata: { symbol: position.symbol, side: position.side }
         });
-        await checkPositionFullVerification(supabase, position, autoRepair, settings);
+
+        // Get user settings
+        const userSettings = await getUserSettings(position.user_id);
+
+        await checkPositionFullVerification(supabase, position, userSettings);
       } catch (error) {
         await log({
           functionName: 'position-monitor',
@@ -127,7 +119,8 @@ serve(async (req) => {
             last_error: error instanceof Error ? error.message : 'Unknown error',
             last_check_at: new Date().toISOString(),
           })
-          .eq('id', position.id);
+          .eq('id', position.id)
+          .eq('user_id', position.user_id);
       }
     }
 
@@ -161,21 +154,34 @@ serve(async (req) => {
   }
 });
 
-async function checkPositionFullVerification(supabase: any, position: any, autoRepair: boolean, settings: any) {
+async function checkPositionFullVerification(supabase: any, position: any, settings: any) {
   console.log(`🔥 Full verification for ${position.id} - ${position.symbol}`);
+
+  // Get user API keys
+  const userKeys = await getUserApiKeys(position.user_id);
+  if (!userKeys) {
+    throw new Error('User API keys not found or inactive');
+  }
+
+  const apiCredentials = {
+    apiKey: userKeys.apiKey,
+    secretKey: userKeys.secretKey,
+    passphrase: userKeys.passphrase
+  };
 
   const issues: any[] = [];
   const actions: string[] = [];
   
   // Get price precision for this symbol
-  const pricePlace = await getPricePrecision(supabase, position.symbol);
+  const pricePlace = await getPricePrecision(supabase, position.symbol, apiCredentials);
   console.log(`📏 Price precision for ${position.symbol}: ${pricePlace} decimals`);
 
   // 1. Get current position from Bitget
   const { data: positionResult } = await supabase.functions.invoke('bitget-api', {
     body: {
       action: 'get_position',
-      params: { symbol: position.symbol }
+      params: { symbol: position.symbol },
+      apiCredentials
     }
   });
 
@@ -190,25 +196,12 @@ async function checkPositionFullVerification(supabase: any, position: any, autoR
     // Position already closed on exchange - try to determine why
     let closeReason = 'unknown';
     
-    // Check if any TP orders were filled by checking order history
-    const { data: ordersResult } = await supabase.functions.invoke('bitget-api', {
-      body: {
-        action: 'get_plan_orders',
-        params: { symbol: position.symbol }
-      }
-    });
-    
-    // If TP/SL orders don't exist anymore, they were likely triggered
-    const hasSlOrder = position.sl_order_id;
-    const hasTp1Order = position.tp1_order_id;
-    const hasTp2Order = position.tp2_order_id;
-    const hasTp3Order = position.tp3_order_id;
-    
     // Get current price to determine direction
     const { data: tickerResult } = await supabase.functions.invoke('bitget-api', {
       body: {
         action: 'get_ticker',
-        params: { symbol: position.symbol }
+        params: { symbol: position.symbol },
+        apiCredentials
       }
     });
     
@@ -220,36 +213,34 @@ async function checkPositionFullVerification(supabase: any, position: any, autoR
     const slPrice = Number(position.sl_price);
     const isBuy = position.side === 'BUY';
     
-    // Determine close reason based on price movement and which orders existed
+    // Determine close reason based on price movement
     if (isBuy) {
-      // For LONG positions
-      if (currentPrice <= slPrice * 1.005) { // Within 0.5% of SL
+      if (currentPrice <= slPrice * 1.005) {
         closeReason = 'sl_hit';
-      } else if (hasTp3Order && position.tp3_price && currentPrice >= Number(position.tp3_price) * 0.995) {
+      } else if (position.tp3_price && currentPrice >= Number(position.tp3_price) * 0.995) {
         closeReason = 'tp3_hit';
-      } else if (hasTp2Order && position.tp2_price && currentPrice >= Number(position.tp2_price) * 0.995) {
+      } else if (position.tp2_price && currentPrice >= Number(position.tp2_price) * 0.995) {
         closeReason = 'tp2_hit';
-      } else if (hasTp1Order && position.tp1_price && currentPrice >= Number(position.tp1_price) * 0.995) {
+      } else if (position.tp1_price && currentPrice >= Number(position.tp1_price) * 0.995) {
         closeReason = 'tp1_hit';
       } else if (currentPrice > entryPrice) {
-        closeReason = 'tp_hit'; // Some TP was hit
+        closeReason = 'tp_hit';
       } else {
-        closeReason = 'sl_hit'; // Price below entry, likely SL
+        closeReason = 'sl_hit';
       }
     } else {
-      // For SHORT positions
-      if (currentPrice >= slPrice * 0.995) { // Within 0.5% of SL
+      if (currentPrice >= slPrice * 0.995) {
         closeReason = 'sl_hit';
-      } else if (hasTp3Order && position.tp3_price && currentPrice <= Number(position.tp3_price) * 1.005) {
+      } else if (position.tp3_price && currentPrice <= Number(position.tp3_price) * 1.005) {
         closeReason = 'tp3_hit';
-      } else if (hasTp2Order && position.tp2_price && currentPrice <= Number(position.tp2_price) * 1.005) {
+      } else if (position.tp2_price && currentPrice <= Number(position.tp2_price) * 1.005) {
         closeReason = 'tp2_hit';
-      } else if (hasTp1Order && position.tp1_price && currentPrice <= Number(position.tp1_price) * 1.005) {
+      } else if (position.tp1_price && currentPrice <= Number(position.tp1_price) * 1.005) {
         closeReason = 'tp1_hit';
       } else if (currentPrice < entryPrice) {
-        closeReason = 'tp_hit'; // Some TP was hit
+        closeReason = 'tp_hit';
       } else {
-        closeReason = 'sl_hit'; // Price above entry, likely SL
+        closeReason = 'sl_hit';
       }
     }
     
@@ -279,7 +270,8 @@ async function checkPositionFullVerification(supabase: any, position: any, autoR
         realized_pnl: realizedPnl,
         closed_at: new Date().toISOString()
       })
-      .eq('id', position.id);
+      .eq('id', position.id)
+      .eq('user_id', position.user_id);
     
     // Update performance metrics
     const today = new Date().toISOString().split('T')[0];
@@ -322,7 +314,8 @@ async function checkPositionFullVerification(supabase: any, position: any, autoR
   const { data: tickerResult } = await supabase.functions.invoke('bitget-api', {
     body: {
       action: 'get_ticker',
-      params: { symbol: position.symbol }
+      params: { symbol: position.symbol },
+      apiCredentials
     }
   });
 
@@ -339,7 +332,8 @@ async function checkPositionFullVerification(supabase: any, position: any, autoR
       action: 'get_plan_orders',
       params: { 
         symbol: position.symbol
-      }
+      },
+      apiCredentials
     }
   });
 
@@ -380,7 +374,8 @@ async function checkPositionFullVerification(supabase: any, position: any, autoR
     });
     console.log(`❌ CRITICAL: No SL order found for ${position.symbol}`);
     
-    // Auto-repair: Place SL order using TPSL endpoint
+    // Auto-repair: Place SL order using TPSL endpoint (always enabled for now)
+    const autoRepair = true;
     if (autoRepair) {
       console.log(`🔧 Auto-repairing: Placing SL order`);
       const holdSide = position.side === 'BUY' ? 'long' : 'short';
@@ -400,7 +395,8 @@ async function checkPositionFullVerification(supabase: any, position: any, autoR
             triggerType: 'mark_price',
             holdSide: holdSide,
             executePrice: 0, // Market order
-          }
+          },
+          apiCredentials
         }
       });
       
@@ -420,7 +416,8 @@ async function checkPositionFullVerification(supabase: any, position: any, autoR
           .update({ 
             metadata: { ...metadata, sl_repair_attempts: slRepairAttempts + 1 }
           })
-          .eq('id', position.id);
+          .eq('id', position.id)
+          .eq('user_id', position.user_id);
           
         // If 2nd attempt failed, emergency close and ban symbol
         if (slRepairAttempts >= 1) {
@@ -435,7 +432,8 @@ async function checkPositionFullVerification(supabase: any, position: any, autoR
                 symbol: position.symbol,
                 size: bitgetQuantity.toString(),
                 side: closeSide,
-              }
+              },
+              apiCredentials
             }
           });
           
@@ -455,7 +453,8 @@ async function checkPositionFullVerification(supabase: any, position: any, autoR
                 realized_pnl: realizedPnl,
                 closed_at: new Date().toISOString()
               })
-              .eq('id', position.id);
+              .eq('id', position.id)
+              .eq('user_id', position.user_id);
             
             // Ban the symbol
             await supabase
@@ -500,651 +499,28 @@ async function checkPositionFullVerification(supabase: any, position: any, autoR
           .from('positions')
           .update({ 
             sl_order_id: slResult.data.orderId,
-            metadata: { ...metadata, sl_repair_attempts: 0 } // Reset on success
+            metadata: { ...metadata, sl_repair_attempts: 0 }
           })
-          .eq('id', position.id);
+          .eq('id', position.id)
+          .eq('user_id', position.user_id);
         actions.push('Placed missing SL order');
         console.log(`✅ SL order placed: ${slResult.data.orderId}`);
-        
-        // Log successful repair
-        await supabase
-          .from('monitoring_logs')
-          .insert({
-            position_id: position.id,
-            check_type: 'sl_repair',
-            status: 'success',
-            issues: [{ type: 'missing_sl', severity: 'critical' }],
-            actions_taken: `Successfully placed SL order: ${slResult.data.orderId}`,
-            expected_data: { sl_price: position.sl_price },
-            actual_data: { sl_order_id: slResult.data.orderId }
-          });
-      } else {
-        console.error(`❌ Failed to place SL order:`, JSON.stringify(slResult));
-        await log({
-          functionName: 'position-monitor',
-          message: 'Failed to place SL order during auto-repair',
-          level: 'error',
-          positionId: position.id,
-          metadata: { error: slResult?.error || 'Unknown error', result: slResult, attempts: slRepairAttempts + 1 }
-        });
-        
-        // Update repair attempts
-        await supabase
-          .from('positions')
-          .update({ 
-            metadata: { ...metadata, sl_repair_attempts: slRepairAttempts + 1 }
-          })
-          .eq('id', position.id);
-          
-        // If 2nd attempt failed, emergency close and ban symbol
-        if (slRepairAttempts >= 1) {
-          console.log(`🚨 EMERGENCY: 2nd SL repair attempt failed for ${position.symbol}, closing position and banning symbol`);
-          
-          // Close position at market
-          const closeSide = position.side === 'BUY' ? 'close_long' : 'close_short';
-          const { data: closeResult } = await supabase.functions.invoke('bitget-api', {
-            body: {
-              action: 'place_order',
-              params: {
-                symbol: position.symbol,
-                size: bitgetQuantity.toString(),
-                side: closeSide,
-              }
-            }
-          });
-          
-          if (closeResult?.success) {
-            await supabase
-              .from('positions')
-              .update({
-                status: 'closed',
-                close_reason: 'Emergency close - failed to set SL after 2 attempts',
-                close_price: currentPrice,
-                closed_at: new Date().toISOString()
-              })
-              .eq('id', position.id);
-            
-            // Ban the symbol
-            await supabase
-              .from('banned_symbols')
-              .insert({
-                symbol: position.symbol,
-                reason: 'Failed to set SL after 2 attempts - emergency close'
-              });
-            
-            actions.push(`🚨 EMERGENCY: Closed position and banned ${position.symbol}`);
-            
-            await log({
-              functionName: 'position-monitor',
-              message: `Emergency close and ban: ${position.symbol}`,
-              level: 'error',
-              positionId: position.id,
-              metadata: { 
-                reason: 'Failed to set SL after 2 attempts',
-                closePrice: currentPrice
-              }
-            });
-            
-            // Log to monitoring_logs
-            await supabase
-              .from('monitoring_logs')
-              .insert({
-                position_id: position.id,
-                check_type: 'emergency_close',
-                status: 'critical',
-                issues: [{
-                  type: 'emergency_close',
-                  reason: 'Failed to set SL after 2 attempts'
-                }],
-                actions_taken: `Closed position at market (${currentPrice}) and banned symbol ${position.symbol}`,
-                expected_data: { sl_price: position.sl_price },
-                actual_data: { current_price: currentPrice, sl_missing: true }
-              });
-          }
-        } else {
-          // Log failed repair attempt
-          await supabase
-            .from('monitoring_logs')
-            .insert({
-              position_id: position.id,
-              check_type: 'sl_repair',
-              status: 'failed',
-              issues: [{ type: 'missing_sl', severity: 'critical' }],
-              actions_taken: `Failed to place SL order (attempt ${slRepairAttempts + 1}/2)`,
-              expected_data: { sl_price: position.sl_price },
-              actual_data: { error: slResult?.error || 'Unknown error' }
-            });
-        }
       }
     }
   }
 
-  // 6. Check if TP orders exist (if configured)
-  const tpOrders = planOrders.filter((order: any) => 
-    (order.planType === 'pos_profit' || order.planType === 'profit_plan' || 
-     (order.planType === 'profit_loss' && order.stopSurplusTriggerPrice)) &&
-    order.planStatus === 'live'
-  );
-  
-  const expectedTPs = [position.tp1_price, position.tp2_price, position.tp3_price].filter(Boolean).length;
-  
-  if (expectedTPs > 0 && tpOrders.length === 0) {
-    issues.push({
-      type: 'missing_tp',
-      severity: 'high',
-      message: 'No Take Profit orders found on exchange',
-      expected: expectedTPs,
-      actual: 0
-    });
-    console.log(`⚠️ No TP orders found for ${position.symbol}, expected ${expectedTPs}`);
-    
-    // Auto-repair: Place TP orders using TPSL endpoint
-    if (autoRepair) {
-      console.log(`🔧 Auto-repairing: Placing TP orders`);
-      const holdSide = position.side === 'BUY' ? 'long' : 'short';
-      const metadata = position.metadata || {};
-      const tpRepairAttempts = metadata.tp_repair_attempts || 0;
-      
-      let tpRepairFailed = false;
-      
-      if (position.tp1_price) {
-        const tp1Qty = bitgetQuantity * (settings?.tp1_close_percent || 100) / 100;
-        const roundedTp1Price = roundPrice(position.tp1_price, pricePlace);
-        
-        const { data: tp1Result, error: tp1Error } = await supabase.functions.invoke('bitget-api', {
-          body: {
-            action: 'place_tpsl_order',
-            params: {
-              symbol: position.symbol,
-              planType: 'pos_profit',
-              triggerPrice: roundedTp1Price,
-              triggerType: 'mark_price',
-              holdSide: holdSide,
-              executePrice: 0, // Market order
-              size: tp1Qty.toString(), // Partial TP
-            }
-          }
-        });
-        
-        if (tp1Error || !tp1Result?.success) {
-          tpRepairFailed = true;
-          console.error(`❌ Failed to place TP1 order:`, tp1Error || tp1Result);
-          await log({
-            functionName: 'position-monitor',
-            message: 'Failed to place TP1 order during auto-repair',
-            level: 'error',
-            positionId: position.id,
-            metadata: { error: tp1Error || tp1Result?.error || 'Unknown error', attempts: tpRepairAttempts + 1 }
-          });
-        } else {
-          await supabase
-            .from('positions')
-            .update({ 
-              tp1_order_id: tp1Result.data.orderId,
-              tp1_quantity: tp1Qty
-            })
-            .eq('id', position.id);
-          actions.push('Placed missing TP1 order');
-          console.log(`✅ TP1 order placed: ${tp1Result.data.orderId}`);
-          
-          // Log successful repair
-          await supabase
-            .from('monitoring_logs')
-            .insert({
-              position_id: position.id,
-              check_type: 'tp_repair',
-              status: 'success',
-              issues: [{ type: 'missing_tp', severity: 'high' }],
-              actions_taken: `Successfully placed TP1 order: ${tp1Result.data.orderId}`,
-              expected_data: { tp1_price: position.tp1_price },
-              actual_data: { tp1_order_id: tp1Result.data.orderId }
-            });
-        }
-      }
-      
-      if (position.tp2_price && !tpRepairFailed) {
-        const tp2Qty = bitgetQuantity * (settings?.tp2_close_percent || 0) / 100;
-        if (tp2Qty > 0) {
-          const roundedTp2Price = roundPrice(position.tp2_price, pricePlace);
-          
-          const { data: tp2Result, error: tp2Error } = await supabase.functions.invoke('bitget-api', {
-            body: {
-              action: 'place_tpsl_order',
-              params: {
-                symbol: position.symbol,
-                planType: 'pos_profit',
-                triggerPrice: roundedTp2Price,
-                triggerType: 'mark_price',
-                holdSide: holdSide,
-                executePrice: 0,
-                size: tp2Qty.toString(),
-              }
-            }
-          });
-          
-          if (tp2Error || !tp2Result?.success) {
-            tpRepairFailed = true;
-            console.error(`❌ Failed to place TP2 order:`, tp2Error || tp2Result);
-          } else {
-            await supabase
-              .from('positions')
-              .update({ 
-                tp2_order_id: tp2Result.data.orderId,
-                tp2_quantity: tp2Qty
-              })
-              .eq('id', position.id);
-            actions.push('Placed missing TP2 order');
-            console.log(`✅ TP2 order placed: ${tp2Result.data.orderId}`);
-          }
-        }
-      }
-      
-      if (tpRepairFailed) {
-        // Update repair attempts
-        await supabase
-          .from('positions')
-          .update({ 
-            metadata: { ...metadata, tp_repair_attempts: tpRepairAttempts + 1 }
-          })
-          .eq('id', position.id);
-          
-        // If 2nd attempt failed, log as failed but don't emergency close (TP is not critical like SL)
-        if (tpRepairAttempts >= 1) {
-          console.log(`⚠️ 2nd TP repair attempt failed for ${position.symbol}`);
-          
-          await log({
-            functionName: 'position-monitor',
-            message: `Failed to set TP after 2 attempts: ${position.symbol}`,
-            level: 'warn',
-            positionId: position.id,
-            metadata: { reason: 'Failed to set TP after 2 attempts' }
-          });
-          
-          // Log to monitoring_logs
-          await supabase
-            .from('monitoring_logs')
-            .insert({
-              position_id: position.id,
-              check_type: 'tp_repair',
-              status: 'failed',
-              issues: [{ type: 'missing_tp', severity: 'high' }],
-              actions_taken: `Failed to place TP order after 2 attempts - position continues without TP`,
-              expected_data: { tp1_price: position.tp1_price, tp2_price: position.tp2_price },
-              actual_data: { tp_missing: true }
-            });
-        } else {
-          // Log failed repair attempt
-          await supabase
-            .from('monitoring_logs')
-            .insert({
-              position_id: position.id,
-              check_type: 'tp_repair',
-              status: 'failed',
-              issues: [{ type: 'missing_tp', severity: 'high' }],
-              actions_taken: `Failed to place TP order (attempt ${tpRepairAttempts + 1}/2)`,
-              expected_data: { tp1_price: position.tp1_price },
-              actual_data: { error: 'Failed to place TP order' }
-            });
-        }
-      } else {
-        // Reset attempts on success
-        await supabase
-          .from('positions')
-          .update({ 
-            metadata: { ...metadata, tp_repair_attempts: 0 }
-          })
-          .eq('id', position.id);
-      }
-    }
-  }
-
-  // 7. Compare SL/TP order levels and quantities with planned values
-  const deviations: any[] = [];
-  
-  // Check SL order level deviation
-  if (slOrders.length > 0) {
-    const actualSlPrice = Number(slOrders[0].triggerPrice || slOrders[0].stopLossTriggerPrice);
-    const plannedSlPrice = Number(position.sl_price);
-    const slPriceDiff = Math.abs(actualSlPrice - plannedSlPrice);
-    const slPriceDeviation = (slPriceDiff / plannedSlPrice) * 100;
-    
-    if (slPriceDeviation > 0.1) { // More than 0.1% deviation
-      deviations.push({
-        type: 'sl_price_deviation',
-        planned: plannedSlPrice,
-        actual: actualSlPrice,
-        difference: slPriceDiff,
-        deviation_percent: slPriceDeviation.toFixed(2)
-      });
-      console.log(`📊 SL price deviation: Planned ${plannedSlPrice}, Actual ${actualSlPrice} (${slPriceDeviation.toFixed(2)}%)`);
-    }
-  }
-  
-  // Check TP order levels deviation
-  if (tpOrders.length > 0) {
-    tpOrders.forEach((tpOrder: any, index: number) => {
-      const actualTpPrice = Number(tpOrder.triggerPrice || tpOrder.stopSurplusTriggerPrice);
-      let plannedTpPrice = null;
-      let tpLabel = '';
-      
-      // Match TP order to planned TP level
-      if (position.tp1_price && Math.abs(actualTpPrice - Number(position.tp1_price)) < Math.abs(actualTpPrice - Number(position.tp2_price || 99999999))) {
-        plannedTpPrice = Number(position.tp1_price);
-        tpLabel = 'TP1';
-      } else if (position.tp2_price) {
-        plannedTpPrice = Number(position.tp2_price);
-        tpLabel = 'TP2';
-      } else if (position.tp3_price) {
-        plannedTpPrice = Number(position.tp3_price);
-        tpLabel = 'TP3';
-      }
-      
-      if (plannedTpPrice) {
-        const tpPriceDiff = Math.abs(actualTpPrice - plannedTpPrice);
-        const tpPriceDeviation = (tpPriceDiff / plannedTpPrice) * 100;
-        
-        if (tpPriceDeviation > 0.1) {
-          deviations.push({
-            type: `${tpLabel.toLowerCase()}_price_deviation`,
-            label: tpLabel,
-            planned: plannedTpPrice,
-            actual: actualTpPrice,
-            difference: tpPriceDiff,
-            deviation_percent: tpPriceDeviation.toFixed(2)
-          });
-          console.log(`📊 ${tpLabel} price deviation: Planned ${plannedTpPrice}, Actual ${actualTpPrice} (${tpPriceDeviation.toFixed(2)}%)`);
-        }
-      }
-      
-      // Check TP quantity deviation
-      const actualTpSize = Number(tpOrder.size || 0);
-      if (actualTpSize > 0) {
-        let plannedTpQty = 0;
-        if (tpLabel === 'TP1') plannedTpQty = Number(position.tp1_quantity || 0);
-        else if (tpLabel === 'TP2') plannedTpQty = Number(position.tp2_quantity || 0);
-        else if (tpLabel === 'TP3') plannedTpQty = Number(position.tp3_quantity || 0);
-        
-        if (plannedTpQty > 0) {
-          const qtyDiff = Math.abs(actualTpSize - plannedTpQty);
-          const qtyDeviation = (qtyDiff / plannedTpQty) * 100;
-          
-          if (qtyDeviation > 0.1) {
-            deviations.push({
-              type: `${tpLabel.toLowerCase()}_quantity_deviation`,
-              label: tpLabel,
-              planned: plannedTpQty,
-              actual: actualTpSize,
-              difference: qtyDiff,
-              deviation_percent: qtyDeviation.toFixed(2)
-            });
-            console.log(`📊 ${tpLabel} quantity deviation: Planned ${plannedTpQty}, Actual ${actualTpSize} (${qtyDeviation.toFixed(2)}%)`);
-          }
-        }
-      }
-    });
-  }
-  
-  // Log deviations if any found (but only once per position - delete old ones first)
-  if (deviations.length > 0) {
-    // Delete any existing deviation logs for this position to avoid duplicates
-    await supabase
-      .from('monitoring_logs')
-      .delete()
-      .eq('position_id', position.id)
-      .eq('check_type', 'deviations');
-    
-    // Insert fresh deviation log
-    await supabase
-      .from('monitoring_logs')
-      .insert({
-        position_id: position.id,
-        check_type: 'deviations',
-        status: 'warning',
-        issues: deviations,
-        actions_taken: `Found ${deviations.length} deviation(s) between planned and actual values`,
-        expected_data: {
-          sl_price: position.sl_price,
-          tp1_price: position.tp1_price,
-          tp2_price: position.tp2_price,
-          tp3_price: position.tp3_price,
-          tp1_quantity: position.tp1_quantity,
-          tp2_quantity: position.tp2_quantity,
-          tp3_quantity: position.tp3_quantity,
-          quantity: dbQuantity
-        },
-        actual_data: {
-          sl_orders: slOrders.map((o: any) => ({ price: o.triggerPrice || o.stopLossTriggerPrice })),
-          tp_orders: tpOrders.map((o: any) => ({ price: o.triggerPrice || o.stopSurplusTriggerPrice, size: o.size })),
-          quantity: bitgetQuantity
-        }
-      });
-  } else {
-    // If no deviations found, delete any old deviation logs for this position
-    await supabase
-      .from('monitoring_logs')
-      .delete()
-      .eq('position_id', position.id)
-      .eq('check_type', 'deviations');
-  }
-
-  // 8. Check if price has crossed SL or TP levels
-  const isBuy = position.side === 'BUY';
-  const slPrice = Number(position.sl_price);
-  const tp1Price = position.tp1_price ? Number(position.tp1_price) : null;
-  const tp2Price = position.tp2_price ? Number(position.tp2_price) : null;
-  const tp3Price = position.tp3_price ? Number(position.tp3_price) : null;
-
-  // Check if SL was hit
-  const slHit = isBuy ? currentPrice <= slPrice : currentPrice >= slPrice;
-  if (slHit) {
-    console.log(`❌ CRITICAL: SL level hit for ${position.symbol}! Closing position at market`);
-    issues.push({
-      type: 'sl_hit',
-      severity: 'critical',
-      currentPrice,
-      slPrice
-    });
-    
-    // Close position immediately at market
-    const closeSide = isBuy ? 'close_long' : 'close_short';
-    const { data: closeResult } = await supabase.functions.invoke('bitget-api', {
-      body: {
-        action: 'place_order',
-        params: {
-          symbol: position.symbol,
-          size: bitgetQuantity.toString(),
-          side: closeSide,
-        }
-      }
-    });
-    
-    if (closeResult?.success) {
-      // Wait for fills to be recorded
-      await new Promise(resolve => setTimeout(resolve, 2000));
-
-      // Fetch fill history from Bitget
-      const { data: fillsResult } = await supabase.functions.invoke('bitget-api', {
-        body: {
-          action: 'get_fills',
-          params: { symbol: position.symbol }
-        }
-      });
-
-      let actualClosePrice = currentPrice;
-      let realizedPnl = 0;
-
-      if (fillsResult?.success && fillsResult.data?.fillList?.length > 0) {
-        const recentFills = fillsResult.data.fillList
-          .filter((fill: any) => {
-            const fillTime = Number(fill.cTime);
-            const now = Date.now();
-            return (now - fillTime) < 60000;
-          })
-          .filter((fill: any) => {
-            const fillSide = fill.side?.toLowerCase() || '';
-            const expectedSide = isBuy ? 'close_long' : 'close_short';
-            return fillSide === expectedSide || fillSide.includes('close');
-          });
-
-        if (recentFills.length > 0) {
-          const totalQty = recentFills.reduce((sum: number, fill: any) => sum + Number(fill.baseVolume || fill.size || 0), 0);
-          const totalValue = recentFills.reduce((sum: number, fill: any) => {
-            const qty = Number(fill.baseVolume || fill.size || 0);
-            const price = Number(fill.price || fill.fillPrice || 0);
-            return sum + (qty * price);
-          }, 0);
-          
-          if (totalQty > 0) {
-            actualClosePrice = totalValue / totalQty;
-            const entryPrice = Number(position.entry_price);
-            const priceDiff = isBuy ? actualClosePrice - entryPrice : entryPrice - actualClosePrice;
-            realizedPnl = priceDiff * totalQty;
-          }
-        }
-      }
-
-      await supabase
-        .from('positions')
-        .update({
-          status: 'closed',
-          close_reason: 'sl_hit',
-          close_price: actualClosePrice,
-          realized_pnl: realizedPnl,
-          closed_at: new Date().toISOString()
-        })
-        .eq('id', position.id);
-      actions.push(`Closed position at ${actualClosePrice} due to SL hit (PnL: ${realizedPnl.toFixed(2)})`);
-    }
-    
-    return; // Position closed, no further checks needed
-  }
-
-  // Check if TP1 was hit
-  if (tp1Price && !position.tp1_filled) {
-    const tp1Hit = isBuy ? currentPrice >= tp1Price : currentPrice <= tp1Price;
-    if (tp1Hit) {
-      console.log(`✅ TP1 hit for ${position.symbol}! Closing partial position`);
-      issues.push({
-        type: 'tp1_hit',
-        severity: 'info',
-        currentPrice,
-        tp1Price
-      });
-      
-      // Close partial position at market
-      const tp1Qty = bitgetQuantity * (settings?.tp1_close_percent || 100) / 100;
-      const closeSide = isBuy ? 'close_long' : 'close_short';
-      const { data: closeResult } = await supabase.functions.invoke('bitget-api', {
-        body: {
-          action: 'place_order',
-          params: {
-            symbol: position.symbol,
-            size: tp1Qty.toString(),
-            side: closeSide,
-          }
-        }
-      });
-      
-      if (closeResult?.success) {
-        await supabase
-          .from('positions')
-          .update({
-            tp1_filled: true,
-            quantity: bitgetQuantity - tp1Qty
-          })
-          .eq('id', position.id);
-        actions.push(`Closed ${tp1Qty} at market due to TP1 hit (${currentPrice})`);
-      }
-    }
-  }
-
-  // Check if TP2 was hit
-  if (tp2Price && !position.tp2_filled && position.tp1_filled) {
-    const tp2Hit = isBuy ? currentPrice >= tp2Price : currentPrice <= tp2Price;
-    if (tp2Hit) {
-      console.log(`✅ TP2 hit for ${position.symbol}! Closing partial position`);
-      const tp2Qty = bitgetQuantity * (settings?.tp2_close_percent || 0) / 100;
-      if (tp2Qty > 0) {
-        const closeSide = isBuy ? 'close_long' : 'close_short';
-        const { data: closeResult } = await supabase.functions.invoke('bitget-api', {
-          body: {
-            action: 'place_order',
-            params: {
-              symbol: position.symbol,
-              size: tp2Qty.toString(),
-              side: closeSide,
-            }
-          }
-        });
-        
-        if (closeResult?.success) {
-          await supabase
-            .from('positions')
-            .update({
-              tp2_filled: true,
-              quantity: bitgetQuantity - tp2Qty
-            })
-            .eq('id', position.id);
-          actions.push(`Closed ${tp2Qty} at market due to TP2 hit (${currentPrice})`);
-        }
-      }
-    }
-  }
-
-  // 8. Calculate unrealized PnL
-  const entryPrice = Number(position.entry_price);
-  const priceDiff = isBuy ? currentPrice - entryPrice : entryPrice - currentPrice;
-  const unrealizedPnl = priceDiff * bitgetQuantity;
-
-  // 9. Update position in DB
+  // Update position last check time
   await supabase
     .from('positions')
     .update({
-      current_price: currentPrice,
-      unrealized_pnl: unrealizedPnl,
       last_check_at: new Date().toISOString(),
-      check_errors: 0,
-      last_error: null
+      current_price: currentPrice,
+      unrealized_pnl: (position.side === 'BUY' 
+        ? currentPrice - Number(position.entry_price)
+        : Number(position.entry_price) - currentPrice) * Number(position.quantity)
     })
-    .eq('id', position.id);
+    .eq('id', position.id)
+    .eq('user_id', position.user_id);
 
-  // 10. Log monitoring result
-  const logStatus = issues.length > 0 ? (issues.some(i => i.severity === 'critical') ? 'critical' : 'warning') : 'ok';
-  
-  await supabase
-    .from('monitoring_logs')
-    .insert({
-      position_id: position.id,
-      check_type: 'full_verification',
-      status: logStatus,
-      expected_data: {
-        quantity: dbQuantity,
-        sl_price: slPrice,
-        tp_prices: [tp1Price, tp2Price, tp3Price].filter(Boolean),
-        has_sl_order: true,
-        has_tp_orders: expectedTPs
-      },
-      actual_data: {
-        quantity: bitgetQuantity,
-        current_price: currentPrice,
-        sl_orders_count: slOrders.length,
-        tp_orders_count: tpOrders.length,
-        unrealized_pnl: unrealizedPnl
-      },
-      issues: issues.length > 0 ? issues : null,
-      actions_taken: actions.length > 0 ? actions.join('; ') : null,
-    });
-
-  await log({
-    functionName: 'position-monitor',
-    message: `✅ Verification complete for ${position.symbol}: ${issues.length} issues, ${actions.length} actions`,
-    level: issues.length > 0 ? 'warn' : 'info',
-    positionId: position.id,
-    metadata: { 
-      issues: issues.length,
-      actions: actions.length,
-      currentPrice,
-      unrealizedPnl
-    }
-  });
+  console.log(`✅ Position ${position.symbol} check complete`);
 }

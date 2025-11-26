@@ -1,13 +1,14 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { log } from "../_shared/logger.ts";
+import { getUserSettings } from "../_shared/userSettings.ts";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
-// ============= SL/TP CALCULATION LOGIC (copied from calculators.ts) =============
+// ============= SL/TP CALCULATION LOGIC =============
 
 interface AlertData {
   price: number;
@@ -69,13 +70,10 @@ function calculateSLTP(
   let tp2Price: number | undefined;
   let tp3Price: number | undefined;
 
-  // Calculate SL based on method AND calculator type
-  // CRITICAL: When using risk_reward calculator, use rr_sl_percent_margin
+  // Calculate SL
   if (settings.calculator_type === 'risk_reward' && settings.sl_method === 'percent_entry') {
-    // For risk_reward: use rr_sl_percent_margin (e.g., 10% margin = 1% from entry at 10x leverage)
     slPrice = calculateSLByPercentMargin(alertData, settings, positionSize);
   } else {
-    // For other calculators or methods, use the specified sl_method
     switch (settings.sl_method) {
       case 'percent_entry':
         slPrice = calculateSLByPercentEntry(alertData, settings);
@@ -94,7 +92,7 @@ function calculateSLTP(
     }
   }
 
-  // Calculate TP based on calculator type
+  // Calculate TP
   switch (settings.calculator_type) {
     case 'simple_percent':
       ({ tp1Price, tp2Price, tp3Price } = calculateTPSimple(alertData, settings, slPrice));
@@ -107,47 +105,6 @@ function calculateSLTP(
       break;
   }
 
-  // Apply adaptive systems
-  if (settings.adaptive_tp_spacing) {
-    ({ tp1Price, tp2Price, tp3Price } = applyAdaptiveTPSpacing(
-      alertData,
-      settings,
-      { tp1Price, tp2Price, tp3Price }
-    ));
-  }
-
-  if (settings.momentum_based_tp) {
-    ({ tp1Price, tp2Price, tp3Price } = applyMomentumBasedTP(
-      alertData,
-      settings,
-      { tp1Price, tp2Price, tp3Price }
-    ));
-  }
-
-  if (settings.adaptive_rr) {
-    const rrMultiplier = getAdaptiveRRMultiplier(alertData, settings);
-    const slDistance = Math.abs(alertData.price - slPrice);
-    
-    if (tp1Price) {
-      const tp1Distance = Math.abs(tp1Price - alertData.price);
-      tp1Price = alertData.side === 'BUY'
-        ? alertData.price + (tp1Distance * rrMultiplier)
-        : alertData.price - (tp1Distance * rrMultiplier);
-    }
-    if (tp2Price) {
-      const tp2Distance = Math.abs(tp2Price - alertData.price);
-      tp2Price = alertData.side === 'BUY'
-        ? alertData.price + (tp2Distance * rrMultiplier)
-        : alertData.price - (tp2Distance * rrMultiplier);
-    }
-    if (tp3Price) {
-      const tp3Distance = Math.abs(tp3Price - alertData.price);
-      tp3Price = alertData.side === 'BUY'
-        ? alertData.price + (tp3Distance * rrMultiplier)
-        : alertData.price - (tp3Distance * rrMultiplier);
-    }
-  }
-
   return { sl_price: slPrice, tp1_price: tp1Price, tp2_price: tp2Price, tp3_price: tp3Price };
 }
 
@@ -158,11 +115,7 @@ function calculateSLByPercentEntry(alertData: AlertData, settings: Settings): nu
     : alertData.price * (1 + percent);
 }
 
-function calculateSLByPercentMargin(
-  alertData: AlertData,
-  settings: Settings,
-  positionSize: number
-): number {
+function calculateSLByPercentMargin(alertData: AlertData, settings: Settings, positionSize: number): number {
   const marginValue = positionSize * alertData.price / alertData.leverage;
   const maxLoss = marginValue * (settings.rr_sl_percent_margin / 100);
   const slDistance = maxLoss / positionSize;
@@ -172,11 +125,7 @@ function calculateSLByPercentMargin(
     : alertData.price + slDistance;
 }
 
-function calculateSLByFixedUSDT(
-  alertData: AlertData,
-  settings: Settings,
-  positionSize: number
-): number {
+function calculateSLByFixedUSDT(alertData: AlertData, settings: Settings, positionSize: number): number {
   const fixedLoss = (settings as any).sl_fixed_usdt || 50;
   const slDistance = fixedLoss / positionSize;
   
@@ -194,11 +143,7 @@ function calculateSLByATR(alertData: AlertData, settings: Settings): number {
     : alertData.price + slDistance;
 }
 
-function calculateTPSimple(
-  alertData: AlertData,
-  settings: Settings,
-  slPrice: number
-): { tp1Price?: number; tp2Price?: number; tp3Price?: number } {
+function calculateTPSimple(alertData: AlertData, settings: Settings, slPrice: number): { tp1Price?: number; tp2Price?: number; tp3Price?: number } {
   const percent = settings.simple_tp_percent / 100;
   
   const tp1Price = alertData.side === 'BUY'
@@ -222,11 +167,7 @@ function calculateTPSimple(
   return { tp1Price, tp2Price, tp3Price };
 }
 
-function calculateTPRiskReward(
-  alertData: AlertData,
-  settings: Settings,
-  slPrice: number
-): { tp1Price?: number; tp2Price?: number; tp3Price?: number } {
+function calculateTPRiskReward(alertData: AlertData, settings: Settings, slPrice: number): { tp1Price?: number; tp2Price?: number; tp3Price?: number } {
   const slDistance = Math.abs(alertData.price - slPrice);
   
   const tp1Price = alertData.side === 'BUY'
@@ -248,11 +189,7 @@ function calculateTPRiskReward(
   return { tp1Price, tp2Price, tp3Price };
 }
 
-function calculateTPATR(
-  alertData: AlertData,
-  settings: Settings,
-  slPrice: number
-): { tp1Price?: number; tp2Price?: number; tp3Price?: number } {
+function calculateTPATR(alertData: AlertData, settings: Settings, slPrice: number): { tp1Price?: number; tp2Price?: number; tp3Price?: number } {
   const atrMultiplier = settings.atr_tp_multiplier;
   
   const tp1Price = alertData.side === 'BUY'
@@ -276,74 +213,6 @@ function calculateTPATR(
   return { tp1Price, tp2Price, tp3Price };
 }
 
-function applyAdaptiveTPSpacing(
-  alertData: AlertData,
-  settings: Settings,
-  tpPrices: { tp1Price?: number; tp2Price?: number; tp3Price?: number }
-): { tp1Price?: number; tp2Price?: number; tp3Price?: number } {
-  const isHighVolatility = (alertData.volume_ratio || 1) > 1.5 || alertData.atr > 0.01;
-  const multiplier = isHighVolatility
-    ? settings.adaptive_tp_high_volatility_multiplier
-    : settings.adaptive_tp_low_volatility_multiplier;
-
-  const { tp1Price, tp2Price, tp3Price } = tpPrices;
-
-  return {
-    tp1Price: tp1Price ? adjustTPDistance(alertData.price, tp1Price, multiplier, alertData.side) : undefined,
-    tp2Price: tp2Price ? adjustTPDistance(alertData.price, tp2Price, multiplier, alertData.side) : undefined,
-    tp3Price: tp3Price ? adjustTPDistance(alertData.price, tp3Price, multiplier, alertData.side) : undefined,
-  };
-}
-
-function applyMomentumBasedTP(
-  alertData: AlertData,
-  settings: Settings,
-  tpPrices: { tp1Price?: number; tp2Price?: number; tp3Price?: number }
-): { tp1Price?: number; tp2Price?: number; tp3Price?: number } {
-  const strength = alertData.strength || 0;
-  let multiplier: number;
-
-  if (strength < 0.3) {
-    multiplier = settings.momentum_weak_multiplier;
-  } else if (strength < 0.6) {
-    multiplier = settings.momentum_moderate_multiplier;
-  } else {
-    multiplier = settings.momentum_strong_multiplier;
-  }
-
-  const { tp1Price, tp2Price, tp3Price } = tpPrices;
-
-  return {
-    tp1Price: tp1Price ? adjustTPDistance(alertData.price, tp1Price, multiplier, alertData.side) : undefined,
-    tp2Price: tp2Price ? adjustTPDistance(alertData.price, tp2Price, multiplier, alertData.side) : undefined,
-    tp3Price: tp3Price ? adjustTPDistance(alertData.price, tp3Price, multiplier, alertData.side) : undefined,
-  };
-}
-
-function getAdaptiveRRMultiplier(alertData: AlertData, settings: Settings): number {
-  const strength = alertData.strength || 0;
-  const score = strength * 10;
-
-  if (score < 3) return settings.adaptive_rr_weak_signal;
-  if (score < 5) return settings.adaptive_rr_standard;
-  if (score < 7) return settings.adaptive_rr_strong;
-  return settings.adaptive_rr_very_strong;
-}
-
-function adjustTPDistance(
-  entryPrice: number,
-  tpPrice: number,
-  multiplier: number,
-  side: 'BUY' | 'SELL'
-): number {
-  const distance = Math.abs(tpPrice - entryPrice);
-  const newDistance = distance * multiplier;
-  
-  return side === 'BUY'
-    ? entryPrice + newDistance
-    : entryPrice - newDistance;
-}
-
 // ============= MAIN FUNCTION =============
 
 serve(async (req) => {
@@ -357,22 +226,21 @@ serve(async (req) => {
       Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
     );
 
+    const { user_id } = await req.json();
+
+    if (!user_id) {
+      throw new Error('user_id is required');
+    }
+
     await log({
       functionName: 'recalculate-sltp',
-      message: '🔄 Starting SL/TP recalculation for open positions',
+      message: `🔄 Starting SL/TP recalculation for user ${user_id}`,
       level: 'info'
     });
-    console.log('🔄 Starting SL/TP recalculation...');
+    console.log(`🔄 Starting SL/TP recalculation for user ${user_id}...`);
 
-    // Get current settings
-    const { data: settings, error: settingsError } = await supabase
-      .from('settings')
-      .select('*')
-      .single();
-
-    if (settingsError || !settings) {
-      throw new Error('Failed to fetch settings');
-    }
+    // Get user settings
+    const settings = await getUserSettings(user_id);
 
     console.log('✓ Settings loaded:', {
       calculator_type: settings.calculator_type,
@@ -380,11 +248,12 @@ serve(async (req) => {
       tp_levels: settings.tp_levels
     });
 
-    // Get all open positions
+    // Get all open positions for this user
     const { data: positions, error: positionsError } = await supabase
       .from('positions')
       .select('*')
-      .eq('status', 'open');
+      .eq('status', 'open')
+      .eq('user_id', user_id);
 
     if (positionsError) {
       throw new Error(`Failed to fetch positions: ${positionsError.message}`);
@@ -424,18 +293,11 @@ serve(async (req) => {
       // Recalculate SL/TP
       const { sl_price, tp1_price, tp2_price, tp3_price } = calculateSLTP(
         alertData,
-        settings as Settings,
+        settings as unknown as Settings,
         position.quantity
       );
 
       console.log(`  Recalculated: SL=${sl_price}, TP1=${tp1_price}, TP2=${tp2_price}`);
-
-      // Calculate percentage changes
-      const slChange = ((sl_price - position.sl_price) / position.entry_price * 100).toFixed(2);
-      const tp1Change = tp1_price ? ((tp1_price - (position.tp1_price || 0)) / position.entry_price * 100).toFixed(2) : 'N/A';
-      const tp2Change = tp2_price ? ((tp2_price - (position.tp2_price || 0)) / position.entry_price * 100).toFixed(2) : 'N/A';
-
-      console.log(`  Changes: SL ${slChange}%, TP1 ${tp1Change}%, TP2 ${tp2Change}%`);
 
       // Update position in database
       const { error: updateError } = await supabase
@@ -447,7 +309,8 @@ serve(async (req) => {
           tp3_price: tp3_price,
           updated_at: new Date().toISOString()
         })
-        .eq('id', position.id);
+        .eq('id', position.id)
+        .eq('user_id', user_id);
 
       if (updateError) {
         console.error(`❌ Failed to update ${position.symbol}:`, updateError);
@@ -485,7 +348,6 @@ serve(async (req) => {
     });
 
     console.log(`\n✅ Recalculation complete: ${successCount}/${positions.length} positions updated`);
-    console.log('⚠️ Note: Oko Saurona will update the orders on exchange at next check cycle');
 
     return new Response(
       JSON.stringify({
