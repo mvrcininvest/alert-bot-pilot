@@ -27,18 +27,21 @@ export default function MigrateApiKeys() {
 
       if (data.alreadyExists) {
         toast({
-          title: "Already Configured",
-          description: "Your API keys are already set up. Redirecting to dashboard...",
+          title: "Już skonfigurowane",
+          description: "Twoje klucze API są już ustawione. Przekierowywanie do panelu...",
         });
-        setTimeout(() => navigate('/'), 1500);
+        // Force full page reload to refresh hasApiKeys state in Layout
+        setTimeout(() => {
+          window.location.href = '/';
+        }, 1500);
         return;
       }
 
       if (!data.success) {
         // No keys to migrate - redirect to manual setup
         toast({
-          title: "No Keys Found",
-          description: "No global API keys found. Please configure them manually.",
+          title: "Nie znaleziono kluczy",
+          description: "Nie znaleziono globalnych kluczy API. Skonfiguruj je ręcznie.",
         });
         setTimeout(() => navigate('/settings/api-keys'), 1500);
         return;
@@ -46,25 +49,28 @@ export default function MigrateApiKeys() {
 
       setSuccess(true);
       toast({
-        title: "Migration Successful",
-        description: "Your API keys have been migrated and encrypted successfully!",
+        title: "Migracja zakończona pomyślnie",
+        description: "Twoje klucze API zostały zaszyfrowane i przeniesione!",
       });
       
-      setTimeout(() => navigate('/'), 2000);
+      // Force full page reload to refresh hasApiKeys state
+      setTimeout(() => {
+        window.location.href = '/';
+      }, 2000);
     } catch (error: any) {
       console.error('Migration error:', error);
       
       // If no keys found in secrets, redirect to manual setup
       if (error.message?.includes('not found')) {
         toast({
-          title: "Manual Setup Required",
-          description: "Redirecting to API keys configuration...",
+          title: "Wymagana ręczna konfiguracja",
+          description: "Przekierowywanie do konfiguracji kluczy API...",
         });
         setTimeout(() => navigate('/settings/api-keys'), 1500);
       } else {
         toast({
-          title: "Migration Failed",
-          description: error.message || "Failed to migrate API keys. Please try manual setup.",
+          title: "Błąd migracji",
+          description: error.message || "Nie udało się przenieść kluczy. Spróbuj ręcznej konfiguracji.",
           variant: "destructive",
         });
         setTimeout(() => navigate('/settings/api-keys'), 2000);
@@ -88,9 +94,9 @@ export default function MigrateApiKeys() {
               <Key className="h-8 w-8 text-primary" />
             </div>
           </div>
-          <CardTitle className="text-2xl">API Keys Migration Required</CardTitle>
+          <CardTitle className="text-2xl">Migracja kluczy API wymagana</CardTitle>
           <CardDescription>
-            We're upgrading to a more secure system. Your existing Bitget API keys need to be migrated to the new encrypted storage.
+            Aktualizujemy system zabezpieczeń. Twoje istniejące klucze API Bitget muszą zostać przeniesione do nowego zaszyfrowanego magazynu.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
@@ -99,12 +105,12 @@ export default function MigrateApiKeys() {
               <Alert>
                 <AlertCircle className="h-4 w-4" />
                 <AlertDescription className="text-sm">
-                  <strong>What happens during migration:</strong>
+                  <strong>Co dzieje się podczas migracji:</strong>
                   <ul className="mt-2 space-y-1 list-disc list-inside">
-                    <li>Your existing API keys will be encrypted with AES-256</li>
-                    <li>Keys will be securely stored in your personal account</li>
-                    <li>No manual input required - fully automated</li>
-                    <li>Takes less than 5 seconds</li>
+                    <li>Twoje istniejące klucze API zostaną zaszyfrowane AES-256</li>
+                    <li>Klucze będą bezpiecznie przechowywane na Twoim koncie</li>
+                    <li>Nie wymaga ręcznego wprowadzania - w pełni automatyczne</li>
+                    <li>Zajmuje mniej niż 5 sekund</li>
                   </ul>
                 </AlertDescription>
               </Alert>
@@ -118,27 +124,27 @@ export default function MigrateApiKeys() {
                 {migrating ? (
                   <>
                     <Loader2 className="mr-2 h-5 w-5 animate-spin" />
-                    Migrating Keys...
+                    Migrowanie kluczy...
                   </>
                 ) : (
                   <>
-                    Migrate API Keys
+                    Migruj klucze API
                     <ArrowRight className="ml-2 h-5 w-5" />
                   </>
                 )}
               </Button>
 
               <p className="text-xs text-center text-muted-foreground">
-                This is a one-time process. Your trading will continue uninterrupted.
+                To jednorazowy proces. Twój trading będzie kontynuowany bez przerwy.
               </p>
             </>
           ) : (
             <Alert className="border-primary/50 bg-primary/5">
               <CheckCircle2 className="h-4 w-4 text-primary" />
               <AlertDescription>
-                <p className="font-medium text-primary">Migration Complete!</p>
+                <p className="font-medium text-primary">Migracja zakończona!</p>
                 <p className="text-sm text-muted-foreground mt-1">
-                  Your API keys have been successfully migrated. Redirecting to dashboard...
+                  Twoje klucze API zostały pomyślnie przeniesione. Przekierowywanie do panelu...
                 </p>
               </AlertDescription>
             </Alert>

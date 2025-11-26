@@ -51,8 +51,8 @@ export default function ApiKeys() {
     } catch (error: any) {
       console.error('Error checking keys:', error);
       toast({
-        title: "Error",
-        description: "Failed to check existing API keys",
+        title: "Błąd",
+        description: "Nie udało się sprawdzić istniejących kluczy API",
         variant: "destructive",
       });
     } finally {
@@ -65,8 +65,8 @@ export default function ApiKeys() {
     
     if (!formData.apiKey || !formData.secretKey || !formData.passphrase) {
       toast({
-        title: "Validation Error",
-        description: "All fields are required",
+        title: "Błąd walidacji",
+        description: "Wszystkie pola są wymagane",
         variant: "destructive",
       });
       return;
@@ -88,30 +88,30 @@ export default function ApiKeys() {
 
       if (!data.validated) {
         toast({
-          title: "Validation Failed",
-          description: data.error || "Invalid API keys. Please check your credentials.",
+          title: "Walidacja nie powiodła się",
+          description: data.error || "Nieprawidłowe klucze API. Sprawdź swoje dane.",
           variant: "destructive",
         });
         return;
       }
 
       toast({
-        title: "Success",
-        description: "API keys saved and validated successfully!",
+        title: "Sukces",
+        description: "Klucze API zapisane i zwalidowane pomyślnie!",
       });
       
       setFormData({ apiKey: "", secretKey: "", passphrase: "" });
       await checkExistingKeys();
       
-      // Redirect to dashboard after successful setup
+      // Redirect to dashboard after successful setup with full reload
       setTimeout(() => {
-        navigate('/');
+        window.location.href = '/';
       }, 1500);
     } catch (error: any) {
       console.error('Error saving keys:', error);
       toast({
-        title: "Error",
-        description: error.message || "Failed to save API keys",
+        title: "Błąd",
+        description: error.message || "Nie udało się zapisać kluczy API",
         variant: "destructive",
       });
     } finally {
@@ -130,7 +130,7 @@ export default function ApiKeys() {
       if (error) throw error;
 
       toast({
-        title: data.valid ? "Validation Successful" : "Validation Failed",
+        title: data.valid ? "Walidacja pomyślna" : "Walidacja nie powiodła się",
         description: data.message,
         variant: data.valid ? "default" : "destructive",
       });
@@ -141,8 +141,8 @@ export default function ApiKeys() {
     } catch (error: any) {
       console.error('Error validating keys:', error);
       toast({
-        title: "Error",
-        description: "Failed to validate API keys",
+        title: "Błąd",
+        description: "Nie udało się zwalidować kluczy API",
         variant: "destructive",
       });
     } finally {
@@ -151,7 +151,7 @@ export default function ApiKeys() {
   };
 
   const handleDelete = async () => {
-    if (!confirm("Are you sure you want to delete your API keys? This action cannot be undone.")) {
+    if (!confirm("Czy na pewno chcesz usunąć swoje klucze API? Ta akcja jest nieodwracalna.")) {
       return;
     }
 
@@ -165,16 +165,16 @@ export default function ApiKeys() {
       if (error) throw error;
 
       toast({
-        title: "Success",
-        description: "API keys deleted successfully",
+        title: "Sukces",
+        description: "Klucze API usunięte pomyślnie",
       });
       
       await checkExistingKeys();
     } catch (error: any) {
       console.error('Error deleting keys:', error);
       toast({
-        title: "Error",
-        description: "Failed to delete API keys",
+        title: "Błąd",
+        description: "Nie udało się usunąć kluczy API",
         variant: "destructive",
       });
     } finally {
@@ -196,9 +196,9 @@ export default function ApiKeys() {
         <Alert className="border-destructive/50 bg-destructive/5">
           <AlertCircle className="h-4 w-4 text-destructive" />
           <AlertDescription>
-            <p className="font-medium">API Keys Required</p>
+            <p className="font-medium">Klucze API wymagane</p>
             <p className="text-sm text-muted-foreground mt-1">
-              You must configure and validate your Bitget API keys before accessing the trading bot.
+              Musisz skonfigurować i zwalidować swoje klucze API Bitget przed uzyskaniem dostępu do bota tradingowego.
             </p>
           </AlertDescription>
         </Alert>
@@ -207,8 +207,8 @@ export default function ApiKeys() {
       <div className="flex items-center gap-3">
         <Shield className="h-8 w-8 text-primary" />
         <div>
-          <h1 className="text-3xl font-bold">Bitget API Keys</h1>
-          <p className="text-muted-foreground">Securely manage your trading API credentials</p>
+          <h1 className="text-3xl font-bold">Klucze API Bitget</h1>
+          <p className="text-muted-foreground">Bezpiecznie zarządzaj swoimi danymi uwierzytelniającymi do tradingu</p>
         </div>
       </div>
 
@@ -218,11 +218,11 @@ export default function ApiKeys() {
           <AlertDescription>
             <div className="flex items-center justify-between">
               <div>
-                <p className="font-medium">API keys are configured and encrypted</p>
+                <p className="font-medium">Klucze API są skonfigurowane i zaszyfrowane</p>
                 <p className="text-sm text-muted-foreground mt-1">
-                  Last validated: {keysInfo.lastValidated 
-                    ? new Date(keysInfo.lastValidated).toLocaleString() 
-                    : 'Never'}
+                  Ostatnia walidacja: {keysInfo.lastValidated 
+                    ? new Date(keysInfo.lastValidated).toLocaleString('pl-PL') 
+                    : 'Nigdy'}
                 </p>
               </div>
               <div className="flex gap-2">
@@ -235,10 +235,10 @@ export default function ApiKeys() {
                   {validating ? (
                     <>
                       <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                      Validating...
+                      Walidacja...
                     </>
                   ) : (
-                    'Validate Connection'
+                    'Sprawdź połączenie'
                   )}
                 </Button>
                 <Button
@@ -248,7 +248,7 @@ export default function ApiKeys() {
                   disabled={loading}
                 >
                   <Trash2 className="mr-2 h-4 w-4" />
-                  Delete
+                  Usuń
                 </Button>
               </div>
             </div>
@@ -260,21 +260,21 @@ export default function ApiKeys() {
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
             <Key className="h-5 w-5" />
-            {keysExist ? 'Update API Keys' : 'Add API Keys'}
+            {keysExist ? 'Aktualizuj klucze API' : 'Dodaj klucze API'}
           </CardTitle>
           <CardDescription>
-            Your keys are encrypted with AES-256 and validated before saving
+            Twoje klucze są szyfrowane AES-256 i walidowane przed zapisem
           </CardDescription>
         </CardHeader>
         <CardContent>
           <form onSubmit={handleSubmit} className="space-y-4">
             <div className="space-y-2">
-              <Label htmlFor="apiKey">API Key</Label>
+              <Label htmlFor="apiKey">Klucz API</Label>
               <div className="relative">
                 <Input
                   id="apiKey"
                   type={showKeys.apiKey ? "text" : "password"}
-                  placeholder="Enter your Bitget API Key"
+                  placeholder="Wprowadź swój klucz API Bitget"
                   value={formData.apiKey}
                   onChange={(e) => setFormData({ ...formData, apiKey: e.target.value })}
                   required
@@ -292,12 +292,12 @@ export default function ApiKeys() {
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="secretKey">Secret Key</Label>
+              <Label htmlFor="secretKey">Klucz sekretny</Label>
               <div className="relative">
                 <Input
                   id="secretKey"
                   type={showKeys.secretKey ? "text" : "password"}
-                  placeholder="Enter your Bitget Secret Key"
+                  placeholder="Wprowadź swój klucz sekretny Bitget"
                   value={formData.secretKey}
                   onChange={(e) => setFormData({ ...formData, secretKey: e.target.value })}
                   required
@@ -315,12 +315,12 @@ export default function ApiKeys() {
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="passphrase">Passphrase</Label>
+              <Label htmlFor="passphrase">Hasło</Label>
               <div className="relative">
                 <Input
                   id="passphrase"
                   type={showKeys.passphrase ? "text" : "password"}
-                  placeholder="Enter your Bitget Passphrase"
+                  placeholder="Wprowadź swoje hasło Bitget"
                   value={formData.passphrase}
                   onChange={(e) => setFormData({ ...formData, passphrase: e.target.value })}
                   required
@@ -340,9 +340,9 @@ export default function ApiKeys() {
             <Alert>
               <AlertCircle className="h-4 w-4" />
               <AlertDescription className="text-sm">
-                <strong>Security Notice:</strong> Your API keys will be encrypted using AES-256
-                encryption before storage. They are validated against Bitget's API to ensure
-                they work correctly.
+                <strong>Informacja bezpieczeństwa:</strong> Twoje klucze API będą zaszyfrowane
+                przy użyciu szyfrowania AES-256 przed zapisaniem. Są one walidowane
+                z API Bitget aby upewnić się, że działają poprawnie.
               </AlertDescription>
             </Alert>
 
@@ -350,12 +350,12 @@ export default function ApiKeys() {
               {loading ? (
                 <>
                   <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  {keysExist ? 'Updating & Validating...' : 'Saving & Validating...'}
+                  {keysExist ? 'Aktualizacja i walidacja...' : 'Zapisywanie i walidacja...'}
                 </>
               ) : (
                 <>
                   <Shield className="mr-2 h-4 w-4" />
-                  {keysExist ? 'Update Keys' : 'Save Keys'}
+                  {keysExist ? 'Aktualizuj klucze' : 'Zapisz klucze'}
                 </>
               )}
             </Button>
@@ -365,23 +365,23 @@ export default function ApiKeys() {
 
       <Card>
         <CardHeader>
-          <CardTitle>How to Get Your API Keys</CardTitle>
+          <CardTitle>Jak uzyskać swoje klucze API</CardTitle>
         </CardHeader>
         <CardContent className="space-y-4">
           <ol className="list-decimal list-inside space-y-2 text-sm">
-            <li>Log in to your Bitget account</li>
-            <li>Go to API Management section</li>
-            <li>Create a new API key with trading permissions</li>
-            <li>Copy the API Key, Secret Key, and Passphrase</li>
-            <li>Paste them into the form above</li>
+            <li>Zaloguj się na swoje konto Bitget</li>
+            <li>Przejdź do sekcji zarządzania API</li>
+            <li>Utwórz nowy klucz API z uprawnieniami do tradingu</li>
+            <li>Skopiuj klucz API, klucz sekretny i hasło</li>
+            <li>Wklej je do formularza powyżej</li>
           </ol>
           
           <Alert>
             <AlertCircle className="h-4 w-4" />
             <AlertDescription className="text-sm">
-              <strong>Important:</strong> Make sure your API key has the necessary permissions
-              for trading (place orders, view positions, etc.) but we recommend NOT enabling
-              withdrawal permissions for security reasons.
+              <strong>Ważne:</strong> Upewnij się, że Twój klucz API ma niezbędne uprawnienia
+              do tradingu (składanie zleceń, przeglądanie pozycji itp.), ale zalecamy NIE włączać
+              uprawnień do wypłat ze względów bezpieczeństwa.
             </AlertDescription>
           </Alert>
         </CardContent>
