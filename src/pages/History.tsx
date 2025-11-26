@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -11,12 +11,13 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Calendar } from "@/components/ui/calendar";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { format } from "date-fns";
-import { Info, AlertCircle, Download, Calendar as CalendarIcon } from "lucide-react";
+import { Info, AlertCircle, Download, Calendar as CalendarIcon, RefreshCw } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useToast } from "@/hooks/use-toast";
 
 export default function History() {
   const { toast } = useToast();
+  const queryClient = useQueryClient();
   const [dateFrom, setDateFrom] = useState<Date>();
   const [dateTo, setDateTo] = useState<Date>();
 
@@ -50,6 +51,31 @@ export default function History() {
       return data || [];
     },
     refetchInterval: 30000, // Refresh every 30 seconds
+  });
+
+  const syncMutation = useMutation({
+    mutationFn: async () => {
+      const { data, error } = await supabase.functions.invoke('sync-positions-history', {
+        body: {}
+      });
+      
+      if (error) throw error;
+      return data;
+    },
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ["closed-positions"] });
+      toast({
+        title: "Synchronizacja zakończona",
+        description: `Sprawdzono: ${data.total_checked}, Zaktualizowano: ${data.updated} pozycji`,
+      });
+    },
+    onError: (error) => {
+      toast({
+        title: "Błąd synchronizacji",
+        description: error instanceof Error ? error.message : "Nie udało się zsynchronizować pozycji",
+        variant: "destructive",
+      });
+    },
   });
 
   // Filter positions by date range
@@ -217,6 +243,14 @@ export default function History() {
           <p className="text-muted-foreground">Wszystkie zamknięte pozycje</p>
         </div>
         <div className="flex gap-2">
+          <Button 
+            variant="outline" 
+            onClick={() => syncMutation.mutate()}
+            disabled={syncMutation.isPending}
+          >
+            <RefreshCw className={cn("mr-2 h-4 w-4", syncMutation.isPending && "animate-spin")} />
+            Synchronizuj z Bitget
+          </Button>
           <Button variant="outline" onClick={exportToCSV}>
             <Download className="mr-2 h-4 w-4" />
             CSV
