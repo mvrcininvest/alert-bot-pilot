@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, Link } from 'react-router-dom';
 import { useAuth } from '@/hooks/useAuth';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -169,13 +169,21 @@ export default function Auth() {
                     )}
                   </div>
 
-                  <Button
-                    type="submit"
-                    className="w-full"
-                    disabled={loading}
-                  >
-                    {loading ? 'Logowanie...' : 'Zaloguj się'}
-                  </Button>
+                  <div className="space-y-3">
+                    <Button
+                      type="submit"
+                      className="w-full"
+                      disabled={loading}
+                    >
+                      {loading ? 'Logowanie...' : 'Zaloguj się'}
+                    </Button>
+
+                    <div className="text-center">
+                      <Link to="/reset-password" className="text-sm text-muted-foreground hover:text-primary transition-colors">
+                        Zapomniałeś hasła?
+                      </Link>
+                    </div>
+                  </div>
                 </form>
               </TabsContent>
 
