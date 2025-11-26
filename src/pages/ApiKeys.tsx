@@ -102,6 +102,11 @@ export default function ApiKeys() {
       
       setFormData({ apiKey: "", secretKey: "", passphrase: "" });
       await checkExistingKeys();
+      
+      // Redirect to dashboard after successful setup
+      setTimeout(() => {
+        navigate('/');
+      }, 1500);
     } catch (error: any) {
       console.error('Error saving keys:', error);
       toast({
@@ -187,6 +192,18 @@ export default function ApiKeys() {
 
   return (
     <div className="container max-w-4xl mx-auto p-6 space-y-6">
+      {!keysExist && (
+        <Alert className="border-destructive/50 bg-destructive/5">
+          <AlertCircle className="h-4 w-4 text-destructive" />
+          <AlertDescription>
+            <p className="font-medium">API Keys Required</p>
+            <p className="text-sm text-muted-foreground mt-1">
+              You must configure and validate your Bitget API keys before accessing the trading bot.
+            </p>
+          </AlertDescription>
+        </Alert>
+      )}
+      
       <div className="flex items-center gap-3">
         <Shield className="h-8 w-8 text-primary" />
         <div>
