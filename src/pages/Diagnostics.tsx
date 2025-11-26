@@ -33,6 +33,7 @@ export default function Diagnostics() {
       const { data, error } = await supabase
         .from("monitoring_logs")
         .select("*, positions(symbol)")
+        .in("check_type", ["sl_repair", "tp_repair", "emergency_close"])
         .order("created_at", { ascending: false })
         .limit(100);
       
