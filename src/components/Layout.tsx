@@ -1,6 +1,7 @@
 import { Home, AlertCircle, TrendingUp, History, BarChart3, Settings, Activity, Webhook, FileText } from "lucide-react";
 import { NavLink } from "./NavLink";
 import { cn } from "@/lib/utils";
+import logoAristoEdge from "@/assets/logo-aristoedge.png";
 
 const navigation = [
   { name: "Dashboard", href: "/", icon: Home },
@@ -20,9 +21,8 @@ export function Layout({ children }: { children: React.ReactNode }) {
       <div className="fixed inset-y-0 left-0 z-50 w-64 bg-card border-r border-border">
         <div className="flex h-full flex-col">
           {/* Logo */}
-          <div className="flex h-16 items-center gap-2 border-b border-border px-6">
-            <Activity className="h-6 w-6 text-primary" />
-            <span className="text-xl font-bold">TradingBot</span>
+          <div className="flex h-16 items-center justify-center border-b border-border px-4">
+            <img src={logoAristoEdge} alt="AristoEdge" className="h-12 w-auto object-contain" />
           </div>
 
           {/* Navigation */}
