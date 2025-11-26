@@ -369,29 +369,44 @@ export type Database = {
       profiles: {
         Row: {
           avatar_url: string | null
+          ban_reason: string | null
+          banned_at: string | null
+          banned_by: string | null
           created_at: string | null
           display_name: string | null
           email: string | null
           id: string
           is_active: boolean | null
+          is_banned: boolean | null
+          last_seen_at: string | null
           updated_at: string | null
         }
         Insert: {
           avatar_url?: string | null
+          ban_reason?: string | null
+          banned_at?: string | null
+          banned_by?: string | null
           created_at?: string | null
           display_name?: string | null
           email?: string | null
           id: string
           is_active?: boolean | null
+          is_banned?: boolean | null
+          last_seen_at?: string | null
           updated_at?: string | null
         }
         Update: {
           avatar_url?: string | null
+          ban_reason?: string | null
+          banned_at?: string | null
+          banned_by?: string | null
           created_at?: string | null
           display_name?: string | null
           email?: string | null
           id?: string
           is_active?: boolean | null
+          is_banned?: boolean | null
+          last_seen_at?: string | null
           updated_at?: string | null
         }
         Relationships: []
@@ -856,6 +871,7 @@ export type Database = {
         }
         Returns: boolean
       }
+      update_last_seen: { Args: never; Returns: undefined }
     }
     Enums: {
       alert_status: "pending" | "executed" | "ignored" | "error"
