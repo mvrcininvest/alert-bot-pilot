@@ -56,16 +56,27 @@ export default function History() {
   });
 
 
-  // Update scrollbar width when table renders
+  // Update scrollbar width when table renders using ResizeObserver
   useEffect(() => {
     if (tableRef.current) {
       const updateWidth = () => {
         const width = tableRef.current?.scrollWidth || 1800;
         setTableWidth(width);
       };
+      
+      // Initial update
       updateWidth();
-      window.addEventListener('resize', updateWidth);
-      return () => window.removeEventListener('resize', updateWidth);
+      
+      // Observe table size changes
+      const resizeObserver = new ResizeObserver(() => {
+        updateWidth();
+      });
+      
+      resizeObserver.observe(tableRef.current);
+      
+      return () => {
+        resizeObserver.disconnect();
+      };
     }
   }, [closedPositions]);
 
