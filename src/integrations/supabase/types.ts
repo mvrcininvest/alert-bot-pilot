@@ -588,6 +588,42 @@ export type Database = {
         }
         Relationships: []
       }
+      user_api_keys: {
+        Row: {
+          api_key_encrypted: string
+          created_at: string
+          id: string
+          is_active: boolean | null
+          last_validated_at: string | null
+          passphrase_encrypted: string
+          secret_key_encrypted: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          api_key_encrypted: string
+          created_at?: string
+          id?: string
+          is_active?: boolean | null
+          last_validated_at?: string | null
+          passphrase_encrypted: string
+          secret_key_encrypted: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          api_key_encrypted?: string
+          created_at?: string
+          id?: string
+          is_active?: boolean | null
+          last_validated_at?: string | null
+          passphrase_encrypted?: string
+          secret_key_encrypted?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       user_roles: {
         Row: {
           created_at: string | null

@@ -15,6 +15,7 @@ import Logs from "./pages/Logs";
 import Auth from "./pages/Auth";
 import ResetPassword from "./pages/ResetPassword";
 import Admin from "./pages/Admin";
+import ApiKeys from "./pages/ApiKeys";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -40,6 +41,7 @@ const App = () => (
                 <Route path="/settings" element={<Settings />} />
                 <Route path="/logs" element={<Logs />} />
                 <Route path="/admin" element={<Admin />} />
+                <Route path="/settings/api-keys" element={<ApiKeys />} />
                 <Route path="*" element={<NotFound />} />
               </Routes>
             </Layout>
