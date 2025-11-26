@@ -112,10 +112,16 @@ serve(async (req) => {
         const newStrength = alert_data.strength || 0;
         const strengthDiff = newStrength - currentStrength;
         const threshold = settings.alert_strength_threshold || 0.20;
+        const pnlThreshold = settings.pnl_threshold_usdt || 1.0;
         
         const isSameDirection = existingPosition.side === alert_data.side;
         const currentPnL = Number(existingPosition.unrealized_pnl) || 0;
-        const isInProfit = currentPnL >= 0;
+        
+        // Consider position in profit/loss only if PnL exceeds threshold
+        // Otherwise treat as break-even (can be closed)
+        const isInProfit = currentPnL >= pnlThreshold;
+        const isAtLoss = currentPnL <= -pnlThreshold;
+        const isBreakEven = !isInProfit && !isAtLoss;
         const isStrongerEnough = strengthDiff >= threshold;
         
         let shouldReplace = false;
@@ -125,19 +131,19 @@ serve(async (req) => {
           // SAME DIRECTION LOGIC
           if (!isStrongerEnough) {
             ignoreReason = `Same direction - new alert not strong enough (diff: ${(strengthDiff*100).toFixed(1)} < ${(threshold*100).toFixed(0)} pts)`;
-          } else if (!isInProfit) {
-            ignoreReason = `Same direction - new alert stronger but position at loss (PnL: ${currentPnL.toFixed(2)} USDT)`;
+          } else if (isAtLoss || isBreakEven) {
+            ignoreReason = `Same direction - new alert stronger but position ${isBreakEven ? 'at break-even' : 'at loss'} (PnL: ${currentPnL.toFixed(2)} USDT, threshold: ${pnlThreshold} USDT)`;
           } else {
-            shouldReplace = true; // Stronger AND in profit
+            shouldReplace = true; // Stronger AND in significant profit
           }
         } else {
           // OPPOSITE DIRECTION LOGIC
           if (!isStrongerEnough) {
             ignoreReason = `Reversal - new alert not strong enough (diff: ${(strengthDiff*100).toFixed(1)} < ${(threshold*100).toFixed(0)} pts)`;
           } else if (isInProfit) {
-            ignoreReason = `Reversal - protecting profit (PnL: ${currentPnL.toFixed(2)} USDT) - stronger signal required at loss`;
+            ignoreReason = `Reversal - protecting significant profit (PnL: ${currentPnL.toFixed(2)} USDT, threshold: ${pnlThreshold} USDT)`;
           } else {
-            shouldReplace = true; // Stronger AND at loss
+            shouldReplace = true; // Stronger AND (at loss OR break-even)
           }
         }
         
@@ -156,7 +162,10 @@ serve(async (req) => {
               strengthDiff,
               isSameDirection,
               currentPnL,
-              isInProfit
+              pnlThreshold,
+              isInProfit,
+              isAtLoss,
+              isBreakEven
             }
           });
           
