@@ -127,10 +127,11 @@ serve(async (req) => {
     console.log('Alert entry price:', alert_data.price);
     console.log('Alert leverage:', alert_data.leverage);
 
-    // Check if we've reached max open positions
+    // Check if we've reached max open positions FOR THIS USER
     const { data: openPositions, error: countError } = await supabase
       .from('positions')
       .select('id', { count: 'exact' })
+      .eq('user_id', user_id)
       .eq('status', 'open');
 
     if (countError) throw countError;
@@ -174,12 +175,13 @@ serve(async (req) => {
       }
     });
 
-    // Check if duplicate alert handling is enabled and if there's an existing position
+    // Check if duplicate alert handling is enabled and if there's an existing position FOR THIS USER
     if (settings.duplicate_alert_handling !== false) {
       const symbol = alert_data.symbol;
       const { data: existingPosition } = await supabase
         .from('positions')
         .select('*, alerts!positions_alert_id_fkey(strength)')
+        .eq('user_id', user_id)
         .eq('symbol', symbol)
         .eq('status', 'open')
         .maybeSingle();
@@ -296,6 +298,7 @@ serve(async (req) => {
             await supabase.functions.invoke('bitget-api', {
               body: {
                 action: 'cancel_plan_order',
+                apiCredentials,
                 params: {
                   symbol: existingPosition.symbol,
                   orderId
@@ -313,6 +316,7 @@ serve(async (req) => {
           await supabase.functions.invoke('bitget-api', {
             body: {
               action: 'close_position',
+              apiCredentials,
               params: {
                 symbol: existingPosition.symbol,
                 holdSide
@@ -347,11 +351,12 @@ serve(async (req) => {
       }
     }
 
-    // Check daily loss limit
+    // Check daily loss limit FOR THIS USER
     const today = new Date().toISOString().split('T')[0];
     const { data: todayPositions } = await supabase
       .from('positions')
       .select('realized_pnl')
+      .eq('user_id', user_id)
       .eq('status', 'closed')
       .gte('closed_at', `${today}T00:00:00`)
       .lte('closed_at', `${today}T23:59:59`);
@@ -369,9 +374,9 @@ serve(async (req) => {
 
     // Check loss limit based on type
     if (settings.loss_limit_type === 'percent_drawdown') {
-      // Get account balance
+      // Get account balance using user's API credentials
       const { data: accountData } = await supabase.functions.invoke('bitget-api', {
-        body: { action: 'get_account' }
+        body: { action: 'get_account', apiCredentials }
       });
       
       const accountBalance = accountData?.success && accountData.data?.[0]?.available 
@@ -449,7 +454,7 @@ serve(async (req) => {
     });
     console.log('Fetching account balance from Bitget API...');
     const { data: accountData } = await supabase.functions.invoke('bitget-api', {
-      body: { action: 'get_account' }
+      body: { action: 'get_account', apiCredentials }
     });
     
     let accountBalance = 10000; // fallback if API fails
@@ -528,10 +533,11 @@ serve(async (req) => {
       metadata: { symbol: alert_data.symbol, leverage: effectiveLeverage }
     });
     console.log(`Setting leverage on Bitget: ${effectiveLeverage}x for ${alert_data.symbol}`);
-    // Set leverage on Bitget before placing order
+    // Set leverage on Bitget before placing order using user's API credentials
     await supabase.functions.invoke('bitget-api', {
       body: {
         action: 'set_leverage',
+        apiCredentials,
         params: {
           symbol: alert_data.symbol,
           leverage: effectiveLeverage,
@@ -555,6 +561,7 @@ serve(async (req) => {
     const { data: symbolInfoResult } = await supabase.functions.invoke('bitget-api', {
       body: {
         action: 'get_symbol_info',
+        apiCredentials,
         params: {
           symbol: alert_data.symbol
         }
@@ -679,6 +686,7 @@ serve(async (req) => {
       const { data } = await supabase.functions.invoke('bitget-api', {
         body: {
           action: 'place_order',
+          apiCredentials,
           params: {
             symbol: alert_data.symbol,
             size: orderQuantity.toString(),
@@ -709,10 +717,11 @@ serve(async (req) => {
         
         console.log(`Retrying with minimum quantity: ${orderQuantity} (${minNotional} USDT)`);
         
-        // Retry with minimum quantity
+        // Retry with minimum quantity using user's API credentials
         const { data } = await supabase.functions.invoke('bitget-api', {
           body: {
             action: 'place_order',
+            apiCredentials,
             params: {
               symbol: alert_data.symbol,
               size: orderQuantity.toString(),
@@ -754,6 +763,7 @@ serve(async (req) => {
     const { data: priceInfoResult } = await supabase.functions.invoke('bitget-api', {
       body: {
         action: 'get_symbol_info',
+        apiCredentials,
         params: { symbol: alert_data.symbol }
       }
     });
@@ -799,6 +809,7 @@ serve(async (req) => {
     const { data: slResult } = await supabase.functions.invoke('bitget-api', {
       body: {
         action: 'place_tpsl_order',
+        apiCredentials,
         params: {
           symbol: alert_data.symbol,
           planType: 'pos_loss',
@@ -869,6 +880,7 @@ serve(async (req) => {
       const { data: tp1Result } = await supabase.functions.invoke('bitget-api', {
         body: {
           action: 'place_tpsl_order',
+          apiCredentials,
           params: {
             symbol: alert_data.symbol,
             planType: 'pos_profit',
@@ -890,6 +902,7 @@ serve(async (req) => {
       const { data: tp2Result } = await supabase.functions.invoke('bitget-api', {
         body: {
           action: 'place_tpsl_order',
+          apiCredentials,
           params: {
             symbol: alert_data.symbol,
             planType: 'pos_profit',
@@ -911,6 +924,7 @@ serve(async (req) => {
       const { data: tp3Result } = await supabase.functions.invoke('bitget-api', {
         body: {
           action: 'place_tpsl_order',
+          apiCredentials,
           params: {
             symbol: alert_data.symbol,
             planType: 'pos_profit',
@@ -944,13 +958,14 @@ serve(async (req) => {
     const { data: position, error: positionError } = await supabase
       .from('positions')
       .insert({
+        user_id: user_id, // CRITICAL: Link position to user
         alert_id: alert_id,
         bitget_order_id: orderId,
         symbol: alert_data.symbol,
         side: alert_data.side,
         entry_price: alert_data.price,
         quantity: quantity,
-        leverage: effectiveLeverage, // Use custom or default leverage
+        leverage: effectiveLeverage,
         sl_price: parseFloat(roundedSlPrice),
         sl_order_id: slOrderId,
         tp1_price: roundedTp1Price ? parseFloat(roundedTp1Price) : null,
