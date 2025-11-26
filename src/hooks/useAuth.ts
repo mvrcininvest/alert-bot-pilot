@@ -149,6 +149,57 @@ export function useAuth() {
     }
   };
 
+  const resetPassword = async (email: string) => {
+    try {
+      const redirectUrl = `${window.location.origin}/reset-password`;
+      
+      const { error } = await supabase.auth.resetPasswordForEmail(email, {
+        redirectTo: redirectUrl,
+      });
+      
+      if (error) throw error;
+      
+      toast({
+        title: "✉️ Email wysłany",
+        description: "Sprawdź swoją skrzynkę pocztową - wysłaliśmy link do zmiany hasła.",
+        duration: 8000,
+      });
+      
+      return { error: null };
+    } catch (error: any) {
+      toast({
+        variant: "destructive",
+        title: "Błąd",
+        description: error.message,
+      });
+      return { error };
+    }
+  };
+
+  const updatePassword = async (newPassword: string) => {
+    try {
+      const { error } = await supabase.auth.updateUser({
+        password: newPassword,
+      });
+      
+      if (error) throw error;
+      
+      toast({
+        title: "✅ Hasło zmienione",
+        description: "Twoje hasło zostało pomyślnie zaktualizowane.",
+      });
+      
+      return { error: null };
+    } catch (error: any) {
+      toast({
+        variant: "destructive",
+        title: "Błąd zmiany hasła",
+        description: error.message,
+      });
+      return { error };
+    }
+  };
+
   return {
     user,
     session,
@@ -157,5 +208,7 @@ export function useAuth() {
     signIn,
     signUp,
     signOut,
+    resetPassword,
+    updatePassword,
   };
 }
