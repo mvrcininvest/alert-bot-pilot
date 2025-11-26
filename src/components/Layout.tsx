@@ -1,4 +1,4 @@
-import { Home, AlertCircle, History, BarChart3, Settings, FileText, Webhook, Power, AlertTriangle, LogOut, Shield, KeyRound } from "lucide-react";
+import { Home, AlertCircle, History, BarChart3, Settings, FileText, Webhook, Power, AlertTriangle, LogOut, Shield, KeyRound, User } from "lucide-react";
 import { NavLink } from "./NavLink";
 import { cn } from "@/lib/utils";
 import logoAristoEdge from "@/assets/logo-aristoedge.png";
@@ -20,6 +20,7 @@ const navigation = [
   { name: "Logi", href: "/logs", icon: FileText },
   { name: "Integracja", href: "/integration", icon: Webhook },
   { name: "Ustawienia", href: "/settings", icon: Settings },
+  { name: "Profil", href: "/settings/profile", icon: User },
   { name: "API Keys", href: "/settings/api-keys", icon: KeyRound },
 ];
 

@@ -409,6 +409,11 @@ export type Database = {
           is_active: boolean | null
           is_banned: boolean | null
           last_seen_at: string | null
+          notify_bot_status: boolean | null
+          notify_daily_summary: boolean | null
+          notify_loss_alerts: boolean | null
+          notify_position_closed: boolean | null
+          notify_position_opened: boolean | null
           updated_at: string | null
         }
         Insert: {
@@ -423,6 +428,11 @@ export type Database = {
           is_active?: boolean | null
           is_banned?: boolean | null
           last_seen_at?: string | null
+          notify_bot_status?: boolean | null
+          notify_daily_summary?: boolean | null
+          notify_loss_alerts?: boolean | null
+          notify_position_closed?: boolean | null
+          notify_position_opened?: boolean | null
           updated_at?: string | null
         }
         Update: {
@@ -437,6 +447,11 @@ export type Database = {
           is_active?: boolean | null
           is_banned?: boolean | null
           last_seen_at?: string | null
+          notify_bot_status?: boolean | null
+          notify_daily_summary?: boolean | null
+          notify_loss_alerts?: boolean | null
+          notify_position_closed?: boolean | null
+          notify_position_opened?: boolean | null
           updated_at?: string | null
         }
         Relationships: []

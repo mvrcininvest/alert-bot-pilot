@@ -17,6 +17,7 @@ import ResetPassword from "./pages/ResetPassword";
 import Admin from "./pages/Admin";
 import ApiKeys from "./pages/ApiKeys";
 import MigrateApiKeys from "./pages/MigrateApiKeys";
+import Profile from "./pages/Profile";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -43,6 +44,7 @@ const App = () => (
                 <Route path="/logs" element={<Logs />} />
                 <Route path="/admin" element={<Admin />} />
                 <Route path="/settings/api-keys" element={<ApiKeys />} />
+                <Route path="/settings/profile" element={<Profile />} />
                 <Route path="/migrate-api-keys" element={<MigrateApiKeys />} />
                 <Route path="*" element={<NotFound />} />
               </Routes>
