@@ -98,14 +98,14 @@ export function Layout({ children }: { children: React.ReactNode }) {
     return () => clearInterval(interval);
   }, [user, isAdmin]);
 
-  // Redirect to migration/API keys setup if user doesn't have keys
+  // Redirect to API keys setup if user doesn't have keys
   useEffect(() => {
     const currentPath = window.location.pathname;
-    const allowedPaths = ['/settings/api-keys', '/migrate-api-keys'];
+    const allowedPaths = ['/settings/api-keys', '/migrate-api-keys', '/auth'];
     
     if (!loading && !checkingApiKeys && user && !hasApiKeys && !allowedPaths.includes(currentPath)) {
-      // Try migration first (for existing users with global keys)
-      navigate('/migrate-api-keys');
+      // Redirect to normal API keys setup page
+      navigate('/settings/api-keys');
     }
   }, [user, loading, checkingApiKeys, hasApiKeys, navigate]);
 
