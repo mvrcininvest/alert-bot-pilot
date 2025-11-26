@@ -89,7 +89,7 @@ export function useAuth() {
     try {
       const redirectUrl = `${window.location.origin}/`;
       
-      const { error } = await supabase.auth.signUp({
+      const { data, error } = await supabase.auth.signUp({
         email,
         password,
         options: {
@@ -102,12 +102,22 @@ export function useAuth() {
       
       if (error) throw error;
       
+      // Check if email confirmation is required
+      if (data?.user && !data.session) {
+        toast({
+          title: "✉️ Potwierdź swój email",
+          description: "Wysłaliśmy link aktywacyjny na Twój adres email. Kliknij w link, aby aktywować konto.",
+          duration: 8000,
+        });
+        return { error: null, needsConfirmation: true };
+      }
+      
       toast({
         title: "Konto utworzone",
         description: "Możesz się teraz zalogować.",
       });
       
-      return { error: null };
+      return { error: null, needsConfirmation: false };
     } catch (error: any) {
       toast({
         variant: "destructive",
