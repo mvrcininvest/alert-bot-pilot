@@ -21,6 +21,7 @@ const navigation = [
   { name: "Integracja", href: "/integration", icon: Webhook },
   { name: "Ustawienia", href: "/settings", icon: Settings },
   { name: "Profil", href: "/settings/profile", icon: User },
+  { name: "Bezpieczeństwo", href: "/settings/security", icon: Shield },
   { name: "API Keys", href: "/settings/api-keys", icon: KeyRound },
 ];
 
