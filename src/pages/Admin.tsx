@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '@/hooks/useAuth';
 import { supabase } from '@/integrations/supabase/client';
@@ -8,11 +8,17 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Switch } from '@/components/ui/switch';
-import { Shield, User, CheckCircle, XCircle, Loader2, RefreshCw, Ban, Clock, Activity } from 'lucide-react';
+import { Shield, User, CheckCircle, XCircle, Loader2, RefreshCw, Ban, Clock, Activity, Search, Filter, X } from 'lucide-react';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Textarea } from '@/components/ui/textarea';
 import { Label } from '@/components/ui/label';
+import { Input } from '@/components/ui/input';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import { Calendar } from '@/components/ui/calendar';
+import { format } from 'date-fns';
+import { pl } from 'date-fns/locale';
 import UserDetailDialog from '@/components/admin/UserDetailDialog';
 
 interface UserData {
@@ -41,6 +47,14 @@ export default function Admin() {
   const [selectedUser, setSelectedUser] = useState<UserData | null>(null);
   const [banReason, setBanReason] = useState('');
   const [detailDialogOpen, setDetailDialogOpen] = useState(false);
+  
+  // Filter states
+  const [searchQuery, setSearchQuery] = useState('');
+  const [statusFilter, setStatusFilter] = useState<string>('all');
+  const [roleFilter, setRoleFilter] = useState<string>('all');
+  const [apiKeysFilter, setApiKeysFilter] = useState<string>('all');
+  const [dateFrom, setDateFrom] = useState<Date | undefined>(undefined);
+  const [dateTo, setDateTo] = useState<Date | undefined>(undefined);
 
   useEffect(() => {
     if (!authLoading && !isAdmin) {
@@ -305,6 +319,66 @@ export default function Admin() {
     return seen.toLocaleDateString('pl-PL');
   };
 
+  // Filtered users
+  const filteredUsers = useMemo(() => {
+    return users.filter(userData => {
+      // Search query
+      if (searchQuery) {
+        const query = searchQuery.toLowerCase();
+        const matchesEmail = userData.email.toLowerCase().includes(query);
+        const matchesName = userData.display_name?.toLowerCase().includes(query);
+        if (!matchesEmail && !matchesName) return false;
+      }
+
+      // Status filter
+      if (statusFilter !== 'all') {
+        if (statusFilter === 'online' && !isUserOnline(userData.last_seen_at)) return false;
+        if (statusFilter === 'offline' && isUserOnline(userData.last_seen_at)) return false;
+        if (statusFilter === 'banned' && !userData.is_banned) return false;
+        if (statusFilter === 'active' && (!userData.is_active || userData.is_banned)) return false;
+        if (statusFilter === 'inactive' && (userData.is_active || userData.is_banned)) return false;
+      }
+
+      // Role filter
+      if (roleFilter !== 'all') {
+        if (roleFilter === 'admin' && !userData.roles.includes('admin')) return false;
+        if (roleFilter === 'user' && userData.roles.includes('admin')) return false;
+      }
+
+      // API keys filter
+      if (apiKeysFilter !== 'all') {
+        if (apiKeysFilter === 'with_keys' && !userData.has_api_keys) return false;
+        if (apiKeysFilter === 'without_keys' && userData.has_api_keys) return false;
+      }
+
+      // Date range filter
+      if (dateFrom) {
+        const createdAt = new Date(userData.created_at);
+        if (createdAt < dateFrom) return false;
+      }
+      if (dateTo) {
+        const createdAt = new Date(userData.created_at);
+        const endOfDay = new Date(dateTo);
+        endOfDay.setHours(23, 59, 59, 999);
+        if (createdAt > endOfDay) return false;
+      }
+
+      return true;
+    });
+  }, [users, searchQuery, statusFilter, roleFilter, apiKeysFilter, dateFrom, dateTo]);
+
+  const clearFilters = () => {
+    setSearchQuery('');
+    setStatusFilter('all');
+    setRoleFilter('all');
+    setApiKeysFilter('all');
+    setDateFrom(undefined);
+    setDateTo(undefined);
+  };
+
+  const hasActiveFilters = searchQuery || statusFilter !== 'all' || roleFilter !== 'all' || 
+                           apiKeysFilter !== 'all' || dateFrom || dateTo;
+
   if (authLoading || !isAdmin) {
     return (
       <div className="flex items-center justify-center min-h-[400px]">
@@ -336,6 +410,141 @@ export default function Admin() {
           Odśwież
         </Button>
       </div>
+
+      {/* Filters */}
+      <Card>
+        <CardHeader>
+          <div className="flex items-center justify-between">
+            <div>
+              <CardTitle className="flex items-center gap-2">
+                <Filter className="h-5 w-5" />
+                Filtrowanie i Wyszukiwanie
+              </CardTitle>
+              <CardDescription>
+                Filtruj użytkowników według różnych kryteriów
+              </CardDescription>
+            </div>
+            {hasActiveFilters && (
+              <Button variant="ghost" size="sm" onClick={clearFilters} className="gap-2">
+                <X className="h-4 w-4" />
+                Wyczyść filtry
+              </Button>
+            )}
+          </div>
+        </CardHeader>
+        <CardContent>
+          <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-6 gap-4">
+            {/* Search */}
+            <div className="lg:col-span-2">
+              <Label htmlFor="search" className="text-xs text-muted-foreground mb-2 block">
+                Szukaj
+              </Label>
+              <div className="relative">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                <Input
+                  id="search"
+                  placeholder="Email lub nazwa..."
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  className="pl-9"
+                />
+              </div>
+            </div>
+
+            {/* Status Filter */}
+            <div>
+              <Label className="text-xs text-muted-foreground mb-2 block">Status</Label>
+              <Select value={statusFilter} onValueChange={setStatusFilter}>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">Wszyscy</SelectItem>
+                  <SelectItem value="online">Online</SelectItem>
+                  <SelectItem value="offline">Offline</SelectItem>
+                  <SelectItem value="active">Aktywni</SelectItem>
+                  <SelectItem value="inactive">Nieaktywni</SelectItem>
+                  <SelectItem value="banned">Zbanowani</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
+            {/* Role Filter */}
+            <div>
+              <Label className="text-xs text-muted-foreground mb-2 block">Rola</Label>
+              <Select value={roleFilter} onValueChange={setRoleFilter}>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">Wszystkie</SelectItem>
+                  <SelectItem value="admin">Admin</SelectItem>
+                  <SelectItem value="user">User</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
+            {/* API Keys Filter */}
+            <div>
+              <Label className="text-xs text-muted-foreground mb-2 block">Klucze API</Label>
+              <Select value={apiKeysFilter} onValueChange={setApiKeysFilter}>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">Wszystkie</SelectItem>
+                  <SelectItem value="with_keys">Z kluczami</SelectItem>
+                  <SelectItem value="without_keys">Bez kluczy</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
+            {/* Date From */}
+            <div>
+              <Label className="text-xs text-muted-foreground mb-2 block">Data od</Label>
+              <Popover>
+                <PopoverTrigger asChild>
+                  <Button variant="outline" className="w-full justify-start text-left font-normal">
+                    <Clock className="mr-2 h-4 w-4" />
+                    {dateFrom ? format(dateFrom, 'dd MMM yyyy', { locale: pl }) : 'Wybierz'}
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent className="w-auto p-0" align="start">
+                  <Calendar
+                    mode="single"
+                    selected={dateFrom}
+                    onSelect={setDateFrom}
+                    locale={pl}
+                    initialFocus
+                  />
+                </PopoverContent>
+              </Popover>
+            </div>
+
+            {/* Date To */}
+            <div>
+              <Label className="text-xs text-muted-foreground mb-2 block">Data do</Label>
+              <Popover>
+                <PopoverTrigger asChild>
+                  <Button variant="outline" className="w-full justify-start text-left font-normal">
+                    <Clock className="mr-2 h-4 w-4" />
+                    {dateTo ? format(dateTo, 'dd MMM yyyy', { locale: pl }) : 'Wybierz'}
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent className="w-auto p-0" align="start">
+                  <Calendar
+                    mode="single"
+                    selected={dateTo}
+                    onSelect={setDateTo}
+                    locale={pl}
+                    initialFocus
+                  />
+                </PopoverContent>
+              </Popover>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
 
       {/* Stats Cards */}
       <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
@@ -382,19 +591,29 @@ export default function Admin() {
       {/* Users Table */}
       <Card>
         <CardHeader>
-          <CardTitle>Lista Użytkowników</CardTitle>
-          <CardDescription>
-            Zarządzaj kontami użytkowników, rolami i uprawnieniami
-          </CardDescription>
+          <div className="flex items-center justify-between">
+            <div>
+              <CardTitle>Lista Użytkowników</CardTitle>
+              <CardDescription>
+                {hasActiveFilters 
+                  ? `Znaleziono ${filteredUsers.length} z ${users.length} użytkowników`
+                  : `Zarządzaj kontami użytkowników, rolami i uprawnieniami`
+                }
+              </CardDescription>
+            </div>
+          </div>
         </CardHeader>
         <CardContent>
           {loading ? (
             <div className="flex items-center justify-center py-8">
               <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
             </div>
-          ) : users.length === 0 ? (
+          ) : filteredUsers.length === 0 ? (
             <div className="text-center py-8 text-muted-foreground">
-              Brak użytkowników w systemie
+              {hasActiveFilters 
+                ? 'Brak użytkowników spełniających kryteria filtrowania'
+                : 'Brak użytkowników w systemie'
+              }
             </div>
           ) : (
             <div className="rounded-md border">
@@ -413,7 +632,7 @@ export default function Admin() {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {users.map((userData) => {
+                  {filteredUsers.map((userData) => {
                     const initials = (userData.display_name || userData.email)
                       .split(' ')
                       .map(n => n[0])
