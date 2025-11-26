@@ -13,9 +13,10 @@ export default function MigrateApiKeys() {
   const [migrating, setMigrating] = useState(true);
   const [success, setSuccess] = useState(false);
   const hasAttemptedMigration = useRef(false);
+  const isRedirecting = useRef(false);
 
   const handleMigrate = async () => {
-    if (hasAttemptedMigration.current) return;
+    if (hasAttemptedMigration.current || isRedirecting.current) return;
     hasAttemptedMigration.current = true;
 
     try {
@@ -27,13 +28,19 @@ export default function MigrateApiKeys() {
 
       if (data.alreadyExists) {
         // Keys already configured - redirect immediately without showing UI
-        window.location.href = '/';
+        if (!isRedirecting.current) {
+          isRedirecting.current = true;
+          window.location.href = '/';
+        }
         return;
       }
 
       if (!data.success) {
         // No keys to migrate - redirect to manual setup
-        navigate('/settings/api-keys');
+        if (!isRedirecting.current) {
+          isRedirecting.current = true;
+          navigate('/settings/api-keys');
+        }
         return;
       }
 
@@ -44,14 +51,20 @@ export default function MigrateApiKeys() {
       });
       
       // Force full page reload to refresh hasApiKeys state
-      setTimeout(() => {
-        window.location.href = '/';
-      }, 2000);
+      if (!isRedirecting.current) {
+        isRedirecting.current = true;
+        setTimeout(() => {
+          window.location.href = '/';
+        }, 2000);
+      }
     } catch (error: any) {
       console.error('Migration error:', error);
       
+      if (isRedirecting.current) return;
+      
       // If no keys found in secrets, redirect to manual setup
       if (error.message?.includes('not found')) {
+        isRedirecting.current = true;
         navigate('/settings/api-keys');
       } else {
         toast({
@@ -59,6 +72,7 @@ export default function MigrateApiKeys() {
           description: error.message || "Nie udało się przenieść kluczy. Spróbuj ręcznej konfiguracji.",
           variant: "destructive",
         });
+        isRedirecting.current = true;
         setTimeout(() => navigate('/settings/api-keys'), 2000);
       }
     } finally {
@@ -66,9 +80,11 @@ export default function MigrateApiKeys() {
     }
   };
 
-  // Auto-trigger migration on mount
+  // Auto-trigger migration on mount - only once
   useEffect(() => {
-    handleMigrate();
+    if (!hasAttemptedMigration.current) {
+      handleMigrate();
+    }
   }, []);
 
   return (

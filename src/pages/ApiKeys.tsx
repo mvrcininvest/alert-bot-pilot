@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -22,6 +22,7 @@ export default function ApiKeys() {
   const [keysExist, setKeysExist] = useState(false);
   const [keysInfo, setKeysInfo] = useState<any>(null);
   const [showKeys, setShowKeys] = useState({ apiKey: false, secretKey: false, passphrase: false });
+  const isRedirecting = useRef(false);
   
   const [formData, setFormData] = useState({
     apiKey: "",
@@ -62,6 +63,8 @@ export default function ApiKeys() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    
+    if (isRedirecting.current) return;
     
     if (!formData.apiKey || !formData.secretKey || !formData.passphrase) {
       toast({
@@ -104,9 +107,12 @@ export default function ApiKeys() {
       await checkExistingKeys();
       
       // Redirect to dashboard after successful setup with full reload
-      setTimeout(() => {
-        window.location.href = '/';
-      }, 1500);
+      if (!isRedirecting.current) {
+        isRedirecting.current = true;
+        setTimeout(() => {
+          window.location.href = '/';
+        }, 1500);
+      }
     } catch (error: any) {
       console.error('Error saving keys:', error);
       toast({
