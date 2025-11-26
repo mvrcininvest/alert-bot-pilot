@@ -959,16 +959,61 @@ async function checkPositionFullVerification(supabase: any, position: any, autoR
     });
     
     if (closeResult?.success) {
+      // Wait for fills to be recorded
+      await new Promise(resolve => setTimeout(resolve, 2000));
+
+      // Fetch fill history from Bitget
+      const { data: fillsResult } = await supabase.functions.invoke('bitget-api', {
+        body: {
+          action: 'get_fills',
+          params: { symbol: position.symbol }
+        }
+      });
+
+      let actualClosePrice = currentPrice;
+      let realizedPnl = 0;
+
+      if (fillsResult?.success && fillsResult.data?.fillList?.length > 0) {
+        const recentFills = fillsResult.data.fillList
+          .filter((fill: any) => {
+            const fillTime = Number(fill.cTime);
+            const now = Date.now();
+            return (now - fillTime) < 60000;
+          })
+          .filter((fill: any) => {
+            const fillSide = fill.side?.toLowerCase() || '';
+            const expectedSide = isBuy ? 'close_long' : 'close_short';
+            return fillSide === expectedSide || fillSide.includes('close');
+          });
+
+        if (recentFills.length > 0) {
+          const totalQty = recentFills.reduce((sum: number, fill: any) => sum + Number(fill.baseVolume || fill.size || 0), 0);
+          const totalValue = recentFills.reduce((sum: number, fill: any) => {
+            const qty = Number(fill.baseVolume || fill.size || 0);
+            const price = Number(fill.price || fill.fillPrice || 0);
+            return sum + (qty * price);
+          }, 0);
+          
+          if (totalQty > 0) {
+            actualClosePrice = totalValue / totalQty;
+            const entryPrice = Number(position.entry_price);
+            const priceDiff = isBuy ? actualClosePrice - entryPrice : entryPrice - actualClosePrice;
+            realizedPnl = priceDiff * totalQty;
+          }
+        }
+      }
+
       await supabase
         .from('positions')
         .update({
           status: 'closed',
-          close_reason: 'SL hit - closed by monitor',
-          close_price: currentPrice,
+          close_reason: 'sl_hit',
+          close_price: actualClosePrice,
+          realized_pnl: realizedPnl,
           closed_at: new Date().toISOString()
         })
         .eq('id', position.id);
-      actions.push(`Closed position at market due to SL hit (${currentPrice})`);
+      actions.push(`Closed position at ${actualClosePrice} due to SL hit (PnL: ${realizedPnl.toFixed(2)})`);
     }
     
     return; // Position closed, no further checks needed

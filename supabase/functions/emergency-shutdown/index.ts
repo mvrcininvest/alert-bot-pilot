@@ -288,33 +288,81 @@ serve(async (req) => {
           continue;
         }
 
-        // Get current price for PnL calculation
-        const { data: tickerResult } = await supabase.functions.invoke('bitget-api', {
+        // Wait for fills to be recorded
+        await new Promise(resolve => setTimeout(resolve, 2000));
+
+        // Fetch fill history from Bitget
+        const { data: fillsResult } = await supabase.functions.invoke('bitget-api', {
           body: {
-            action: 'get_ticker',
+            action: 'get_fills',
             params: { symbol: position.symbol }
           }
         });
 
-        const currentPrice = tickerResult?.success ? Number(tickerResult.data[0].lastPr) : position.current_price;
-        const entryPrice = Number(position.entry_price);
-        const priceDiff = isBuy ? currentPrice - entryPrice : entryPrice - currentPrice;
-        const realizedPnl = priceDiff * bitgetQuantity;
+        let actualClosePrice = position.current_price || Number(position.entry_price);
+        let realizedPnl = 0;
+        let closeReason = 'Emergency shutdown';
+
+        if (fillsResult?.success && fillsResult.data?.fillList?.length > 0) {
+          const recentFills = fillsResult.data.fillList
+            .filter((fill: any) => {
+              const fillTime = Number(fill.cTime);
+              const now = Date.now();
+              return (now - fillTime) < 60000;
+            })
+            .filter((fill: any) => {
+              const fillSide = fill.side?.toLowerCase() || '';
+              const expectedSide = isBuy ? 'close_long' : 'close_short';
+              return fillSide === expectedSide || fillSide.includes('close');
+            });
+
+          if (recentFills.length > 0) {
+            const totalQty = recentFills.reduce((sum: number, fill: any) => sum + Number(fill.baseVolume || fill.size || 0), 0);
+            const totalValue = recentFills.reduce((sum: number, fill: any) => {
+              const qty = Number(fill.baseVolume || fill.size || 0);
+              const price = Number(fill.price || fill.fillPrice || 0);
+              return sum + (qty * price);
+            }, 0);
+            
+            if (totalQty > 0) {
+              actualClosePrice = totalValue / totalQty;
+              const entryPrice = Number(position.entry_price);
+              const priceDiff = isBuy ? actualClosePrice - entryPrice : entryPrice - actualClosePrice;
+              realizedPnl = priceDiff * totalQty;
+
+              // Determine close reason from price
+              const slPrice = Number(position.sl_price);
+              if (isBuy) {
+                if (actualClosePrice <= slPrice * 1.005) {
+                  closeReason = 'sl_hit (emergency)';
+                } else if (position.tp1_price && actualClosePrice >= Number(position.tp1_price) * 0.995) {
+                  closeReason = 'tp_hit (emergency)';
+                }
+              } else {
+                if (actualClosePrice >= slPrice * 0.995) {
+                  closeReason = 'sl_hit (emergency)';
+                } else if (position.tp1_price && actualClosePrice <= Number(position.tp1_price) * 1.005) {
+                  closeReason = 'tp_hit (emergency)';
+                }
+              }
+            }
+          }
+        }
 
         // Update position in DB
         await supabase
           .from('positions')
           .update({
             status: 'closed',
-            close_reason: 'Emergency shutdown',
-            close_price: currentPrice,
+            close_reason: closeReason,
+            close_price: actualClosePrice,
             realized_pnl: realizedPnl,
             closed_at: new Date().toISOString()
           })
           .eq('id', position.id);
 
         closedPositions.push(position.symbol);
-        console.log(`✅ Closed ${position.symbol} at ${currentPrice} (PnL: ${realizedPnl.toFixed(2)} USDT)`);
+        console.log(`✅ Closed ${position.symbol} at ${actualClosePrice} (PnL: ${realizedPnl.toFixed(2)} USDT)`);
 
         await log({
           functionName: 'emergency-shutdown',
@@ -322,8 +370,9 @@ serve(async (req) => {
           level: 'warn',
           positionId: position.id,
           metadata: {
-            closePrice: currentPrice,
-            realizedPnl
+            closePrice: actualClosePrice,
+            realizedPnl,
+            closeReason
           }
         });
 
