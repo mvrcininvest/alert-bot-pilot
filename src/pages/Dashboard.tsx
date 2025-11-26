@@ -25,6 +25,9 @@ export default function Dashboard() {
       return data || [];
     },
     refetchInterval: 5000,
+    refetchOnMount: true,
+    refetchOnWindowFocus: true,
+    staleTime: 0, // Always treat data as stale
   });
 
   const { data: liveData } = useQuery({
@@ -338,6 +341,7 @@ export default function Dashboard() {
                             onClick={async () => {
                               if (!confirm(`Zamknąć pozycję ${pos.symbol}?`)) return;
                               try {
+                                // 1. Close position on exchange
                                 const closeSide = pos.side === 'BUY' ? 'close_long' : 'close_short';
                                 const { data, error } = await supabase.functions.invoke('bitget-api', {
                                   body: {
@@ -350,8 +354,13 @@ export default function Dashboard() {
                                   }
                                 });
                                 
-                                if (error || !data?.success) throw new Error('Nie udało się zamknąć pozycji');
+                                if (error || !data?.success) {
+                                  throw new Error('Nie udało się zamknąć pozycji na giełdzie');
+                                }
                                 
+                                console.log('Position closed on exchange, updating database...');
+                                
+                                // 2. Update database
                                 const updateResult = await supabase
                                   .from('positions')
                                   .update({
@@ -361,21 +370,35 @@ export default function Dashboard() {
                                     close_price: Number(pos.current_price),
                                     realized_pnl: Number(pos.unrealized_pnl)
                                   })
-                                  .eq('id', pos.id);
+                                  .eq('id', pos.id)
+                                  .select();
                                 
                                 if (updateResult.error) {
+                                  console.error('Database update error:', updateResult.error);
                                   throw new Error('Nie udało się zaktualizować pozycji w bazie');
                                 }
                                 
-                                // Force immediate refresh
-                                await refetchPositions();
-                                queryClient.invalidateQueries({ queryKey: ["live-data"] });
+                                console.log('Database updated:', updateResult.data);
                                 
-                                toast({ title: 'Zamknięto pozycję', description: `${pos.symbol} zamknięta` });
+                                // 3. Aggressively clear cache and refetch
+                                queryClient.removeQueries({ queryKey: ["open-positions"] });
+                                queryClient.removeQueries({ queryKey: ["live-data"] });
+                                
+                                // Wait a bit for database to propagate
+                                await new Promise(resolve => setTimeout(resolve, 500));
+                                
+                                // Force refetch
+                                await refetchPositions();
+                                
+                                toast({ 
+                                  title: 'Pozycja zamknięta', 
+                                  description: `${pos.symbol} zamknięta pomyślnie` 
+                                });
                               } catch (err: any) {
+                                console.error('Close position error:', err);
                                 toast({ 
                                   title: 'Błąd', 
-                                  description: err.message, 
+                                  description: err.message || 'Nie udało się zamknąć pozycji', 
                                   variant: 'destructive' 
                                 });
                               }
