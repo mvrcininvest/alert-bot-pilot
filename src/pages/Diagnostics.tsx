@@ -43,6 +43,22 @@ export default function Diagnostics() {
     refetchInterval: 5000,
   });
 
+  const { data: errorAlerts } = useQuery({
+    queryKey: ["error-alerts"],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("alerts")
+        .select("*")
+        .eq("status", "error")
+        .order("created_at", { ascending: false })
+        .limit(50);
+      
+      if (error) throw error;
+      return data || [];
+    },
+    refetchInterval: 5000,
+  });
+
   const { data: bannedSymbols } = useQuery({
     queryKey: ["banned-symbols"],
     queryFn: async () => {
@@ -77,6 +93,81 @@ export default function Diagnostics() {
       toast({
         title: "Błąd",
         description: error instanceof Error ? error.message : "Nie udało się odbanować symbolu",
+        variant: "destructive",
+      });
+    },
+  });
+
+  const clearDeviationsMutation = useMutation({
+    mutationFn: async () => {
+      const { error } = await supabase
+        .from("monitoring_logs")
+        .delete()
+        .eq("check_type", "deviations");
+      
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["oko-saurona-deviations"] });
+      toast({
+        title: "Odchylenia wyczyszczone",
+        description: "Wszystkie logi odchyleń zostały usunięte",
+      });
+    },
+    onError: (error) => {
+      toast({
+        title: "Błąd",
+        description: error instanceof Error ? error.message : "Nie udało się wyczyścić odchyleń",
+        variant: "destructive",
+      });
+    },
+  });
+
+  const clearInterventionsMutation = useMutation({
+    mutationFn: async () => {
+      const { error } = await supabase
+        .from("monitoring_logs")
+        .delete()
+        .in("check_type", ["sl_repair", "tp_repair", "emergency_close"]);
+      
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["oko-saurona-logs"] });
+      toast({
+        title: "Interwencje wyczyszczone",
+        description: "Wszystkie logi interwencji zostały usunięte",
+      });
+    },
+    onError: (error) => {
+      toast({
+        title: "Błąd",
+        description: error instanceof Error ? error.message : "Nie udało się wyczyścić interwencji",
+        variant: "destructive",
+      });
+    },
+  });
+
+  const clearErrorAlertsMutation = useMutation({
+    mutationFn: async () => {
+      const { error } = await supabase
+        .from("alerts")
+        .delete()
+        .eq("status", "error");
+      
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["error-alerts"] });
+      toast({
+        title: "Błędne alerty wyczyszczone",
+        description: "Wszystkie alerty z błędami zostały usunięte",
+      });
+    },
+    onError: (error) => {
+      toast({
+        title: "Błąd",
+        description: error instanceof Error ? error.message : "Nie udało się wyczyścić alertów",
         variant: "destructive",
       });
     },
@@ -119,10 +210,20 @@ export default function Diagnostics() {
       {/* Deviations Widget */}
       <Card>
         <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <TrendingUp className="h-5 w-5" />
-            Odchylenia Poziomów i Ilości
-          </CardTitle>
+          <div className="flex items-center justify-between">
+            <CardTitle className="flex items-center gap-2">
+              <TrendingUp className="h-5 w-5" />
+              Odchylenia Poziomów i Ilości
+            </CardTitle>
+            <Button 
+              variant="outline" 
+              size="sm"
+              onClick={() => clearDeviationsMutation.mutate()}
+              disabled={clearDeviationsMutation.isPending}
+            >
+              Wyczyść
+            </Button>
+          </div>
         </CardHeader>
         <CardContent>
           <ScrollArea className="h-[400px]">
@@ -177,10 +278,20 @@ export default function Diagnostics() {
       {/* Oko Saurona Widget */}
       <Card>
         <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <Eye className="h-5 w-5" />
-            Oko Saurona - Interwencje
-          </CardTitle>
+          <div className="flex items-center justify-between">
+            <CardTitle className="flex items-center gap-2">
+              <Eye className="h-5 w-5" />
+              Oko Saurona - Interwencje
+            </CardTitle>
+            <Button 
+              variant="outline" 
+              size="sm"
+              onClick={() => clearInterventionsMutation.mutate()}
+              disabled={clearInterventionsMutation.isPending}
+            >
+              Wyczyść
+            </Button>
+          </div>
         </CardHeader>
         <CardContent>
           <ScrollArea className="h-[400px]">
@@ -225,6 +336,57 @@ export default function Diagnostics() {
                 ))
               ) : (
                 <p className="text-center text-muted-foreground py-8">Brak interwencji Oka Saurona</p>
+              )}
+            </div>
+          </ScrollArea>
+        </CardContent>
+      </Card>
+
+      {/* Error Alerts Widget */}
+      <Card>
+        <CardHeader>
+          <div className="flex items-center justify-between">
+            <CardTitle className="flex items-center gap-2">
+              <XCircle className="h-5 w-5" />
+              Alerty Odrzucone - Błędy Techniczne
+            </CardTitle>
+            <Button 
+              variant="outline" 
+              size="sm"
+              onClick={() => clearErrorAlertsMutation.mutate()}
+              disabled={clearErrorAlertsMutation.isPending}
+            >
+              Wyczyść
+            </Button>
+          </div>
+        </CardHeader>
+        <CardContent>
+          <ScrollArea className="h-[400px]">
+            <div className="space-y-3">
+              {errorAlerts && errorAlerts.length > 0 ? (
+                errorAlerts.map((alert) => (
+                  <div key={alert.id} className="flex items-start gap-3 border-b border-border pb-3 last:border-0 last:pb-0">
+                    <div className="mt-0.5">
+                      <XCircle className="h-4 w-4 text-destructive" />
+                    </div>
+                    <div className="flex-1 space-y-1">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <Badge variant="destructive">ERROR</Badge>
+                        <Badge variant="outline">{alert.symbol}</Badge>
+                        <Badge variant="secondary">{alert.side}</Badge>
+                        <span className="text-xs text-muted-foreground">
+                          {new Date(alert.created_at).toLocaleString()}
+                        </span>
+                      </div>
+                      <p className="text-sm text-destructive font-medium">{alert.error_message}</p>
+                      <div className="text-xs text-muted-foreground">
+                        Entry: {alert.entry_price} | SL: {alert.sl} | TP: {alert.main_tp}
+                      </div>
+                    </div>
+                  </div>
+                ))
+              ) : (
+                <p className="text-center text-muted-foreground py-8">Brak alertów z błędami</p>
               )}
             </div>
           </ScrollArea>
