@@ -54,13 +54,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
         <div className="flex h-16 items-center justify-between px-6">
           {/* Logo */}
           <div className="flex items-center gap-8">
-            <div className="flex items-center gap-3">
-              <img src={logoAristoEdge} alt="AristoEdge" className="h-10 w-auto object-contain" />
-              <div className="flex flex-col">
-                <span className="text-lg font-bold text-gradient">AristoEdge</span>
-                <span className="text-[10px] text-muted-foreground tracking-wider">PRO TRADING</span>
-              </div>
-            </div>
+            <img src={logoAristoEdge} alt="AristoEdge" className="h-12 w-auto object-contain" />
 
             {/* Navigation */}
             <nav className="hidden lg:flex items-center gap-1">
