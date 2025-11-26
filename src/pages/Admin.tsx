@@ -55,6 +55,11 @@ export default function Admin() {
   const [apiKeysFilter, setApiKeysFilter] = useState<string>('all');
   const [dateFrom, setDateFrom] = useState<Date | undefined>(undefined);
   const [dateTo, setDateTo] = useState<Date | undefined>(undefined);
+  
+  // Bulk actions states
+  const [selectedUsers, setSelectedUsers] = useState<Set<string>>(new Set());
+  const [bulkBanDialogOpen, setBulkBanDialogOpen] = useState(false);
+  const [bulkBanReason, setBulkBanReason] = useState('');
 
   useEffect(() => {
     if (!authLoading && !isAdmin) {
@@ -379,6 +384,221 @@ export default function Admin() {
   const hasActiveFilters = searchQuery || statusFilter !== 'all' || roleFilter !== 'all' || 
                            apiKeysFilter !== 'all' || dateFrom || dateTo;
 
+  // Bulk actions handlers
+  const toggleUserSelection = (userId: string) => {
+    const newSelected = new Set(selectedUsers);
+    if (newSelected.has(userId)) {
+      newSelected.delete(userId);
+    } else {
+      newSelected.add(userId);
+    }
+    setSelectedUsers(newSelected);
+  };
+
+  const toggleSelectAll = () => {
+    if (selectedUsers.size === filteredUsers.length) {
+      setSelectedUsers(new Set());
+    } else {
+      setSelectedUsers(new Set(filteredUsers.filter(u => u.id !== user?.id).map(u => u.id)));
+    }
+  };
+
+  const clearSelection = () => {
+    setSelectedUsers(new Set());
+  };
+
+  const handleBulkDeactivate = async () => {
+    if (selectedUsers.size === 0) return;
+    
+    try {
+      const userIds = Array.from(selectedUsers);
+      const { error } = await supabase
+        .from('profiles')
+        .update({ is_active: false })
+        .in('id', userIds);
+
+      if (error) throw error;
+
+      toast({
+        title: "Użytkownicy dezaktywowani",
+        description: `Pomyślnie dezaktywowano ${userIds.length} użytkowników.`,
+      });
+
+      clearSelection();
+      fetchUsers();
+    } catch (error: any) {
+      toast({
+        variant: "destructive",
+        title: "Błąd dezaktywacji",
+        description: error.message,
+      });
+    }
+  };
+
+  const handleBulkActivate = async () => {
+    if (selectedUsers.size === 0) return;
+    
+    try {
+      const userIds = Array.from(selectedUsers);
+      const { error } = await supabase
+        .from('profiles')
+        .update({ is_active: true })
+        .in('id', userIds)
+        .eq('is_banned', false); // Only activate if not banned
+
+      if (error) throw error;
+
+      toast({
+        title: "Użytkownicy aktywowani",
+        description: `Pomyślnie aktywowano ${userIds.length} użytkowników.`,
+      });
+
+      clearSelection();
+      fetchUsers();
+    } catch (error: any) {
+      toast({
+        variant: "destructive",
+        title: "Błąd aktywacji",
+        description: error.message,
+      });
+    }
+  };
+
+  const handleBulkBan = async () => {
+    if (selectedUsers.size === 0 || !bulkBanReason.trim()) {
+      toast({
+        variant: "destructive",
+        title: "Błąd",
+        description: "Powód bana jest wymagany",
+      });
+      return;
+    }
+
+    try {
+      const userIds = Array.from(selectedUsers);
+      const { error } = await supabase
+        .from('profiles')
+        .update({
+          is_banned: true,
+          ban_reason: bulkBanReason,
+          banned_at: new Date().toISOString(),
+          banned_by: user?.id,
+          is_active: false,
+        })
+        .in('id', userIds);
+
+      if (error) throw error;
+
+      toast({
+        title: "Użytkownicy zbanowani",
+        description: `Pomyślnie zbanowano ${userIds.length} użytkowników.`,
+      });
+
+      setBulkBanDialogOpen(false);
+      setBulkBanReason('');
+      clearSelection();
+      fetchUsers();
+    } catch (error: any) {
+      toast({
+        variant: "destructive",
+        title: "Błąd banowania",
+        description: error.message,
+      });
+    }
+  };
+
+  const handleBulkUnban = async () => {
+    if (selectedUsers.size === 0) return;
+    
+    try {
+      const userIds = Array.from(selectedUsers);
+      const { error } = await supabase
+        .from('profiles')
+        .update({
+          is_banned: false,
+          ban_reason: null,
+          banned_at: null,
+          banned_by: null,
+          is_active: true,
+        })
+        .in('id', userIds);
+
+      if (error) throw error;
+
+      toast({
+        title: "Użytkownicy odbanowani",
+        description: `Pomyślnie odbanowano ${userIds.length} użytkowników.`,
+      });
+
+      clearSelection();
+      fetchUsers();
+    } catch (error: any) {
+      toast({
+        variant: "destructive",
+        title: "Błąd odbanowania",
+        description: error.message,
+      });
+    }
+  };
+
+  const handleBulkAddAdminRole = async () => {
+    if (selectedUsers.size === 0) return;
+    
+    try {
+      const userIds = Array.from(selectedUsers);
+      const inserts = userIds.map(userId => ({ user_id: userId, role: 'admin' as const }));
+      
+      const { error } = await supabase
+        .from('user_roles')
+        .upsert(inserts, { onConflict: 'user_id,role' });
+
+      if (error) throw error;
+
+      toast({
+        title: "Role nadane",
+        description: `Pomyślnie nadano rolę admin ${userIds.length} użytkownikom.`,
+      });
+
+      clearSelection();
+      fetchUsers();
+    } catch (error: any) {
+      toast({
+        variant: "destructive",
+        title: "Błąd nadawania roli",
+        description: error.message,
+      });
+    }
+  };
+
+  const handleBulkRemoveAdminRole = async () => {
+    if (selectedUsers.size === 0) return;
+    
+    try {
+      const userIds = Array.from(selectedUsers);
+      const { error } = await supabase
+        .from('user_roles')
+        .delete()
+        .in('user_id', userIds)
+        .eq('role', 'admin');
+
+      if (error) throw error;
+
+      toast({
+        title: "Role odebrane",
+        description: `Pomyślnie odebrano rolę admin ${userIds.length} użytkownikom.`,
+      });
+
+      clearSelection();
+      fetchUsers();
+    } catch (error: any) {
+      toast({
+        variant: "destructive",
+        title: "Błąd odbierania roli",
+        description: error.message,
+      });
+    }
+  };
+
   if (authLoading || !isAdmin) {
     return (
       <div className="flex items-center justify-center min-h-[400px]">
@@ -588,6 +808,50 @@ export default function Admin() {
         </Card>
       </div>
 
+      {/* Bulk Actions Bar */}
+      {selectedUsers.size > 0 && (
+        <Card className="border-primary">
+          <CardContent className="py-4">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <Badge variant="default" className="text-base px-3 py-1">
+                  {selectedUsers.size} zaznaczonych
+                </Badge>
+                <Button variant="ghost" size="sm" onClick={clearSelection}>
+                  <X className="h-4 w-4 mr-1" />
+                  Odznacz wszystko
+                </Button>
+              </div>
+              <div className="flex items-center gap-2">
+                <Button variant="outline" size="sm" onClick={handleBulkActivate}>
+                  <CheckCircle className="h-4 w-4 mr-1" />
+                  Aktywuj
+                </Button>
+                <Button variant="outline" size="sm" onClick={handleBulkDeactivate}>
+                  <XCircle className="h-4 w-4 mr-1" />
+                  Dezaktywuj
+                </Button>
+                <Button variant="outline" size="sm" onClick={handleBulkAddAdminRole}>
+                  <Shield className="h-4 w-4 mr-1" />
+                  Nadaj Admin
+                </Button>
+                <Button variant="outline" size="sm" onClick={handleBulkRemoveAdminRole}>
+                  <Shield className="h-4 w-4 mr-1" />
+                  Odbierz Admin
+                </Button>
+                <Button variant="destructive" size="sm" onClick={() => setBulkBanDialogOpen(true)}>
+                  <Ban className="h-4 w-4 mr-1" />
+                  Banuj
+                </Button>
+                <Button variant="outline" size="sm" onClick={handleBulkUnban}>
+                  Odbanuj
+                </Button>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
       {/* Users Table */}
       <Card>
         <CardHeader>
@@ -620,6 +884,14 @@ export default function Admin() {
               <Table>
                 <TableHeader>
                   <TableRow>
+                    <TableHead className="w-[50px]">
+                      <input
+                        type="checkbox"
+                        checked={selectedUsers.size === filteredUsers.filter(u => u.id !== user?.id).length && filteredUsers.length > 0}
+                        onChange={toggleSelectAll}
+                        className="cursor-pointer"
+                      />
+                    </TableHead>
                     <TableHead>Użytkownik</TableHead>
                     <TableHead>Email</TableHead>
                     <TableHead>Status</TableHead>
@@ -652,6 +924,16 @@ export default function Admin() {
                           setDetailDialogOpen(true);
                         }}
                       >
+                        <TableCell onClick={(e) => e.stopPropagation()}>
+                          {!isCurrentUser && (
+                            <input
+                              type="checkbox"
+                              checked={selectedUsers.has(userData.id)}
+                              onChange={() => toggleUserSelection(userData.id)}
+                              className="cursor-pointer"
+                            />
+                          )}
+                        </TableCell>
                         <TableCell onClick={(e) => e.stopPropagation()}>
                           <div className="flex items-center gap-3">
                             <Avatar className="h-8 w-8">
@@ -809,7 +1091,7 @@ export default function Admin() {
         </CardContent>
       </Card>
 
-      {/* Ban Dialog */}
+      {/* Single Ban Dialog */}
       <Dialog open={banDialogOpen} onOpenChange={setBanDialogOpen}>
         <DialogContent>
           <DialogHeader>
@@ -841,6 +1123,42 @@ export default function Admin() {
             <Button variant="destructive" onClick={handleBanUser} disabled={!banReason.trim()}>
               <Ban className="h-4 w-4 mr-2" />
               Zbanuj użytkownika
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Bulk Ban Dialog */}
+      <Dialog open={bulkBanDialogOpen} onOpenChange={setBulkBanDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Masowe banowanie użytkowników</DialogTitle>
+            <DialogDescription>
+              Zbanowanie {selectedUsers.size} użytkowników zablokuje im dostęp do systemu.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            <div className="space-y-2">
+              <Label htmlFor="bulk-ban-reason">Powód bana (wymagane)</Label>
+              <Textarea
+                id="bulk-ban-reason"
+                placeholder="np. Naruszenie regulaminu, spam, nieodpowiednie zachowanie..."
+                value={bulkBanReason}
+                onChange={(e) => setBulkBanReason(e.target.value)}
+                rows={3}
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => {
+              setBulkBanDialogOpen(false);
+              setBulkBanReason('');
+            }}>
+              Anuluj
+            </Button>
+            <Button variant="destructive" onClick={handleBulkBan} disabled={!bulkBanReason.trim()}>
+              <Ban className="h-4 w-4 mr-2" />
+              Zbanuj {selectedUsers.size} użytkowników
             </Button>
           </DialogFooter>
         </DialogContent>
