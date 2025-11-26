@@ -175,11 +175,17 @@ serve(async (req) => {
               }
             }
 
-            // Check if data needs updating
+            // Check if data needs updating (always update if current data is null/missing)
             const needsUpdate = 
-              Math.abs(Number(dbPos.realized_pnl || 0) - realizedPnl) > 0.01 ||
-              Math.abs(Number(dbPos.close_price || 0) - avgPrice) > 0.01 ||
+              !dbPos.realized_pnl || 
+              !dbPos.close_price ||
+              dbPos.close_reason === 'Position not found on exchange' ||
+              dbPos.close_reason === 'unknown' ||
+              Math.abs(Number(dbPos.realized_pnl) - realizedPnl) > 0.01 ||
+              Math.abs(Number(dbPos.close_price) - avgPrice) > 0.01 ||
               dbPos.close_reason !== closeReason;
+
+            console.log(`Position ${dbPos.symbol} - needsUpdate: ${needsUpdate}, current close_price: ${dbPos.close_price}, calculated: ${avgPrice}, current pnl: ${dbPos.realized_pnl}, calculated: ${realizedPnl}`);
 
             if (needsUpdate) {
               await supabase
