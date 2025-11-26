@@ -206,34 +206,33 @@ export function Layout({ children }: { children: React.ReactNode }) {
           </div>
 
           {/* Right side - User Info & Actions */}
-          <div className="flex items-center gap-4">
+          <div className="flex items-center gap-3">
             {/* User Info */}
-            <div className="hidden lg:flex items-center gap-3 px-3 py-2 rounded-lg bg-secondary/50 border border-border/50">
-              <Avatar className="h-8 w-8">
-                <AvatarFallback className="text-xs font-semibold bg-primary text-primary-foreground">
+            <div className="hidden lg:flex items-center gap-2 px-2 py-1.5 rounded-lg bg-secondary/50 border border-border/50">
+              <Avatar className="h-6 w-6">
+                <AvatarFallback className="text-[10px] font-semibold bg-primary text-primary-foreground">
                   {initials}
                 </AvatarFallback>
               </Avatar>
-              <div className="flex flex-col gap-0.5">
-                <div className="flex items-center gap-2">
-                  <span className="text-sm font-medium text-foreground">{displayName}</span>
+              <div className="flex flex-col gap-0">
+                <div className="flex items-center gap-1.5">
+                  <span className="text-xs font-medium text-foreground">{displayName}</span>
                   {isAdmin && (
-                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-primary/10 border border-primary/20">
-                      <Shield className="h-3 w-3 text-primary" />
-                      <span className="text-[10px] font-semibold text-primary">ADMIN</span>
+                    <span className="inline-flex items-center gap-0.5 px-1.5 py-0 rounded-full bg-primary/10 border border-primary/20">
+                      <Shield className="h-2.5 w-2.5 text-primary" />
+                      <span className="text-[9px] font-semibold text-primary">ADMIN</span>
                     </span>
                   )}
                 </div>
-                <span className="text-xs text-muted-foreground truncate max-w-[150px]">{user?.email}</span>
               </div>
               <Button
                 variant="ghost"
                 size="icon"
                 onClick={handleLogout}
-                className="h-8 w-8 text-muted-foreground hover:text-foreground"
+                className="h-6 w-6 text-muted-foreground hover:text-foreground"
                 title="Wyloguj"
               >
-                <LogOut className="h-4 w-4" />
+                <LogOut className="h-3 w-3" />
               </Button>
             </div>
 
