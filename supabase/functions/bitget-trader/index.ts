@@ -3,6 +3,8 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { calculatePositionSize, calculateSLTP } from "./calculators.ts";
 import { adjustPositionSizeToMinimum, getMinimumPositionSize } from "./minimums.ts";
 import { log } from "../_shared/logger.ts";
+import { getUserApiKeys } from "../_shared/userKeys.ts";
+import { getUserSettings } from "../_shared/userSettings.ts";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -14,7 +16,7 @@ serve(async (req) => {
     return new Response(null, { headers: corsHeaders });
   }
 
-  const startTime = Date.now(); // Track execution start time
+  const startTime = Date.now();
 
   try {
     const supabase = createClient(
@@ -22,7 +24,45 @@ serve(async (req) => {
       Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
     );
 
-    const { alert_id, alert_data, settings } = await req.json();
+    const { alert_id, alert_data, user_id } = await req.json();
+    
+    if (!user_id) {
+      throw new Error('user_id is required');
+    }
+    
+    // Load user API keys
+    const userKeys = await getUserApiKeys(user_id);
+    if (!userKeys) {
+      await log({
+        functionName: 'bitget-trader',
+        message: 'User API keys not found or inactive',
+        level: 'error',
+        alertId: alert_id,
+        metadata: { userId: user_id }
+      });
+      
+      await supabase.from('alerts').update({ 
+        status: 'error', 
+        error_message: 'User API keys not configured or inactive' 
+      }).eq('id', alert_id);
+      
+      return new Response(JSON.stringify({ 
+        success: false, 
+        message: 'User API keys not configured' 
+      }), {
+        status: 400,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
+    }
+    
+    // Load user settings with copy_admin logic
+    const settings = await getUserSettings(user_id);
+    
+    const apiCredentials = {
+      apiKey: userKeys.apiKey,
+      secretKey: userKeys.secretKey,
+      passphrase: userKeys.passphrase
+    };
     
     // Remove .P suffix from TradingView symbol format (XRPUSDT.P -> XRPUSDT)
     if (alert_data.symbol && alert_data.symbol.endsWith('.P')) {

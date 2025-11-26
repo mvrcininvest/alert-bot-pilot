@@ -35,6 +35,22 @@ serve(async (req) => {
     const alertData = JSON.parse(bodyText);
     console.log('Received alert data:', JSON.stringify(alertData, null, 2));
     
+    // Extract user_id from alert payload
+    const userId = alertData.user_id;
+    if (!userId) {
+      await log({
+        functionName: 'tradingview-webhook',
+        message: 'Missing user_id in alert payload',
+        level: 'error'
+      });
+      return new Response(JSON.stringify({ error: 'user_id is required in alert payload' }), {
+        status: 400,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
+    }
+    
+    console.log('Processing alert for user:', userId);
+    
     await log({
       functionName: 'tradingview-webhook',
       message: 'Alert data parsed',
@@ -42,10 +58,11 @@ serve(async (req) => {
       metadata: { symbol: alertData.symbol, side: alertData.side, tier: alertData.tier }
     });
 
-    // Save alert to database
+    // Save alert to database with user_id
     const { data: alert, error: alertError } = await supabase
       .from('alerts')
       .insert({
+        user_id: userId,
         symbol: alertData.symbol,
         side: alertData.side,
         entry_price: alertData.entryPrice || alertData.price,
@@ -86,51 +103,54 @@ serve(async (req) => {
 
     console.log('Alert saved with ID:', alert.id);
 
-    // Get settings
-    const { data: settings, error: settingsError } = await supabase
-      .from('settings')
+    // Get user settings (will handle copy_admin logic internally)
+    const { data: userSettings, error: settingsError } = await supabase
+      .from('user_settings')
       .select('*')
+      .eq('user_id', userId)
       .maybeSingle();
 
     if (settingsError) {
       await log({
         functionName: 'tradingview-webhook',
-        message: 'Failed to fetch settings',
+        message: 'Failed to fetch user settings',
         level: 'error',
         alertId: alert.id,
-        metadata: { error: settingsError.message }
+        metadata: { error: settingsError.message, userId }
       });
-      console.error('Error fetching settings:', settingsError);
+      console.error('Error fetching user settings:', settingsError);
       throw settingsError;
     }
 
-    if (!settings) {
+    if (!userSettings) {
       await log({
         functionName: 'tradingview-webhook',
-        message: 'No settings found in database',
+        message: 'No user settings found',
         level: 'error',
-        alertId: alert.id
+        alertId: alert.id,
+        metadata: { userId }
       });
-      console.error('No settings found in database');
+      console.error('No user settings found for user:', userId);
       await supabase
         .from('alerts')
-        .update({ status: 'error', error_message: 'No settings configured' })
+        .update({ status: 'error', error_message: 'User settings not configured' })
         .eq('id', alert.id);
       
-      return new Response(JSON.stringify({ error: 'No settings configured', alert_id: alert.id }), {
+      return new Response(JSON.stringify({ error: 'User settings not configured', alert_id: alert.id }), {
         status: 500,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       });
     }
 
-    console.log('Settings loaded, bot_active:', settings.bot_active);
+    console.log('User settings loaded, bot_active:', userSettings.bot_active);
 
-    if (!settings.bot_active) {
+    if (!userSettings.bot_active) {
       await log({
         functionName: 'tradingview-webhook',
-        message: 'Bot is not active - alert ignored',
+        message: 'User bot is not active - alert ignored',
         level: 'warn',
-        alertId: alert.id
+        alertId: alert.id,
+        metadata: { userId }
       });
       await supabase
         .from('alerts')
@@ -144,14 +164,14 @@ serve(async (req) => {
 
     console.log('Bot is active, checking filters...');
 
-    // Apply filters
-    if (settings.filter_by_tier && settings.excluded_tiers && settings.excluded_tiers.includes(alertData.tier)) {
+    // Apply filters (Note: tier filtering will be handled by bitget-trader using full settings with copy_admin logic)
+    if (userSettings.filter_by_tier && userSettings.excluded_tiers && userSettings.excluded_tiers.includes(alertData.tier)) {
       await log({
         functionName: 'tradingview-webhook',
         message: `Tier ${alertData.tier} excluded - alert ignored`,
         level: 'info',
         alertId: alert.id,
-        metadata: { tier: alertData.tier, excludedTiers: settings.excluded_tiers }
+        metadata: { tier: alertData.tier, excludedTiers: userSettings.excluded_tiers, userId }
       });
       console.log(`Alert tier ${alertData.tier} is in excluded list`);
       await supabase
@@ -172,9 +192,9 @@ serve(async (req) => {
     });
     console.log('All filters passed, calling bitget-trader...');
 
-    // Call trader function
+    // Call trader function with user_id
     const { data: tradeResult, error: tradeError } = await supabase.functions.invoke('bitget-trader', {
-      body: { alert_id: alert.id, alert_data: alertData, settings },
+      body: { alert_id: alert.id, alert_data: alertData, user_id: userId },
     });
 
     if (tradeError) {
