@@ -128,22 +128,39 @@ serve(async (req) => {
     console.log('Alert leverage:', alert_data.leverage);
 
     // Check if we've reached max open positions FOR THIS USER
-    const { data: openPositions, error: countError } = await supabase
-      .from('positions')
-      .select('id', { count: 'exact' })
-      .eq('user_id', user_id)
-      .eq('status', 'open');
+    // Using atomic RPC function to prevent race conditions when multiple alerts arrive simultaneously
+    const { data: canOpenPosition, error: positionCheckError } = await supabase
+      .rpc('check_and_reserve_position', {
+        p_user_id: user_id,
+        p_max_positions: settings.max_open_positions
+      });
 
-    if (countError) throw countError;
+    if (positionCheckError) {
+      await log({
+        functionName: 'bitget-trader',
+        message: 'Error checking position limit',
+        level: 'error',
+        alertId: alert_id,
+        metadata: { error: positionCheckError }
+      });
+      throw positionCheckError;
+    }
 
-    if (openPositions && openPositions.length >= settings.max_open_positions) {
+    if (!canOpenPosition) {
+      // Get current count for logging purposes only
+      const { data: openPositions } = await supabase
+        .from('positions')
+        .select('id', { count: 'exact' })
+        .eq('user_id', user_id)
+        .eq('status', 'open');
+      
       await log({
         functionName: 'bitget-trader',
         message: 'Max open positions reached - alert ignored',
         level: 'warn',
         alertId: alert_id,
         metadata: { 
-          currentPositions: openPositions.length,
+          currentPositions: openPositions?.length || 0,
           maxPositions: settings.max_open_positions
         }
       });
@@ -166,11 +183,10 @@ serve(async (req) => {
     
     await log({
       functionName: 'bitget-trader',
-      message: 'Position limit check passed',
+      message: 'Position limit check passed - slot reserved',
       level: 'info',
       alertId: alert_id,
       metadata: { 
-        currentPositions: openPositions?.length || 0,
         maxPositions: settings.max_open_positions
       }
     });
@@ -376,7 +392,7 @@ serve(async (req) => {
     });
     console.log('Today PnL:', todayPnL);
 
-    // Check loss limit based on type
+    // Check loss limit based on type - only check actual losses (negative PnL)
     if (settings.loss_limit_type === 'percent_drawdown') {
       // Get account balance using user's API credentials
       const { data: accountData } = await supabase.functions.invoke('bitget-api', {
@@ -389,60 +405,63 @@ serve(async (req) => {
       
       const maxLossAmount = accountBalance * ((settings.daily_loss_percent || 5) / 100);
       
-      if (Math.abs(todayPnL) >= maxLossAmount) {
+      // Only check if today's PnL is negative (actual loss)
+      if (todayPnL < 0 && Math.abs(todayPnL) >= maxLossAmount) {
         await log({
           functionName: 'bitget-trader',
           message: 'Daily drawdown limit reached - alert ignored',
           level: 'warn',
           alertId: alert_id,
           metadata: { 
-            todayPnL: Math.abs(todayPnL),
+            todayPnL,
+            todayLoss: Math.abs(todayPnL),
             maxLossAmount,
             dailyLossPercent: settings.daily_loss_percent,
             accountBalance
           }
         });
-        console.log(`Daily drawdown limit reached: ${Math.abs(todayPnL).toFixed(2)} USDT (${settings.daily_loss_percent}% of ${accountBalance.toFixed(2)} USDT)`);
+        console.log(`Daily drawdown limit reached: ${Math.abs(todayPnL).toFixed(2)} USDT loss (${settings.daily_loss_percent}% of ${accountBalance.toFixed(2)} USDT)`);
         await supabase
           .from('alerts')
           .update({ 
             status: 'ignored', 
-            error_message: `Daily loss limit reached: ${Math.abs(todayPnL).toFixed(2)} USDT (${settings.daily_loss_percent}% of capital)` 
+            error_message: `Daily loss limit reached: ${Math.abs(todayPnL).toFixed(2)} USDT loss (${settings.daily_loss_percent}% of capital)` 
           })
           .eq('id', alert_id);
         
         return new Response(JSON.stringify({ 
           success: false, 
-          message: `Daily loss limit reached: ${Math.abs(todayPnL).toFixed(2)} USDT (${settings.daily_loss_percent}% of ${accountBalance.toFixed(2)} USDT)` 
+          message: `Daily loss limit reached: ${Math.abs(todayPnL).toFixed(2)} USDT loss (${settings.daily_loss_percent}% of ${accountBalance.toFixed(2)} USDT)` 
         }), {
           headers: { ...corsHeaders, 'Content-Type': 'application/json' },
         });
       }
     } else {
-      // Fixed USDT limit
-      if (Math.abs(todayPnL) >= (settings.daily_loss_limit || 500)) {
+      // Fixed USDT limit - only check actual losses (negative PnL)
+      if (todayPnL < 0 && Math.abs(todayPnL) >= (settings.daily_loss_limit || 500)) {
         await log({
           functionName: 'bitget-trader',
           message: 'Daily loss limit reached - alert ignored',
           level: 'warn',
           alertId: alert_id,
           metadata: { 
-            todayPnL: Math.abs(todayPnL),
+            todayPnL,
+            todayLoss: Math.abs(todayPnL),
             dailyLossLimit: settings.daily_loss_limit
           }
         });
-        console.log(`Daily loss limit reached: ${Math.abs(todayPnL).toFixed(2)} / ${settings.daily_loss_limit} USDT`);
+        console.log(`Daily loss limit reached: ${Math.abs(todayPnL).toFixed(2)} USDT loss / ${settings.daily_loss_limit} USDT limit`);
         await supabase
           .from('alerts')
           .update({ 
             status: 'ignored', 
-            error_message: `Daily loss limit reached: ${Math.abs(todayPnL).toFixed(2)} USDT` 
+            error_message: `Daily loss limit reached: ${Math.abs(todayPnL).toFixed(2)} USDT loss` 
           })
           .eq('id', alert_id);
         
         return new Response(JSON.stringify({ 
           success: false, 
-          message: `Daily loss limit reached: ${Math.abs(todayPnL).toFixed(2)} / ${settings.daily_loss_limit} USDT` 
+          message: `Daily loss limit reached: ${Math.abs(todayPnL).toFixed(2)} USDT loss / ${settings.daily_loss_limit} USDT limit` 
         }), {
           headers: { ...corsHeaders, 'Content-Type': 'application/json' },
         });
