@@ -43,6 +43,23 @@ export default function Diagnostics() {
     refetchInterval: 5000,
   });
 
+  const { data: scalpingAdjustments } = useQuery({
+    queryKey: ["scalping-adjustments"],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("bot_logs")
+        .select("*")
+        .eq("level", "warn")
+        .not("metadata->adjustment", "is", null)
+        .order("created_at", { ascending: false })
+        .limit(50);
+      
+      if (error) throw error;
+      return data || [];
+    },
+    refetchInterval: 5000,
+  });
+
   const { data: errorAlerts } = useQuery({
     queryKey: ["error-alerts"],
     queryFn: async () => {
@@ -143,6 +160,32 @@ export default function Diagnostics() {
       toast({
         title: "Błąd",
         description: error instanceof Error ? error.message : "Nie udało się wyczyścić interwencji",
+        variant: "destructive",
+      });
+    },
+  });
+
+  const clearScalpingAdjustmentsMutation = useMutation({
+    mutationFn: async () => {
+      const { error } = await supabase
+        .from("bot_logs")
+        .delete()
+        .eq("level", "warn")
+        .not("metadata->adjustment", "is", null);
+      
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["scalping-adjustments"] });
+      toast({
+        title: "Dostosowania scalping wyczyszczone",
+        description: "Wszystkie logi dostosowań scalping zostały usunięte",
+      });
+    },
+    onError: (error) => {
+      toast({
+        title: "Błąd",
+        description: error instanceof Error ? error.message : "Nie udało się wyczyścić dostosowań",
         variant: "destructive",
       });
     },
@@ -336,6 +379,71 @@ export default function Diagnostics() {
                 ))
               ) : (
                 <p className="text-center text-muted-foreground py-8">Brak interwencji Oka Saurona</p>
+              )}
+            </div>
+          </ScrollArea>
+        </CardContent>
+      </Card>
+
+      {/* Scalping Mode Adjustments Widget */}
+      <Card>
+        <CardHeader>
+          <div className="flex items-center justify-between">
+            <CardTitle className="flex items-center gap-2">
+              <TrendingUp className="h-5 w-5" />
+              ⚡ Dostosowania Scalping Mode
+            </CardTitle>
+            <Button 
+              variant="outline" 
+              size="sm"
+              onClick={() => clearScalpingAdjustmentsMutation.mutate()}
+              disabled={clearScalpingAdjustmentsMutation.isPending}
+            >
+              Wyczyść
+            </Button>
+          </div>
+        </CardHeader>
+        <CardContent>
+          <ScrollArea className="h-[400px]">
+            <div className="space-y-3">
+              {scalpingAdjustments && scalpingAdjustments.length > 0 ? (
+                scalpingAdjustments.map((log) => {
+                  const metadata = log.metadata as any;
+                  const adjustmentType = metadata?.adjustment || 'unknown';
+                  const symbol = metadata?.symbol || 'N/A';
+                  const reason = metadata?.adjustmentReason || log.message;
+                  
+                  return (
+                    <div key={log.id} className="flex items-start gap-3 border-b border-border pb-3 last:border-0 last:pb-0">
+                      <div className="mt-0.5">
+                        <AlertCircle className="h-4 w-4 text-yellow-500" />
+                      </div>
+                      <div className="flex-1 space-y-1">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <Badge variant="secondary">
+                            {adjustmentType === 'margin_reduced' ? 'MARGIN REDUCED' : 
+                             adjustmentType === 'sl_capped' ? 'SL CAPPED' : 
+                             adjustmentType.toUpperCase()}
+                          </Badge>
+                          <Badge variant="outline">{symbol}</Badge>
+                          <span className="text-xs text-muted-foreground">
+                            {new Date(log.created_at).toLocaleString()}
+                          </span>
+                        </div>
+                        <p className="text-sm text-muted-foreground">{reason}</p>
+                        {metadata?.slPercent && (
+                          <div className="text-xs text-muted-foreground">
+                            SL%: {metadata.slPercent.toFixed(3)}% | 
+                            Margin: {metadata.actualMargin?.toFixed(2)} USDT | 
+                            Loss: {metadata.actualLoss?.toFixed(2)} USDT
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })
+              ) : (
+                <p className="text-center text-muted-foreground py-8">Brak dostosowań scalping mode</p>
               )}
             </div>
           </ScrollArea>

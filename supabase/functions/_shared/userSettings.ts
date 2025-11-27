@@ -8,6 +8,12 @@ export interface UserSettings {
   position_sizing_type: string;
   position_size_value: number;
   
+  // Scalping mode settings
+  max_margin_per_trade: number;
+  max_loss_per_trade: number;
+  sl_percent_min: number;
+  sl_percent_max: number;
+  
   // Calculator settings
   calculator_type: 'simple_percent' | 'risk_reward' | 'atr_based';
   sl_method: 'percent_margin' | 'percent_entry' | 'fixed_usdt' | 'atr_based';
@@ -137,6 +143,10 @@ export async function getUserSettings(userId: string): Promise<UserSettings> {
     bot_active: userSettings.bot_active ?? true,
     position_sizing_type: userSettings.position_sizing_type ?? 'fixed_usdt',
     position_size_value: userSettings.position_size_value ?? 100,
+    max_margin_per_trade: userSettings.max_margin_per_trade ?? 2,
+    max_loss_per_trade: userSettings.max_loss_per_trade ?? 1,
+    sl_percent_min: userSettings.sl_percent_min ?? 0.3,
+    sl_percent_max: userSettings.sl_percent_max ?? 2.0,
     calculator_type: (userSettings.calculator_type ?? 'simple_percent') as 'simple_percent' | 'risk_reward' | 'atr_based',
     sl_method: (userSettings.sl_method ?? 'percent_entry') as 'percent_margin' | 'percent_entry' | 'fixed_usdt' | 'atr_based',
     simple_sl_percent: userSettings.simple_sl_percent ?? 1.5,
@@ -195,6 +205,10 @@ export async function getUserSettings(userId: string): Promise<UserSettings> {
   if (userSettings.money_mode === 'copy_admin' && adminSettings) {
     finalSettings.position_sizing_type = adminSettings.position_sizing_type;
     finalSettings.position_size_value = adminSettings.position_size_value;
+    finalSettings.max_margin_per_trade = adminSettings.max_margin_per_trade ?? 2;
+    finalSettings.max_loss_per_trade = adminSettings.max_loss_per_trade ?? 1;
+    finalSettings.sl_percent_min = adminSettings.sl_percent_min ?? 0.3;
+    finalSettings.sl_percent_max = adminSettings.sl_percent_max ?? 2.0;
     finalSettings.max_open_positions = adminSettings.max_open_positions ?? 3;
     finalSettings.daily_loss_limit = adminSettings.daily_loss_limit ?? 500;
     finalSettings.daily_loss_percent = adminSettings.daily_loss_percent ?? 5.0;
