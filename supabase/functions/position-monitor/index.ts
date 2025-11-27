@@ -273,6 +273,82 @@ function checkIfResyncNeeded(
   return { mismatch: false, reason: '' };
 }
 
+// Helper function to clean up orphan orders (orders without open positions)
+async function cleanupOrphanOrders(supabase: any, userId: string, apiCredentials: any, exchangePositions: any[]) {
+  console.log(`🧹 Checking for orphan orders for user ${userId}`);
+  
+  // Get ALL plan orders from exchange (both types)
+  const { data: profitLossOrders } = await supabase.functions.invoke('bitget-api', {
+    body: {
+      action: 'get_plan_orders',
+      params: { planType: 'profit_loss' },
+      apiCredentials
+    }
+  });
+  
+  const { data: normalPlanOrders } = await supabase.functions.invoke('bitget-api', {
+    body: {
+      action: 'get_plan_orders',
+      params: { planType: 'normal_plan' },
+      apiCredentials
+    }
+  });
+  
+  const allOrders = [
+    ...(profitLossOrders?.success && profitLossOrders.data?.entrustedList || []),
+    ...(normalPlanOrders?.success && normalPlanOrders.data?.entrustedList || [])
+  ].filter((o: any) => o.planStatus === 'live');
+  
+  // Get unique symbols from orders
+  const orderSymbols = [...new Set(allOrders.map((o: any) => o.symbol.toUpperCase()))];
+  
+  // Get symbols with open positions
+  const positionSymbols = exchangePositions.map((p: any) => p.symbol.toUpperCase());
+  
+  // Find orders for symbols WITHOUT positions
+  const orphanOrders = allOrders.filter((order: any) => 
+    !positionSymbols.includes(order.symbol.toUpperCase())
+  );
+  
+  if (orphanOrders.length > 0) {
+    console.log(`🚨 Found ${orphanOrders.length} orphan orders to cancel`);
+    
+    for (const order of orphanOrders) {
+      try {
+        const { data: cancelResult } = await supabase.functions.invoke('bitget-api', {
+          body: {
+            action: 'cancel_plan_order',
+            params: {
+              symbol: order.symbol,
+              orderId: order.orderId,
+              planType: order.planType
+            },
+            apiCredentials
+          }
+        });
+        
+        if (cancelResult?.success) {
+          console.log(`✅ Canceled orphan order ${order.orderId} for ${order.symbol}`);
+          await log({
+            functionName: 'position-monitor',
+            message: `Orphan order canceled`,
+            level: 'info',
+            metadata: { 
+              orderId: order.orderId, 
+              symbol: order.symbol,
+              planType: order.planType 
+            }
+          });
+        }
+      } catch (error) {
+        console.error(`❌ Failed to cancel orphan order ${order.orderId}:`, error);
+      }
+    }
+  } else {
+    console.log(`✅ No orphan orders found`);
+  }
+}
+
 // Helper function to close orphan position on exchange
 async function closeOrphanPosition(supabase: any, exchangePosition: any, apiCredentials: any) {
   const side = exchangePosition.holdSide === 'long' ? 'close_long' : 'close_short';
@@ -332,6 +408,60 @@ async function closeOrphanPosition(supabase: any, exchangePosition: any, apiCred
 async function markPositionAsClosed(supabase: any, position: any, reason: string) {
   console.log(`⚠️ Marking position ${position.symbol} as closed in DB: ${reason}`);
   
+  // Get user API keys to cancel remaining orders
+  const userKeys = await getUserApiKeys(position.user_id);
+  if (userKeys) {
+    const apiCredentials = {
+      apiKey: userKeys.apiKey,
+      secretKey: userKeys.secretKey,
+      passphrase: userKeys.passphrase
+    };
+    
+    // Fetch ALL orders for this symbol from exchange
+    const { data: ordersResult } = await supabase.functions.invoke('bitget-api', {
+      body: {
+        action: 'get_plan_orders',
+        params: { symbol: position.symbol },
+        apiCredentials
+      }
+    });
+    
+    const allOrders = ordersResult?.success && ordersResult.data?.entrustedList
+      ? ordersResult.data.entrustedList.filter((o: any) => 
+          o.symbol.toLowerCase() === position.symbol.toLowerCase() &&
+          o.planStatus === 'live'
+        )
+      : [];
+    
+    console.log(`🗑️ Found ${allOrders.length} remaining orders to cancel for ${position.symbol}`);
+    
+    // Cancel each order
+    for (const order of allOrders) {
+      try {
+        const { data: cancelResult } = await supabase.functions.invoke('bitget-api', {
+          body: {
+            action: 'cancel_plan_order',
+            params: {
+              symbol: position.symbol,
+              orderId: order.orderId,
+              planType: order.planType
+            },
+            apiCredentials
+          }
+        });
+        
+        if (cancelResult?.success) {
+          console.log(`✅ Canceled orphan order ${order.orderId} (${order.planType})`);
+        } else {
+          console.warn(`⚠️ Failed to cancel order ${order.orderId}:`, cancelResult?.error);
+        }
+      } catch (error) {
+        console.error(`❌ Error canceling order ${order.orderId}:`, error);
+      }
+    }
+  }
+  
+  // Then update position in DB
   const { error: updateError } = await supabase
     .from('positions')
     .update({
@@ -551,6 +681,9 @@ serve(async (req) => {
             });
           }
         }
+
+        // STEP 5: Clean up orphan orders (orders without open positions)
+        await cleanupOrphanOrders(supabase, user_id, apiCredentials, exchangePositions);
 
       } catch (error) {
         console.error(`Error processing user ${user_id}:`, error);
