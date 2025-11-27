@@ -91,12 +91,26 @@ export default function Dashboard() {
             }
           });
           
-          const { data: ordersData } = await supabase.functions.invoke('bitget-api', {
+          // Fetch BOTH order types - profit_loss (SL) and normal_plan (TP)
+          const { data: profitLossOrders } = await supabase.functions.invoke('bitget-api', {
             body: { 
               action: 'get_plan_orders',
-              params: { symbol: pos.symbol }
+              params: { symbol: pos.symbol, planType: 'profit_loss' }
             }
           });
+
+          const { data: normalPlanOrders } = await supabase.functions.invoke('bitget-api', {
+            body: { 
+              action: 'get_plan_orders',
+              params: { symbol: pos.symbol, planType: 'normal_plan' }
+            }
+          });
+
+          // Combine all orders into one list
+          const allOrders = [
+            ...(profitLossOrders?.success && profitLossOrders.data?.entrustedList || []),
+            ...(normalPlanOrders?.success && normalPlanOrders.data?.entrustedList || [])
+          ];
           
           // Get accurate position data from exchange
           const { data: positionData } = await supabase.functions.invoke('bitget-api', {
@@ -153,23 +167,21 @@ export default function Dashboard() {
             openPriceAvg: exchangePosition?.openPriceAvg 
               ? Number(exchangePosition.openPriceAvg) 
               : null,
-            slOrders: ordersData?.success && ordersData.data?.entrustedList
-              ? ordersData.data.entrustedList.filter((o: any) => 
-                  o.symbol.toLowerCase() === pos.symbol.toLowerCase() &&
-                  (o.planType === 'pos_loss' || o.planType === 'loss_plan' || 
-                   (o.planType === 'profit_loss' && o.stopLossTriggerPrice)) && 
-                  o.planStatus === 'live'
-                )
-              : [],
-            tpOrders: ordersData?.success && ordersData.data?.entrustedList
-              ? ordersData.data.entrustedList.filter((o: any) => 
-                  o.symbol.toLowerCase() === pos.symbol.toLowerCase() &&
-                  (o.planType === 'pos_profit' || o.planType === 'profit_plan' || 
-                   o.planType === 'normal_plan' ||  // ✅ Added normal_plan for TP orders from bitget-trader
-                   (o.planType === 'profit_loss' && o.stopSurplusTriggerPrice)) && 
-                  o.planStatus === 'live'
-                )
-              : []
+            slOrders: allOrders
+              .filter((o: any) => 
+                o.symbol.toLowerCase() === pos.symbol.toLowerCase() &&
+                (o.planType === 'pos_loss' || o.planType === 'loss_plan' || 
+                 (o.planType === 'profit_loss' && o.stopLossTriggerPrice)) && 
+                o.planStatus === 'live'
+              ),
+            tpOrders: allOrders
+              .filter((o: any) => 
+                o.symbol.toLowerCase() === pos.symbol.toLowerCase() &&
+                (o.planType === 'pos_profit' || o.planType === 'profit_plan' || 
+                 o.planType === 'normal_plan' ||
+                 (o.planType === 'profit_loss' && o.stopSurplusTriggerPrice)) && 
+                o.planStatus === 'live'
+              )
           };
         } catch (err) {
           console.error(`Failed to fetch data for ${pos.symbol}:`, err);
