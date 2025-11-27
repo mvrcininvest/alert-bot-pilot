@@ -312,22 +312,25 @@ serve(async (req) => {
         
         // Flash close position on exchange
         const closeSide = existingPosition.side === 'BUY' ? 'close_long' : 'close_short';
-        try {
-          await supabase.functions.invoke('bitget-api', {
-            body: {
-              action: 'close_position',
-              apiCredentials,
-              params: {
-                symbol: existingPosition.symbol,
-                size: existingPosition.quantity.toString(),
-                side: closeSide,
-              }
+        const { data: closeResult, error: closeError } = await supabase.functions.invoke('bitget-api', {
+          body: {
+            action: 'close_position',
+            apiCredentials,
+            params: {
+              symbol: existingPosition.symbol,
+              size: existingPosition.quantity.toString(),
+              side: closeSide,
             }
-          });
-        } catch (error) {
-          console.error('Failed to close position on exchange:', error);
-          throw new Error('Failed to close existing position on exchange');
+          }
+        });
+
+        if (closeError || !closeResult?.success) {
+          const errorMsg = closeError?.message || closeResult?.error || 'Unknown close error';
+          console.error('❌ Failed to close position on exchange:', errorMsg);
+          throw new Error(`Failed to close position on exchange: ${errorMsg}`);
         }
+
+        console.log('✅ Position closed on exchange:', closeResult);
         
         // Update position in database
         await supabase.from('positions').update({
