@@ -681,7 +681,8 @@ serve(async (req) => {
     const { sl_price, tp1_price, tp2_price, tp3_price } = calculateSLTP(
       alert_data,
       settings,
-      quantity
+      quantity,
+      effectiveLeverage  // CRITICAL FIX: Pass effective leverage for correct SL calculation
     );
     console.log('✓ Calculated prices:', { 
       entry: alert_data.price,

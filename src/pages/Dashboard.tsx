@@ -562,14 +562,10 @@ export default function Dashboard() {
                       </div>
                       
                       {/* Additional Info Row */}
-                      <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4 pl-3">
+                      <div className="grid grid-cols-2 md:grid-cols-3 gap-3 mb-4 pl-3">
                         <div className="space-y-1">
                           <p className="text-xs text-muted-foreground">Quantity</p>
                           <p className="text-sm font-semibold">{Number(pos.quantity).toFixed(4)}</p>
-                        </div>
-                        <div className="space-y-1">
-                          <p className="text-xs text-muted-foreground">Notional</p>
-                          <p className="text-sm font-semibold">${notionalValue.toFixed(2)}</p>
                         </div>
                         <div className="space-y-1">
                           <p className="text-xs text-muted-foreground">Margin (Exchange)</p>
