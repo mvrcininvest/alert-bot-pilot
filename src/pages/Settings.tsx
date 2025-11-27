@@ -211,17 +211,28 @@ export default function Settings() {
                   <div className="space-y-1">
                     <div className="text-xs text-muted-foreground">Metoda</div>
                     <div className="font-medium">
-                      {localSettings.position_sizing_type === "fixed_usdt" ? "Stała kwota USDT" : "% kapitału"}
+                      {localSettings.position_sizing_type === "fixed_usdt" 
+                        ? "Stała kwota USDT" 
+                        : localSettings.position_sizing_type === "scalping_mode"
+                        ? "🎯 Scalping Mode"
+                        : "% kapitału"}
                     </div>
                   </div>
                   <div className="space-y-1">
                     <div className="text-xs text-muted-foreground">Wartość</div>
                     <div className="font-medium">
-                      {localSettings.position_size_value} {localSettings.position_sizing_type === "fixed_usdt" ? "USDT (notional)" : "%"}
+                      {localSettings.position_sizing_type === "scalping_mode" 
+                        ? `Max ${localSettings.max_margin_per_trade ?? 2} USDT margin / ${localSettings.max_loss_per_trade ?? 1} USDT loss`
+                        : `${localSettings.position_size_value} ${localSettings.position_sizing_type === "fixed_usdt" ? "USDT (notional)" : "%"}`}
                     </div>
                     {localSettings.position_sizing_type === "fixed_usdt" && (
                       <div className="text-xs text-muted-foreground">
                         Margines = wartość ÷ dźwignia
+                      </div>
+                    )}
+                    {localSettings.position_sizing_type === "scalping_mode" && (
+                      <div className="text-xs text-muted-foreground">
+                        SL range: {localSettings.sl_percent_min ?? 0.3}% - {localSettings.sl_percent_max ?? 2.0}%
                       </div>
                     )}
                   </div>
@@ -575,27 +586,222 @@ export default function Settings() {
                   <SelectContent>
                     <SelectItem value="fixed_usdt">Stała kwota USDT</SelectItem>
                     <SelectItem value="percent_capital">% kapitału</SelectItem>
+                    <SelectItem value="scalping_mode">🎯 Scalping Mode</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
 
-              <div className="space-y-2">
-                <Label>
-                  Wartość ({localSettings.position_sizing_type === "fixed_usdt" ? "USDT" : "%"})
-                </Label>
-                <Input
-                  type="number"
-                  value={localSettings.position_size_value}
-                  onChange={(e) => updateLocal("position_size_value", parseFloat(e.target.value))}
-                />
-                {localSettings.position_sizing_type === "fixed_usdt" && (
-                  <p className="text-xs text-muted-foreground">
-                    To jest <strong>wartość pozycji</strong> (notional), nie margines. 
-                    Przykład: 3 USDT przy dźwigni 10x = z konta zostanie wzięte 0.3 USDT marginu.
-                    Przy dźwigni 20x = 0.15 USDT marginu z konta.
-                  </p>
-                )}
-              </div>
+              {localSettings.position_sizing_type === "scalping_mode" ? (
+                <Card className="border-2 border-primary/20 bg-primary/5">
+                  <CardHeader>
+                    <CardTitle className="text-lg">⚡ Scalping Mode Settings</CardTitle>
+                    <CardDescription>
+                      Automatyczne dostosowanie SL/TP z zachowaniem bezpiecznych zakresów
+                    </CardDescription>
+                  </CardHeader>
+                  <CardContent className="space-y-4">
+                    <div className="grid grid-cols-2 gap-4">
+                      <div className="space-y-2">
+                        <Label>Max Margin per Trade (USDT)</Label>
+                        <Input
+                          type="number"
+                          step="0.1"
+                          value={localSettings.max_margin_per_trade ?? 2}
+                          onChange={(e) => updateLocal("max_margin_per_trade", parseFloat(e.target.value))}
+                        />
+                        <p className="text-xs text-muted-foreground">
+                          Maksymalny margines z konta na jedną pozycję
+                        </p>
+                      </div>
+
+                      <div className="space-y-2">
+                        <Label>Max Loss per Trade (USDT)</Label>
+                        <Input
+                          type="number"
+                          step="0.1"
+                          value={localSettings.max_loss_per_trade ?? 1}
+                          onChange={(e) => updateLocal("max_loss_per_trade", parseFloat(e.target.value))}
+                        />
+                        <p className="text-xs text-muted-foreground">
+                          Maksymalna strata przy uderzeniu w SL
+                        </p>
+                      </div>
+
+                      <div className="space-y-2">
+                        <Label>Min SL% (bezpieczeństwo)</Label>
+                        <Input
+                          type="number"
+                          step="0.01"
+                          value={localSettings.sl_percent_min ?? 0.3}
+                          onChange={(e) => updateLocal("sl_percent_min", parseFloat(e.target.value))}
+                        />
+                        <p className="text-xs text-muted-foreground">
+                          Jeśli SL% wyjdzie poniżej, margines zostanie zmniejszony
+                        </p>
+                      </div>
+
+                      <div className="space-y-2">
+                        <Label>Max SL% (limit)</Label>
+                        <Input
+                          type="number"
+                          step="0.01"
+                          value={localSettings.sl_percent_max ?? 2.0}
+                          onChange={(e) => updateLocal("sl_percent_max", parseFloat(e.target.value))}
+                        />
+                        <p className="text-xs text-muted-foreground">
+                          Jeśli SL% wyjdzie powyżej, loss zostanie ograniczony
+                        </p>
+                      </div>
+                    </div>
+
+                    <Separator />
+
+                    <div className="space-y-3">
+                      <div className="flex items-center justify-between">
+                        <Label>Liczba poziomów TP</Label>
+                        <Select
+                          value={String(localSettings.tp_levels)}
+                          onValueChange={(value) => updateLocal("tp_levels", parseInt(value))}
+                        >
+                          <SelectTrigger className="w-24">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="1">1 TP</SelectItem>
+                            <SelectItem value="2">2 TP</SelectItem>
+                            <SelectItem value="3">3 TP</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
+
+                      <div className="space-y-3">
+                        <div className="grid grid-cols-2 gap-3">
+                          <div className="space-y-2">
+                            <Label>TP1 R:R Ratio</Label>
+                            <Input
+                              type="number"
+                              step="0.1"
+                              value={localSettings.tp1_rr_ratio ?? 1.5}
+                              onChange={(e) => updateLocal("tp1_rr_ratio", parseFloat(e.target.value))}
+                            />
+                          </div>
+                          <div className="space-y-2">
+                            <Label>TP1 Close %</Label>
+                            <Input
+                              type="number"
+                              value={localSettings.tp1_close_percent ?? 100}
+                              onChange={(e) => updateLocal("tp1_close_percent", parseFloat(e.target.value))}
+                            />
+                          </div>
+                        </div>
+
+                        {localSettings.tp_levels >= 2 && (
+                          <div className="grid grid-cols-2 gap-3">
+                            <div className="space-y-2">
+                              <Label>TP2 R:R Ratio</Label>
+                              <Input
+                                type="number"
+                                step="0.1"
+                                value={localSettings.tp2_rr_ratio ?? 2.5}
+                                onChange={(e) => updateLocal("tp2_rr_ratio", parseFloat(e.target.value))}
+                              />
+                            </div>
+                            <div className="space-y-2">
+                              <Label>TP2 Close %</Label>
+                              <Input
+                                type="number"
+                                value={localSettings.tp2_close_percent ?? 0}
+                                onChange={(e) => updateLocal("tp2_close_percent", parseFloat(e.target.value))}
+                              />
+                            </div>
+                          </div>
+                        )}
+
+                        {localSettings.tp_levels >= 3 && (
+                          <div className="grid grid-cols-2 gap-3">
+                            <div className="space-y-2">
+                              <Label>TP3 R:R Ratio</Label>
+                              <Input
+                                type="number"
+                                step="0.1"
+                                value={localSettings.tp3_rr_ratio ?? 3.5}
+                                onChange={(e) => updateLocal("tp3_rr_ratio", parseFloat(e.target.value))}
+                              />
+                            </div>
+                            <div className="space-y-2">
+                              <Label>TP3 Close %</Label>
+                              <Input
+                                type="number"
+                                value={localSettings.tp3_close_percent ?? 0}
+                                onChange={(e) => updateLocal("tp3_close_percent", parseFloat(e.target.value))}
+                              />
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+
+                    <Separator />
+
+                    <div className="space-y-2">
+                      <Label className="text-sm font-semibold">Live Preview - SL & TP %</Label>
+                      <div className="space-y-2 text-xs">
+                        {[150, 75, 50].map((lev) => {
+                          const margin = localSettings.max_margin_per_trade ?? 2;
+                          const loss = localSettings.max_loss_per_trade ?? 1;
+                          const slMin = (localSettings.sl_percent_min ?? 0.3) / 100;
+                          const slMax = (localSettings.sl_percent_max ?? 2.0) / 100;
+                          
+                          let slPercent = loss / (margin * lev);
+                          let adjustment = '';
+                          
+                          if (slPercent < slMin) {
+                            adjustment = '(margin reduced)';
+                            slPercent = slMin;
+                          } else if (slPercent > slMax) {
+                            adjustment = '(loss capped)';
+                            slPercent = slMax;
+                          }
+                          
+                          const tp1Percent = slPercent * (localSettings.tp1_rr_ratio ?? 1.5);
+                          const tp2Percent = slPercent * (localSettings.tp2_rr_ratio ?? 2.5);
+                          const tp3Percent = slPercent * (localSettings.tp3_rr_ratio ?? 3.5);
+                          
+                          return (
+                            <div key={lev} className="p-2 bg-muted/50 rounded flex items-center justify-between">
+                              <span className="font-medium">{lev}x leverage:</span>
+                              <span>
+                                SL: {(slPercent * 100).toFixed(3)}% {adjustment}
+                                {localSettings.tp_levels >= 1 && ` | TP1: ${(tp1Percent * 100).toFixed(2)}%`}
+                                {localSettings.tp_levels >= 2 && ` | TP2: ${(tp2Percent * 100).toFixed(2)}%`}
+                                {localSettings.tp_levels >= 3 && ` | TP3: ${(tp3Percent * 100).toFixed(2)}%`}
+                              </span>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+              ) : (
+                <div className="space-y-2">
+                  <Label>
+                    Wartość ({localSettings.position_sizing_type === "fixed_usdt" ? "USDT" : "%"})
+                  </Label>
+                  <Input
+                    type="number"
+                    value={localSettings.position_size_value}
+                    onChange={(e) => updateLocal("position_size_value", parseFloat(e.target.value))}
+                  />
+                  {localSettings.position_sizing_type === "fixed_usdt" && (
+                    <p className="text-xs text-muted-foreground">
+                      To jest <strong>wartość pozycji</strong> (notional), nie margines. 
+                      Przykład: 3 USDT przy dźwigni 10x = z konta zostanie wzięte 0.3 USDT marginu.
+                      Przy dźwigni 20x = 0.15 USDT marginu z konta.
+                    </p>
+                  )}
+                </div>
+              )}
             </CardContent>
           </Card>
 

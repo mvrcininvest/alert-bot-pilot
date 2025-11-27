@@ -1,6 +1,6 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-import { calculatePositionSize, calculateSLTP } from "./calculators.ts";
+import { calculatePositionSize, calculateSLTP, calculateScalpingSLTP } from "./calculators.ts";
 import { adjustPositionSizeToMinimum, getMinimumPositionSize } from "./minimums.ts";
 import { log } from "../_shared/logger.ts";
 import { getUserApiKeys } from "../_shared/userKeys.ts";
@@ -606,13 +606,46 @@ serve(async (req) => {
     });
 
     // Calculate position size (pass effective leverage for correct margin calculation)
-    let quantity = calculatePositionSize(settings, alert_data, accountBalance, effectiveLeverage);
+    let scalpingResult;
+    if (settings.position_sizing_type === 'scalping_mode') {
+      // For scalping mode, calculate SL/TP first to get actualMargin
+      scalpingResult = calculateScalpingSLTP(alert_data, settings as any, effectiveLeverage);
+      
+      await log({
+        functionName: 'bitget-trader',
+        message: 'Scalping mode SL/TP calculated',
+        level: scalpingResult.adjustment === 'none' ? 'info' : 'warn',
+        alertId: alert_id,
+        metadata: {
+          symbol: alert_data.symbol,
+          slPercent: scalpingResult.slPercent,
+          actualMargin: scalpingResult.actualMargin,
+          actualLoss: scalpingResult.actualLoss,
+          adjustment: scalpingResult.adjustment,
+          adjustmentReason: scalpingResult.adjustmentReason
+        }
+      });
+      
+      if (scalpingResult.adjustment !== 'none') {
+        console.log(`⚠️ SCALPING MODE ADJUSTMENT: ${scalpingResult.adjustment}`);
+        console.log(`   ${scalpingResult.adjustmentReason}`);
+      } else {
+        console.log(`✓ Scalping mode: SL=${scalpingResult.slPercent.toFixed(3)}%, Margin=${scalpingResult.actualMargin} USDT, Loss=${scalpingResult.actualLoss} USDT`);
+      }
+    }
+    
+    let quantity = calculatePositionSize(settings, alert_data, accountBalance, effectiveLeverage, scalpingResult);
     await log({
       functionName: 'bitget-trader',
       message: 'Position size calculated',
       level: 'info',
       alertId: alert_id,
-      metadata: { initialQuantity: quantity, symbol: alert_data.symbol }
+      metadata: { 
+        initialQuantity: quantity, 
+        symbol: alert_data.symbol,
+        positionSizingType: settings.position_sizing_type,
+        ...(scalpingResult && { scalpingMargin: scalpingResult.actualMargin })
+      }
     });
     console.log('Initial calculated quantity:', quantity);
     
@@ -737,20 +770,37 @@ serve(async (req) => {
 
     // Calculate SL/TP prices
     console.log('Calculating SL/TP prices...');
-    const { sl_price, tp1_price, tp2_price, tp3_price } = calculateSLTP(
-      alert_data,
-      settings,
-      quantity,
-      effectiveLeverage  // CRITICAL FIX: Pass effective leverage for correct SL calculation
-    );
-    console.log('✓ Calculated prices:', { 
-      entry: alert_data.price,
-      sl_price, 
-      tp1_price, 
-      tp2_price, 
-      tp3_price,
-      quantity 
-    });
+    let sl_price, tp1_price, tp2_price, tp3_price;
+    
+    if (settings.position_sizing_type === 'scalping_mode' && scalpingResult) {
+      // Use pre-calculated scalping results
+      ({ sl_price, tp1_price, tp2_price, tp3_price } = scalpingResult);
+      console.log('✓ Using scalping mode SL/TP prices:', {
+        entry: alert_data.price,
+        sl_price,
+        slPercent: scalpingResult.slPercent,
+        tp1_price,
+        tp2_price,
+        tp3_price,
+        quantity
+      });
+    } else {
+      // Use normal calculation
+      ({ sl_price, tp1_price, tp2_price, tp3_price } = calculateSLTP(
+        alert_data,
+        settings,
+        quantity,
+        effectiveLeverage  // CRITICAL FIX: Pass effective leverage for correct SL calculation
+      ));
+      console.log('✓ Calculated prices:', { 
+        entry: alert_data.price,
+        sl_price, 
+        tp1_price, 
+        tp2_price, 
+        tp3_price,
+        quantity 
+      });
+    }
 
     // Call Bitget API to place order
     const side = alert_data.side === 'BUY' ? 'open_long' : 'open_short';

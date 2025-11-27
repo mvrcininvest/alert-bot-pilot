@@ -491,6 +491,8 @@ export type Database = {
           filter_by_tier: boolean | null
           id: string
           loss_limit_type: string | null
+          max_loss_per_trade: number | null
+          max_margin_per_trade: number | null
           max_open_positions: number | null
           momentum_based_tp: boolean | null
           momentum_moderate_multiplier: number | null
@@ -510,6 +512,8 @@ export type Database = {
           simple_tp2_percent: number | null
           simple_tp3_percent: number | null
           sl_method: Database["public"]["Enums"]["sl_method"]
+          sl_percent_max: number | null
+          sl_percent_min: number | null
           sl_to_breakeven: boolean | null
           symbol_leverage_overrides: Json | null
           tp_levels: number | null
@@ -554,6 +558,8 @@ export type Database = {
           filter_by_tier?: boolean | null
           id?: string
           loss_limit_type?: string | null
+          max_loss_per_trade?: number | null
+          max_margin_per_trade?: number | null
           max_open_positions?: number | null
           momentum_based_tp?: boolean | null
           momentum_moderate_multiplier?: number | null
@@ -573,6 +579,8 @@ export type Database = {
           simple_tp2_percent?: number | null
           simple_tp3_percent?: number | null
           sl_method?: Database["public"]["Enums"]["sl_method"]
+          sl_percent_max?: number | null
+          sl_percent_min?: number | null
           sl_to_breakeven?: boolean | null
           symbol_leverage_overrides?: Json | null
           tp_levels?: number | null
@@ -617,6 +625,8 @@ export type Database = {
           filter_by_tier?: boolean | null
           id?: string
           loss_limit_type?: string | null
+          max_loss_per_trade?: number | null
+          max_margin_per_trade?: number | null
           max_open_positions?: number | null
           momentum_based_tp?: boolean | null
           momentum_moderate_multiplier?: number | null
@@ -636,6 +646,8 @@ export type Database = {
           simple_tp2_percent?: number | null
           simple_tp3_percent?: number | null
           sl_method?: Database["public"]["Enums"]["sl_method"]
+          sl_percent_max?: number | null
+          sl_percent_min?: number | null
           sl_to_breakeven?: boolean | null
           symbol_leverage_overrides?: Json | null
           tp_levels?: number | null
@@ -739,6 +751,8 @@ export type Database = {
           filter_by_tier: boolean | null
           id: string
           loss_limit_type: string | null
+          max_loss_per_trade: number | null
+          max_margin_per_trade: number | null
           max_open_positions: number | null
           momentum_based_tp: boolean | null
           momentum_moderate_multiplier: number | null
@@ -757,6 +771,8 @@ export type Database = {
           simple_tp2_percent: number | null
           simple_tp3_percent: number | null
           sl_method: Database["public"]["Enums"]["sl_method"] | null
+          sl_percent_max: number | null
+          sl_percent_min: number | null
           sl_to_breakeven: boolean | null
           sltp_mode: Database["public"]["Enums"]["settings_mode"] | null
           symbol_leverage_overrides: Json | null
@@ -805,6 +821,8 @@ export type Database = {
           filter_by_tier?: boolean | null
           id?: string
           loss_limit_type?: string | null
+          max_loss_per_trade?: number | null
+          max_margin_per_trade?: number | null
           max_open_positions?: number | null
           momentum_based_tp?: boolean | null
           momentum_moderate_multiplier?: number | null
@@ -823,6 +841,8 @@ export type Database = {
           simple_tp2_percent?: number | null
           simple_tp3_percent?: number | null
           sl_method?: Database["public"]["Enums"]["sl_method"] | null
+          sl_percent_max?: number | null
+          sl_percent_min?: number | null
           sl_to_breakeven?: boolean | null
           sltp_mode?: Database["public"]["Enums"]["settings_mode"] | null
           symbol_leverage_overrides?: Json | null
@@ -871,6 +891,8 @@ export type Database = {
           filter_by_tier?: boolean | null
           id?: string
           loss_limit_type?: string | null
+          max_loss_per_trade?: number | null
+          max_margin_per_trade?: number | null
           max_open_positions?: number | null
           momentum_based_tp?: boolean | null
           momentum_moderate_multiplier?: number | null
@@ -889,6 +911,8 @@ export type Database = {
           simple_tp2_percent?: number | null
           simple_tp3_percent?: number | null
           sl_method?: Database["public"]["Enums"]["sl_method"] | null
+          sl_percent_max?: number | null
+          sl_percent_min?: number | null
           sl_to_breakeven?: boolean | null
           sltp_mode?: Database["public"]["Enums"]["settings_mode"] | null
           symbol_leverage_overrides?: Json | null

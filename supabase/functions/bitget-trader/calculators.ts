@@ -50,16 +50,116 @@ interface CalculatedPrices {
   tp3_price?: number;
 }
 
+interface ScalpingResult extends CalculatedPrices {
+  actualMargin: number;
+  actualLoss: number;
+  slPercent: number;
+  adjustment: 'none' | 'margin_reduced' | 'sl_capped';
+  adjustmentReason?: string;
+}
+
+export function calculateScalpingSLTP(
+  alertData: AlertData,
+  settings: Settings & {
+    max_margin_per_trade: number;
+    max_loss_per_trade: number;
+    sl_percent_min: number;
+    sl_percent_max: number;
+    tp_levels: number;
+    tp1_rr_ratio: number;
+    tp2_rr_ratio: number;
+    tp3_rr_ratio: number;
+  },
+  effectiveLeverage: number
+): ScalpingResult {
+  const maxMargin = settings.max_margin_per_trade;
+  const maxLoss = settings.max_loss_per_trade;
+  const slMin = settings.sl_percent_min / 100;
+  const slMax = settings.sl_percent_max / 100;
+
+  // Calculate base SL% = maxLoss / (maxMargin × leverage)
+  let slPercent = maxLoss / (maxMargin * effectiveLeverage);
+  let actualMargin = maxMargin;
+  let actualLoss = maxLoss;
+  let adjustment: 'none' | 'margin_reduced' | 'sl_capped' = 'none';
+  let adjustmentReason: string | undefined;
+
+  // If SL% < sl_min, reduce margin automatically
+  if (slPercent < slMin) {
+    actualMargin = maxLoss / (slMin * effectiveLeverage);
+    slPercent = slMin;
+    adjustment = 'margin_reduced';
+    adjustmentReason = `SL% was ${(maxLoss / (maxMargin * effectiveLeverage) * 100).toFixed(3)}% (< ${(slMin * 100).toFixed(2)}% min). Reduced margin from ${maxMargin} to ${actualMargin.toFixed(2)} USDT.`;
+  }
+  // If SL% > sl_max, cap SL to max
+  else if (slPercent > slMax) {
+    actualLoss = maxMargin * effectiveLeverage * slMax;
+    slPercent = slMax;
+    adjustment = 'sl_capped';
+    adjustmentReason = `SL% was ${(maxLoss / (maxMargin * effectiveLeverage) * 100).toFixed(3)}% (> ${(slMax * 100).toFixed(2)}% max). Capped loss from ${maxLoss} to ${actualLoss.toFixed(2)} USDT.`;
+  }
+
+  // Calculate SL price
+  const slDistance = alertData.price * slPercent;
+  const slPrice = alertData.side === 'BUY'
+    ? alertData.price - slDistance
+    : alertData.price + slDistance;
+
+  // Calculate TP prices using existing tp*_rr_ratio fields
+  const tp1Distance = slDistance * settings.tp1_rr_ratio;
+  const tp1Price = alertData.side === 'BUY'
+    ? alertData.price + tp1Distance
+    : alertData.price - tp1Distance;
+
+  let tp2Price: number | undefined;
+  let tp3Price: number | undefined;
+
+  if (settings.tp_levels >= 2) {
+    const tp2Distance = slDistance * settings.tp2_rr_ratio;
+    tp2Price = alertData.side === 'BUY'
+      ? alertData.price + tp2Distance
+      : alertData.price - tp2Distance;
+  }
+
+  if (settings.tp_levels >= 3) {
+    const tp3Distance = slDistance * settings.tp3_rr_ratio;
+    tp3Price = alertData.side === 'BUY'
+      ? alertData.price + tp3Distance
+      : alertData.price - tp3Distance;
+  }
+
+  return {
+    sl_price: slPrice,
+    tp1_price: tp1Price,
+    tp2_price: tp2Price,
+    tp3_price: tp3Price,
+    actualMargin,
+    actualLoss,
+    slPercent: slPercent * 100,
+    adjustment,
+    adjustmentReason
+  };
+}
+
 export function calculatePositionSize(
   settings: Settings,
   alertData: AlertData,
   accountBalance: number,
-  effectiveLeverage: number
+  effectiveLeverage: number,
+  scalpingResult?: ScalpingResult
 ): number {
   const positionSizingType = (settings as any).position_sizing_type || 'fixed_usdt';
   const positionSizeValue = (settings as any).position_size_value || 100;
 
-  if (positionSizingType === 'fixed_usdt') {
+  if (positionSizingType === 'scalping_mode') {
+    // Use actualMargin from scalping calculation
+    if (!scalpingResult) {
+      throw new Error('Scalping mode requires scalpingResult parameter');
+    }
+    const notional = scalpingResult.actualMargin * effectiveLeverage;
+    const quantity = notional / alertData.price;
+    return quantity;
+  } else if (positionSizingType === 'fixed_usdt') {
     // CRITICAL FIX: position_size_value represents MARGIN, not notional
     // If position_size_value = 3 USDT and leverage = 10x, then notional = 30 USDT
     const notional = positionSizeValue * effectiveLeverage;
@@ -79,6 +179,14 @@ export function calculateSLTP(
   positionSize: number,
   effectiveLeverage: number
 ): CalculatedPrices {
+  const positionSizingType = (settings as any).position_sizing_type || 'fixed_usdt';
+
+  // If scalping mode, use scalping calculator
+  if (positionSizingType === 'scalping_mode') {
+    const scalpingSettings = settings as any;
+    return calculateScalpingSLTP(alertData, scalpingSettings, effectiveLeverage);
+  }
+
   let slPrice: number;
   let tp1Price: number | undefined;
   let tp2Price: number | undefined;
