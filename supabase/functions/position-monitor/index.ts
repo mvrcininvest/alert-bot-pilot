@@ -80,17 +80,23 @@ function calculateExpectedSLTP(position: any, settings: any): ExpectedSLTP {
       alertData, settings, effectiveLeverage
     );
     
-    // Calculate quantities
+    // Calculate quantities - only for unfilled TPs
     const totalQty = position.quantity;
-    const tp1Qty = settings.tp_levels >= 1 ? totalQty * (settings.tp1_close_percent / 100) : totalQty;
-    const tp2Qty = settings.tp_levels >= 2 ? totalQty * (settings.tp2_close_percent / 100) : 0;
-    const tp3Qty = settings.tp_levels >= 3 ? totalQty * (settings.tp3_close_percent / 100) : 0;
+    const tp1Qty = (!position.tp1_filled && settings.tp_levels >= 1) 
+      ? totalQty * (settings.tp1_close_percent / 100) 
+      : 0;
+    const tp2Qty = (!position.tp2_filled && settings.tp_levels >= 2) 
+      ? totalQty * (settings.tp2_close_percent / 100) 
+      : 0;
+    const tp3Qty = (!position.tp3_filled && settings.tp_levels >= 3) 
+      ? totalQty * (settings.tp3_close_percent / 100) 
+      : 0;
     
     return {
       sl_price,
-      tp1_price,
-      tp2_price,
-      tp3_price,
+      tp1_price: !position.tp1_filled ? tp1_price : undefined,
+      tp2_price: !position.tp2_filled ? tp2_price : undefined,
+      tp3_price: !position.tp3_filled ? tp3_price : undefined,
       tp1_quantity: tp1Qty > 0 ? tp1Qty : undefined,
       tp2_quantity: tp2Qty > 0 ? tp2Qty : undefined,
       tp3_quantity: tp3Qty > 0 ? tp3Qty : undefined,
@@ -131,17 +137,25 @@ function calculateExpectedSLTP(position: any, settings: any): ExpectedSLTP {
       break;
   }
 
-  // Calculate TP quantities based on close percentages
+  // Calculate TP quantities based on close percentages - only for unfilled TPs
   const totalQty = position.quantity;
-  const tp1Qty = settings.tp_levels >= 1 ? totalQty * (settings.tp1_close_percent / 100) : totalQty;
-  const tp2Qty = settings.tp_levels >= 2 ? totalQty * (settings.tp2_close_percent / 100) : 0;
-  const tp3Qty = settings.tp_levels >= 3 ? totalQty * (settings.tp3_close_percent / 100) : 0;
+  
+  // Only calculate TPs that haven't been filled yet
+  const tp1Qty = (!position.tp1_filled && settings.tp_levels >= 1) 
+    ? totalQty * (settings.tp1_close_percent / 100) 
+    : 0;
+  const tp2Qty = (!position.tp2_filled && settings.tp_levels >= 2) 
+    ? totalQty * (settings.tp2_close_percent / 100) 
+    : 0;
+  const tp3Qty = (!position.tp3_filled && settings.tp_levels >= 3) 
+    ? totalQty * (settings.tp3_close_percent / 100) 
+    : 0;
 
   return {
     sl_price: slPrice,
-    tp1_price: tp1Price,
-    tp2_price: tp2Price,
-    tp3_price: tp3Price,
+    tp1_price: !position.tp1_filled ? tp1Price : undefined,
+    tp2_price: !position.tp2_filled ? tp2Price : undefined,
+    tp3_price: !position.tp3_filled ? tp3Price : undefined,
     tp1_quantity: tp1Qty > 0 ? tp1Qty : undefined,
     tp2_quantity: tp2Qty > 0 ? tp2Qty : undefined,
     tp3_quantity: tp3Qty > 0 ? tp3Qty : undefined,
@@ -312,14 +326,20 @@ function checkIfResyncNeeded(
     };
   }
   
-  // Check TP count - must match tp_levels
-  const expectedTPCount = settings.tp_levels || 1;
+  // Check TP count - must match tp_levels MINUS filled TPs
+  let expectedTPCount = settings.tp_levels || 1;
+  
+  // Subtract already filled TPs
+  if (position.tp1_filled) expectedTPCount--;
+  if (position.tp2_filled && settings.tp_levels >= 2) expectedTPCount--;
+  if (position.tp3_filled && settings.tp_levels >= 3) expectedTPCount--;
+  
   const validTPOrders = tpOrders.filter((o: any) => o.tradeSide === 'close');
   
   if (validTPOrders.length !== expectedTPCount) {
     return { 
       mismatch: true, 
-      reason: `Expected ${expectedTPCount} TP orders, found ${validTPOrders.length}` 
+      reason: `Expected ${expectedTPCount} TP orders (filled: TP1=${position.tp1_filled || false}, TP2=${position.tp2_filled || false}, TP3=${position.tp3_filled || false}), found ${validTPOrders.length}` 
     };
   }
   
@@ -1234,11 +1254,55 @@ async function checkPositionFullVerification(supabase: any, position: any, setti
   const planOrders = [...profitLossOrders, ...normalPlanOrders];
   console.log(`Found ${planOrders.length} plan orders for ${position.symbol} (profit_loss: ${profitLossOrders.length}, normal_plan: ${normalPlanOrders.length})`);
 
-  // 4. Check quantity match
+  // 4. Check quantity match and detect partial closes (TP hits)
   const bitgetQuantity = Number(bitgetPosition.total || 0);
   const dbQuantity = Number(position.quantity);
   
-  if (Math.abs(bitgetQuantity - dbQuantity) > 0.0001) {
+  // Detect partial close (TP was hit)
+  if (bitgetQuantity < dbQuantity * 0.99) {
+    console.log(`📉 Detected partial close: DB=${dbQuantity}, Exchange=${bitgetQuantity}`);
+    
+    const closedQty = dbQuantity - bitgetQuantity;
+    const tp1Qty = Number(position.tp1_quantity || 0);
+    const tp2Qty = Number(position.tp2_quantity || 0);
+    const tp3Qty = Number(position.tp3_quantity || 0);
+    
+    const updates: any = { quantity: bitgetQuantity };
+    
+    // Check which TP was filled based on closed quantity
+    // Check TP3 first (highest), then TP2, then TP1
+    if (position.tp3_quantity && !position.tp3_filled && Math.abs(closedQty - tp3Qty) / tp3Qty < 0.1) {
+      updates.tp3_filled = true;
+      console.log(`✅ TP3 was filled - marking tp3_filled = true`);
+    } else if (position.tp2_quantity && !position.tp2_filled && Math.abs(closedQty - tp2Qty) / tp2Qty < 0.1) {
+      updates.tp2_filled = true;
+      console.log(`✅ TP2 was filled - marking tp2_filled = true`);
+    } else if (position.tp1_quantity && !position.tp1_filled && Math.abs(closedQty - tp1Qty) / tp1Qty < 0.1) {
+      updates.tp1_filled = true;
+      console.log(`✅ TP1 was filled - marking tp1_filled = true`);
+    }
+    
+    // Update DB with actual quantity and filled flags
+    await supabase
+      .from('positions')
+      .update(updates)
+      .eq('id', position.id)
+      .eq('user_id', position.user_id);
+    
+    await log({
+      functionName: 'position-monitor',
+      message: `Partial close detected and TP marked as filled`,
+      level: 'info',
+      positionId: position.id,
+      metadata: { closedQty, updates }
+    });
+    
+    // Update position object with new values for rest of the function
+    position.quantity = bitgetQuantity;
+    if (updates.tp1_filled) position.tp1_filled = true;
+    if (updates.tp2_filled) position.tp2_filled = true;
+    if (updates.tp3_filled) position.tp3_filled = true;
+  } else if (Math.abs(bitgetQuantity - dbQuantity) > 0.0001) {
     issues.push({
       type: 'quantity_mismatch',
       expected: dbQuantity,
@@ -1400,6 +1464,13 @@ async function checkPositionFullVerification(supabase: any, position: any, setti
     
     // Place TP orders with proper quantity rounding
     for (let i = 1; i <= settings.tp_levels; i++) {
+      // SKIP already filled TPs
+      const tpFilledKey = `tp${i}_filled` as 'tp1_filled' | 'tp2_filled' | 'tp3_filled';
+      if (position[tpFilledKey] === true) {
+        console.log(`⏭️ Skipping TP${i} - already filled`);
+        continue;
+      }
+      
       const tpPrice = expected[`tp${i}_price` as keyof ExpectedSLTP] as number | undefined;
       const tpQty = expected[`tp${i}_quantity` as keyof ExpectedSLTP] as number | undefined;
       
