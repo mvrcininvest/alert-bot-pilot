@@ -138,10 +138,12 @@ export default function Settings() {
       </div>
 
       <Tabs defaultValue="general" className="space-y-6">
-        <TabsList className="grid w-full grid-cols-6">
+        <TabsList className={`grid w-full ${localSettings.position_sizing_type === "scalping_mode" ? "grid-cols-5" : "grid-cols-6"}`}>
           <TabsTrigger value="general">Ogólne</TabsTrigger>
           <TabsTrigger value="position">Pozycje</TabsTrigger>
-          <TabsTrigger value="sltp">SL/TP</TabsTrigger>
+          {localSettings.position_sizing_type !== "scalping_mode" && (
+            <TabsTrigger value="sltp">SL/TP</TabsTrigger>
+          )}
           <TabsTrigger value="adaptive">Adaptacyjne</TabsTrigger>
           <TabsTrigger value="risk">Risk Mgmt</TabsTrigger>
           <TabsTrigger value="monitor">Monitoring</TabsTrigger>
@@ -1076,6 +1078,7 @@ export default function Settings() {
         </TabsContent>
 
         {/* SL/TP TAB */}
+        {localSettings.position_sizing_type !== "scalping_mode" && (
         <TabsContent value="sltp" className="space-y-4">
           <Card>
             <CardHeader>
@@ -1575,6 +1578,7 @@ export default function Settings() {
             </CardContent>
           </Card>
         </TabsContent>
+        )}
 
         {/* ADAPTIVE TAB */}
         <TabsContent value="adaptive" className="space-y-4">
