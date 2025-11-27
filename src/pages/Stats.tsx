@@ -9,6 +9,9 @@ import { TimeFilters, type TimeFilter } from "@/components/stats/TimeFilters";
 import { TierAnalysisCard } from "@/components/stats/TierAnalysisCard";
 import { CloseReasonChart } from "@/components/stats/CloseReasonChart";
 import { EquityCurve } from "@/components/stats/EquityCurve";
+import { SessionAnalysisCard } from "@/components/stats/SessionAnalysisCard";
+import { SignalStrengthCard } from "@/components/stats/SignalStrengthCard";
+import { DurationAnalysisCard } from "@/components/stats/DurationAnalysisCard";
 import { startOfDay, subDays, isAfter, isBefore } from "date-fns";
 
 export default function Stats() {
@@ -284,6 +287,186 @@ export default function Stats() {
       .sort((a, b) => b.count - a.count);
   }, [filteredPositions]);
 
+  // Session analysis
+  const sessionStats = useMemo(() => {
+    if (!filteredPositions) return [];
+    
+    const sessionMap = new Map<string, {
+      session: string;
+      trades: number;
+      wins: number;
+      losses: number;
+      totalPnL: number;
+      winsPnL: number;
+    }>();
+
+    filteredPositions.forEach(p => {
+      const alert = Array.isArray(p.alerts) ? p.alerts[0] : p.alerts;
+      const rawData = alert?.raw_data as any;
+      const session = rawData?.timing?.session || "Unknown";
+      const pnl = Number(p.realized_pnl || 0);
+      const isWin = pnl > 0;
+
+      if (!sessionMap.has(session)) {
+        sessionMap.set(session, {
+          session,
+          trades: 0,
+          wins: 0,
+          losses: 0,
+          totalPnL: 0,
+          winsPnL: 0,
+        });
+      }
+
+      const stats = sessionMap.get(session)!;
+      stats.trades++;
+      stats.totalPnL += pnl;
+      if (isWin) {
+        stats.wins++;
+        stats.winsPnL += pnl;
+      } else {
+        stats.losses++;
+      }
+    });
+
+    return Array.from(sessionMap.values())
+      .map(s => ({
+        session: s.session,
+        trades: s.trades,
+        wins: s.wins,
+        losses: s.losses,
+        winRate: (s.wins / s.trades) * 100,
+        totalPnL: s.totalPnL,
+        avgPnL: s.totalPnL / s.trades,
+      }))
+      .sort((a, b) => b.totalPnL - a.totalPnL);
+  }, [filteredPositions]);
+
+  // Signal strength analysis
+  const strengthStats = useMemo(() => {
+    if (!filteredPositions) return [];
+    
+    const ranges = [
+      { min: 0.8, max: 1.0, label: "0.8-1.0" },
+      { min: 0.6, max: 0.8, label: "0.6-0.8" },
+      { min: 0.4, max: 0.6, label: "0.4-0.6" },
+      { min: 0.2, max: 0.4, label: "0.2-0.4" },
+      { min: 0, max: 0.2, label: "0.0-0.2" },
+    ];
+
+    const rangeMap = new Map<string, {
+      range: string;
+      trades: number;
+      wins: number;
+      totalPnL: number;
+    }>();
+
+    filteredPositions.forEach(p => {
+      const alert = Array.isArray(p.alerts) ? p.alerts[0] : p.alerts;
+      const strength = alert?.strength || 0;
+      const pnl = Number(p.realized_pnl || 0);
+      const isWin = pnl > 0;
+
+      const matchingRange = ranges.find(r => strength >= r.min && strength < r.max);
+      if (!matchingRange) return;
+
+      const label = matchingRange.label;
+      if (!rangeMap.has(label)) {
+        rangeMap.set(label, {
+          range: label,
+          trades: 0,
+          wins: 0,
+          totalPnL: 0,
+        });
+      }
+
+      const stats = rangeMap.get(label)!;
+      stats.trades++;
+      stats.totalPnL += pnl;
+      if (isWin) stats.wins++;
+    });
+
+    return ranges
+      .map(r => {
+        const stats = rangeMap.get(r.label);
+        if (!stats) return null;
+        return {
+          range: stats.range,
+          trades: stats.trades,
+          wins: stats.wins,
+          winRate: (stats.wins / stats.trades) * 100,
+          avgPnL: stats.totalPnL / stats.trades,
+          totalPnL: stats.totalPnL,
+        };
+      })
+      .filter(Boolean) as any[];
+  }, [filteredPositions]);
+
+  // Duration analysis
+  const durationStats = useMemo(() => {
+    if (!filteredPositions) return [];
+    
+    const ranges = [
+      { min: 0, max: 5, label: "< 5 min" },
+      { min: 5, max: 30, label: "5-30 min" },
+      { min: 30, max: 120, label: "30min - 2h" },
+      { min: 120, max: Infinity, label: "> 2h" },
+    ];
+
+    const rangeMap = new Map<string, {
+      range: string;
+      trades: number;
+      wins: number;
+      losses: number;
+      totalPnL: number;
+    }>();
+
+    filteredPositions.forEach(p => {
+      if (!p.created_at || !p.closed_at) return;
+      
+      const durationMs = new Date(p.closed_at).getTime() - new Date(p.created_at).getTime();
+      const durationMinutes = durationMs / (1000 * 60);
+      const pnl = Number(p.realized_pnl || 0);
+      const isWin = pnl > 0;
+
+      const matchingRange = ranges.find(r => durationMinutes >= r.min && durationMinutes < r.max);
+      if (!matchingRange) return;
+
+      const label = matchingRange.label;
+      if (!rangeMap.has(label)) {
+        rangeMap.set(label, {
+          range: label,
+          trades: 0,
+          wins: 0,
+          losses: 0,
+          totalPnL: 0,
+        });
+      }
+
+      const stats = rangeMap.get(label)!;
+      stats.trades++;
+      stats.totalPnL += pnl;
+      if (isWin) stats.wins++;
+      else stats.losses++;
+    });
+
+    return ranges
+      .map(r => {
+        const stats = rangeMap.get(r.label);
+        if (!stats) return null;
+        return {
+          range: stats.range,
+          trades: stats.trades,
+          wins: stats.wins,
+          losses: stats.losses,
+          winRate: (stats.wins / stats.trades) * 100,
+          avgPnL: stats.totalPnL / stats.trades,
+          totalPnL: stats.totalPnL,
+        };
+      })
+      .filter(Boolean) as any[];
+  }, [filteredPositions]);
+
   // Equity curve data
   const equityData = useMemo(() => {
     if (!filteredPositions) return [];
@@ -523,6 +706,15 @@ export default function Stats() {
 
           {/* Close Reason Analysis */}
           <CloseReasonChart closeReasons={closeReasonStats} />
+
+          {/* Session Analysis */}
+          <SessionAnalysisCard sessionStats={sessionStats} />
+
+          {/* Signal Strength Analysis */}
+          <SignalStrengthCard strengthStats={strengthStats} />
+
+          {/* Duration Analysis */}
+          <DurationAnalysisCard durationStats={durationStats} />
 
           {/* By Symbol */}
           <Card className="glass-card">
