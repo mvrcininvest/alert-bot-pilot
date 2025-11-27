@@ -12,7 +12,12 @@ import { EquityCurve } from "@/components/stats/EquityCurve";
 import { SessionAnalysisCard } from "@/components/stats/SessionAnalysisCard";
 import { SignalStrengthCard } from "@/components/stats/SignalStrengthCard";
 import { DurationAnalysisCard } from "@/components/stats/DurationAnalysisCard";
-import { startOfDay, subDays, isAfter, isBefore } from "date-fns";
+import { RegimeAnalysisCard } from "@/components/stats/RegimeAnalysisCard";
+import { TimeBasedAnalysis } from "@/components/stats/TimeBasedAnalysis";
+import { exportToCSV, exportStatsToCSV } from "@/lib/exportStats";
+import { startOfDay, subDays, isAfter, isBefore, format, getDay } from "date-fns";
+import { pl } from "date-fns/locale";
+import { FileDown } from "lucide-react";
 
 export default function Stats() {
   const { toast } = useToast();
@@ -467,6 +472,203 @@ export default function Stats() {
       .filter(Boolean) as any[];
   }, [filteredPositions]);
 
+  // Regime analysis
+  const regimeStats = useMemo(() => {
+    if (!filteredPositions) return [];
+    
+    const regimeMap = new Map<string, {
+      regime: string;
+      trades: number;
+      wins: number;
+      losses: number;
+      totalPnL: number;
+    }>();
+
+    filteredPositions.forEach(p => {
+      const alert = Array.isArray(p.alerts) ? p.alerts[0] : p.alerts;
+      const rawData = alert?.raw_data as any;
+      const regime = rawData?.diagnostics?.regime || "Unknown";
+      const pnl = Number(p.realized_pnl || 0);
+      const isWin = pnl > 0;
+
+      if (!regimeMap.has(regime)) {
+        regimeMap.set(regime, {
+          regime,
+          trades: 0,
+          wins: 0,
+          losses: 0,
+          totalPnL: 0,
+        });
+      }
+
+      const stats = regimeMap.get(regime)!;
+      stats.trades++;
+      stats.totalPnL += pnl;
+      if (isWin) stats.wins++;
+      else stats.losses++;
+    });
+
+    return Array.from(regimeMap.values())
+      .map(r => ({
+        regime: r.regime,
+        trades: r.trades,
+        wins: r.wins,
+        losses: r.losses,
+        winRate: (r.wins / r.trades) * 100,
+        totalPnL: r.totalPnL,
+        avgPnL: r.totalPnL / r.trades,
+      }))
+      .sort((a, b) => b.totalPnL - a.totalPnL);
+  }, [filteredPositions]);
+
+  // Hourly analysis
+  const hourlyStats = useMemo(() => {
+    if (!filteredPositions) return [];
+    
+    const hourMap = new Map<number, {
+      hour: number;
+      trades: number;
+      wins: number;
+      totalPnL: number;
+    }>();
+
+    filteredPositions.forEach(p => {
+      if (!p.closed_at) return;
+      
+      const hour = new Date(p.closed_at).getHours();
+      const pnl = Number(p.realized_pnl || 0);
+      const isWin = pnl > 0;
+
+      if (!hourMap.has(hour)) {
+        hourMap.set(hour, {
+          hour,
+          trades: 0,
+          wins: 0,
+          totalPnL: 0,
+        });
+      }
+
+      const stats = hourMap.get(hour)!;
+      stats.trades++;
+      stats.totalPnL += pnl;
+      if (isWin) stats.wins++;
+    });
+
+    return Array.from(hourMap.values())
+      .map(h => ({
+        hour: h.hour,
+        trades: h.trades,
+        wins: h.wins,
+        winRate: (h.wins / h.trades) * 100,
+        avgPnL: h.totalPnL / h.trades,
+      }))
+      .sort((a, b) => a.hour - b.hour);
+  }, [filteredPositions]);
+
+  // Daily analysis (day of week)
+  const dailyStats = useMemo(() => {
+    if (!filteredPositions) return [];
+    
+    const dayNames = ["Niedziela", "Poniedziałek", "Wtorek", "Środa", "Czwartek", "Piątek", "Sobota"];
+    const dayMap = new Map<string, {
+      day: string;
+      trades: number;
+      wins: number;
+      totalPnL: number;
+    }>();
+
+    filteredPositions.forEach(p => {
+      if (!p.closed_at) return;
+      
+      const dayIndex = getDay(new Date(p.closed_at));
+      const dayName = dayNames[dayIndex];
+      const pnl = Number(p.realized_pnl || 0);
+      const isWin = pnl > 0;
+
+      if (!dayMap.has(dayName)) {
+        dayMap.set(dayName, {
+          day: dayName,
+          trades: 0,
+          wins: 0,
+          totalPnL: 0,
+        });
+      }
+
+      const stats = dayMap.get(dayName)!;
+      stats.trades++;
+      stats.totalPnL += pnl;
+      if (isWin) stats.wins++;
+    });
+
+    return Array.from(dayMap.values())
+      .map(d => ({
+        day: d.day,
+        trades: d.trades,
+        wins: d.wins,
+        winRate: (d.wins / d.trades) * 100,
+        avgPnL: d.totalPnL / d.trades,
+      }));
+  }, [filteredPositions]);
+
+  // Export handlers
+  const handleExportPositions = () => {
+    if (!filteredPositions || filteredPositions.length === 0) {
+      toast({
+        title: "Brak danych",
+        description: "Brak pozycji do eksportu",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    exportToCSV(filteredPositions as any, "trading-positions");
+    toast({
+      title: "Eksport zakończony",
+      description: `Wyeksportowano ${filteredPositions.length} pozycji`,
+    });
+  };
+
+  const handleExportStats = () => {
+    if (!stats) {
+      toast({
+        title: "Brak danych",
+        description: "Brak statystyk do eksportu",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    exportStatsToCSV({
+      summary: {
+        totalTrades: stats.totalTrades,
+        winRate: stats.winRate,
+        totalPnL: stats.totalPnL,
+        profitFactor: stats.profitFactor,
+        expectancy: stats.expectancy,
+        avgWin: stats.avgWin,
+        avgLoss: stats.avgLoss,
+        maxDrawdown: stats.maxDrawdown,
+      },
+      bySymbol: symbolStats.map(s => ({
+        symbol: s.symbol,
+        trades: s.trades,
+        winRate: (s.wins / s.trades) * 100,
+        pnl: s.pnl,
+      })),
+      byTier: tierStats.map(t => ({
+        tier: t.tier,
+        trades: t.trades,
+        winRate: t.winRate,
+        pnl: t.totalPnL,
+      })),
+    }, "stats-summary");
+    
+    toast({
+      title: "Eksport zakończony",
+      description: "Statystyki zostały wyeksportowane do CSV",
+    });
+  };
+
   // Equity curve data
   const equityData = useMemo(() => {
     if (!filteredPositions) return [];
@@ -535,10 +737,29 @@ export default function Stats() {
           <Button
             onClick={() => handleImport(90)}
             disabled={isImporting}
+            variant="outline"
             size="sm"
           >
             <Download className="h-4 w-4 mr-2" />
             Import 90 dni
+          </Button>
+          <div className="w-px h-8 bg-border" />
+          <Button
+            onClick={handleExportPositions}
+            variant="outline"
+            size="sm"
+            disabled={!filteredPositions || filteredPositions.length === 0}
+          >
+            <FileDown className="h-4 w-4 mr-2" />
+            Eksport Pozycji
+          </Button>
+          <Button
+            onClick={handleExportStats}
+            size="sm"
+            disabled={!stats}
+          >
+            <FileDown className="h-4 w-4 mr-2" />
+            Eksport Statystyk
           </Button>
         </div>
       </div>
@@ -715,6 +936,12 @@ export default function Stats() {
 
           {/* Duration Analysis */}
           <DurationAnalysisCard durationStats={durationStats} />
+
+          {/* Regime Analysis */}
+          <RegimeAnalysisCard regimeStats={regimeStats} />
+
+          {/* Time-based Analysis */}
+          <TimeBasedAnalysis hourlyStats={hourlyStats} dailyStats={dailyStats} />
 
           {/* By Symbol */}
           <Card className="glass-card">
