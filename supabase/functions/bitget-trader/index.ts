@@ -976,6 +976,9 @@ serve(async (req) => {
         effectiveTp2Price = roundedTp2Price;
         effectiveTp3Price = roundedTp3Price;
         
+        console.log(`✅ Using all 3 TP as configured`);
+        console.log(`   TP1: ${tp1Percent}%, TP2: ${tp2Percent}%, TP3: ${tp3Percent}%`);
+        
       } else if (actualLevels === 2) {
         // Redistribute TP3 quantity to TP1 and TP2
         const redistributed = originalPercentages.tp3 / 2;
@@ -988,9 +991,17 @@ serve(async (req) => {
         effectiveTp2Price = roundedTp2Price;  // Maintains TP2 R:R
         effectiveTp3Price = null;             // No TP3
         
-        console.log(`⚠️ Cannot split into 3 TP, using 2 TP with redistributed quantity`);
-        console.log(`   TP1: ${originalPercentages.tp1}% → ${tp1Percent}%`);
-        console.log(`   TP2: ${originalPercentages.tp2}% → ${tp2Percent}%`);
+        if (requestedLevels === 3) {
+          // Użytkownik chciał 3 TP, ale quantity pozwala tylko na 2
+          console.log(`⚠️ Cannot split into 3 TP (quantity too small), using 2 TP with redistributed quantity`);
+          console.log(`   TP1: ${originalPercentages.tp1}% → ${tp1Percent}% (absorbed ${redistributed}% from TP3)`);
+          console.log(`   TP2: ${originalPercentages.tp2}% → ${tp2Percent}% (absorbed ${redistributed}% from TP3)`);
+          console.log(`   TP3: ${originalPercentages.tp3}% → 0% (skipped)`);
+        } else {
+          // Użytkownik ustawił 2 TP i system może je ustawić
+          console.log(`✅ Using 2 TP as configured`);
+          console.log(`   TP1: ${tp1Percent}%, TP2: ${tp2Percent}%`);
+        }
         
       } else {
         // Only 1 TP - 100% of position at TP1
@@ -1002,7 +1013,18 @@ serve(async (req) => {
         effectiveTp2Price = null;
         effectiveTp3Price = null;
         
-        console.log(`⚠️ Cannot split position, using single TP (100% at TP1 R:R)`);
+        if (requestedLevels === 3) {
+          console.log(`⚠️ Cannot split into ${requestedLevels} TP (quantity too small for minQty=${minQuantity}), using single TP`);
+          console.log(`   TP1: 100% (originally ${originalPercentages.tp1}%)`);
+          console.log(`   TP2: 0% (originally ${originalPercentages.tp2}%, skipped)`);
+          console.log(`   TP3: 0% (originally ${originalPercentages.tp3}%, skipped)`);
+        } else if (requestedLevels === 2) {
+          console.log(`⚠️ Cannot split into 2 TP (quantity too small for minQty=${minQuantity}), using single TP`);
+          console.log(`   TP1: 100% (originally ${originalPercentages.tp1}%)`);
+          console.log(`   TP2: 0% (originally ${originalPercentages.tp2}%, skipped)`);
+        } else {
+          console.log(`✅ Using single TP as configured`);
+        }
       }
 
       // Calculate raw quantities
