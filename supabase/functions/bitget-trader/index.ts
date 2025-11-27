@@ -1134,72 +1134,81 @@ serve(async (req) => {
       effectiveTp3Price = null;
     }
 
-    // Place TP orders
+    // Place TP orders using place_plan_order for multiple independent TPs
     let tp1OrderId, tp2OrderId, tp3OrderId;
 
     if (effectiveTp1Price && tp1Quantity > 0) {
       const { data: tp1Result } = await supabase.functions.invoke('bitget-api', {
         body: {
-          action: 'place_tpsl_order',
+          action: 'place_plan_order',
           apiCredentials,
           params: {
             symbol: alert_data.symbol,
-            planType: 'pos_profit',
+            planType: 'normal_plan',
             triggerPrice: effectiveTp1Price,
             triggerType: 'mark_price',
-            holdSide: holdSide,
-            executePrice: 0,
+            side: holdSide === 'long' ? 'sell' : 'buy',
+            tradeSide: 'close',
             size: tp1Quantity.toString(),
+            orderType: 'market',
           }
         }
       });
       tp1OrderId = tp1Result?.success ? tp1Result.data.orderId : null;
       if (!tp1OrderId) {
         console.error('Failed to place TP1 order:', tp1Result);
+      } else {
+        console.log(`✅ TP1 order placed: ${tp1OrderId} at ${effectiveTp1Price}`);
       }
     }
 
     if (effectiveTp2Price && tp2Quantity > 0) {
       const { data: tp2Result } = await supabase.functions.invoke('bitget-api', {
         body: {
-          action: 'place_tpsl_order',
+          action: 'place_plan_order',
           apiCredentials,
           params: {
             symbol: alert_data.symbol,
-            planType: 'pos_profit',
+            planType: 'normal_plan',
             triggerPrice: effectiveTp2Price,
             triggerType: 'mark_price',
-            holdSide: holdSide,
-            executePrice: 0,
+            side: holdSide === 'long' ? 'sell' : 'buy',
+            tradeSide: 'close',
             size: tp2Quantity.toString(),
+            orderType: 'market',
           }
         }
       });
       tp2OrderId = tp2Result?.success ? tp2Result.data.orderId : null;
       if (!tp2OrderId) {
         console.error('Failed to place TP2 order:', tp2Result);
+      } else {
+        console.log(`✅ TP2 order placed: ${tp2OrderId} at ${effectiveTp2Price}`);
       }
     }
 
     if (effectiveTp3Price && tp3Quantity > 0) {
       const { data: tp3Result } = await supabase.functions.invoke('bitget-api', {
         body: {
-          action: 'place_tpsl_order',
+          action: 'place_plan_order',
           apiCredentials,
           params: {
             symbol: alert_data.symbol,
-            planType: 'pos_profit',
+            planType: 'normal_plan',
             triggerPrice: effectiveTp3Price,
             triggerType: 'mark_price',
-            holdSide: holdSide,
-            executePrice: 0,
+            side: holdSide === 'long' ? 'sell' : 'buy',
+            tradeSide: 'close',
             size: tp3Quantity.toString(),
+            orderType: 'market',
           }
         }
       });
       tp3OrderId = tp3Result?.success ? tp3Result.data.orderId : null;
       if (!tp3OrderId) {
         console.error('Failed to place TP3 order:', tp3Result);
+      } else {
+        console.log(`✅ TP3 order placed: ${tp3OrderId} at ${effectiveTp3Price}`);
       }
     }
 
