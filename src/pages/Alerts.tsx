@@ -272,11 +272,12 @@ export default function Alerts() {
               id="alerts-table-top-scroll"
               style={{ 
                 height: '20px',
-                overflowX: 'auto',
+                overflowX: 'scroll',
                 overflowY: 'hidden',
                 border: '1px solid hsl(var(--border))',
                 borderRadius: '6px',
-                backgroundColor: 'hsl(var(--muted) / 0.2)'
+                backgroundColor: 'hsl(var(--muted) / 0.2)',
+                WebkitOverflowScrolling: 'touch'
               }}
               onScroll={(e) => {
                 const bottomScroll = document.getElementById('alerts-table-container');
@@ -287,8 +288,7 @@ export default function Alerts() {
             >
               <div style={{ 
                 width: `${tableWidth}px`,
-                height: '16px',
-                pointerEvents: 'none'
+                height: '1px',
               }} />
             </div>
             

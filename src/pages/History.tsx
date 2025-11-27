@@ -348,11 +348,12 @@ export default function History() {
               id="history-table-top-scroll"
               style={{ 
                 height: '20px',
-                overflowX: 'auto',
+                overflowX: 'scroll',
                 overflowY: 'hidden',
                 border: '1px solid hsl(var(--border))',
                 borderRadius: '6px',
-                backgroundColor: 'hsl(var(--muted) / 0.2)'
+                backgroundColor: 'hsl(var(--muted) / 0.2)',
+                WebkitOverflowScrolling: 'touch'
               }}
               onScroll={(e) => {
                 const bottomScroll = document.getElementById('history-table-container');
@@ -363,8 +364,7 @@ export default function History() {
             >
               <div style={{ 
                 width: `${tableWidth}px`,
-                height: '16px',
-                pointerEvents: 'none'
+                height: '1px',
               }} />
             </div>
             
