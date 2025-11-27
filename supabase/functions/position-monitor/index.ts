@@ -273,6 +273,93 @@ function checkIfResyncNeeded(
   return { mismatch: false, reason: '' };
 }
 
+// Helper function to close orphan position on exchange
+async function closeOrphanPosition(supabase: any, exchangePosition: any, apiCredentials: any) {
+  const side = exchangePosition.holdSide === 'long' ? 'close_long' : 'close_short';
+  
+  console.log(`🚨 Closing ORPHAN position: ${exchangePosition.symbol} ${side}, size=${exchangePosition.total}`);
+  
+  const { data: closeResult, error: closeError } = await supabase.functions.invoke('bitget-api', {
+    body: {
+      action: 'close_position',
+      apiCredentials,
+      params: {
+        symbol: exchangePosition.symbol,
+        size: exchangePosition.total,
+        side: side
+      }
+    }
+  });
+  
+  if (closeError || !closeResult?.success) {
+    console.error(`❌ Failed to close ORPHAN position:`, closeError || closeResult);
+    await log({
+      functionName: 'position-monitor',
+      message: `Failed to close orphan position`,
+      level: 'error',
+      metadata: { 
+        symbol: exchangePosition.symbol, 
+        error: closeError?.message || closeResult?.error || 'Unknown error' 
+      }
+    });
+    return;
+  }
+  
+  console.log(`✅ ORPHAN position closed: ${exchangePosition.symbol}`);
+  
+  // Log the orphan closure
+  await supabase.from('monitoring_logs').insert({
+    check_type: 'orphan_closed',
+    position_id: null,
+    status: 'completed',
+    actions_taken: JSON.stringify({
+      symbol: exchangePosition.symbol,
+      side: exchangePosition.holdSide,
+      size: exchangePosition.total,
+      reason: 'Orphan position found on exchange without matching DB record'
+    })
+  });
+  
+  await log({
+    functionName: 'position-monitor',
+    message: `Orphan position closed successfully`,
+    level: 'info',
+    metadata: { symbol: exchangePosition.symbol, side: exchangePosition.holdSide }
+  });
+}
+
+// Helper function to mark position as closed in DB
+async function markPositionAsClosed(supabase: any, position: any, reason: string) {
+  console.log(`⚠️ Marking position ${position.symbol} as closed in DB: ${reason}`);
+  
+  const { error: updateError } = await supabase
+    .from('positions')
+    .update({
+      status: 'closed',
+      close_reason: reason,
+      closed_at: new Date().toISOString(),
+      close_price: position.current_price || position.entry_price,
+      realized_pnl: position.unrealized_pnl || 0
+    })
+    .eq('id', position.id)
+    .eq('user_id', position.user_id);
+  
+  if (updateError) {
+    console.error(`❌ Failed to mark position as closed:`, updateError);
+    return;
+  }
+  
+  console.log(`✅ Position ${position.symbol} marked as closed in DB`);
+  
+  await log({
+    functionName: 'position-monitor',
+    message: `Position marked as closed: ${reason}`,
+    level: 'warn',
+    positionId: position.id,
+    metadata: { symbol: position.symbol, reason }
+  });
+}
+
 serve(async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response(null, { headers: corsHeaders });
@@ -327,101 +414,155 @@ serve(async (req) => {
     });
     console.log('🔥 OKO SAURONA: Starting position monitoring cycle');
 
-    // Get all open positions from DB
-    const { data: positions, error: positionsError } = await supabase
-      .from('positions')
-      .select('*')
-      .eq('status', 'open');
+    // NEW APPROACH: Start from exchange, not DB
+    // Get all users with active API keys
+    const { data: activeUsers, error: usersError } = await supabase
+      .from('user_api_keys')
+      .select('user_id')
+      .eq('is_active', true);
 
-    if (positionsError) {
-      await log({
-        functionName: 'position-monitor',
-        message: 'Failed to fetch positions from DB',
-        level: 'error',
-        metadata: { error: positionsError.message }
-      });
-      throw positionsError;
+    if (usersError) {
+      throw new Error(`Failed to fetch active users: ${usersError.message}`);
     }
 
-    if (!positions || positions.length === 0) {
-      await log({
-        functionName: 'position-monitor',
-        message: 'No open positions to monitor',
-        level: 'info'
-      });
-      console.log('No open positions to monitor');
-      return new Response(JSON.stringify({ message: 'No open positions' }), {
+    if (!activeUsers || activeUsers.length === 0) {
+      console.log('No active users with API keys');
+      
+      if (lockRecord) {
+        await supabase
+          .from('monitoring_logs')
+          .update({ status: 'completed' })
+          .eq('id', lockRecord.id);
+      }
+      
+      return new Response(JSON.stringify({ message: 'No active users' }), {
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       });
     }
 
-    await log({
-      functionName: 'position-monitor',
-      message: `🔥 OKO SAURONA: Monitoring ${positions.length} positions`,
-      level: 'info',
-      metadata: { positionCount: positions.length }
-    });
-    console.log(`🔥 OKO SAURONA: Monitoring ${positions.length} positions`);
+    console.log(`🔥 Monitoring ${activeUsers.length} active users`);
+    let totalPositionsChecked = 0;
 
-    // Check each position with full verification
-    for (const position of positions) {
+    // Process each user
+    for (const { user_id } of activeUsers) {
       try {
-        // Check if position has user_id - if not, it's an orphaned position
-        if (!position.user_id) {
-          console.log(`⚠️ Position ${position.id} (${position.symbol}) has no user_id - marking as orphaned`);
-          await log({
-            functionName: 'position-monitor',
-            message: `Position without user_id - auto-closing as orphaned`,
-            level: 'warn',
-            positionId: position.id,
-            metadata: { symbol: position.symbol }
-          });
-          
-          await supabase
-            .from('positions')
-            .update({
-              status: 'closed',
-              close_reason: 'orphaned_no_user',
-              closed_at: new Date().toISOString(),
-              realized_pnl: 0
-            })
-            .eq('id', position.id);
-          
-          continue; // Skip to next position
+        console.log(`\n🔥 Processing user ${user_id}`);
+        
+        // Get user API keys
+        const userKeys = await getUserApiKeys(user_id);
+        if (!userKeys) {
+          console.log(`⚠️ User ${user_id} has no valid API keys, skipping`);
+          continue;
         }
 
-        await log({
-          functionName: 'position-monitor',
-          message: `🔥 Checking position ${position.symbol}`,
-          level: 'info',
-          positionId: position.id,
-          metadata: { symbol: position.symbol, side: position.side }
-        });
+        const apiCredentials = {
+          apiKey: userKeys.apiKey,
+          secretKey: userKeys.secretKey,
+          passphrase: userKeys.passphrase
+        };
 
         // Get user settings
-        const userSettings = await getUserSettings(position.user_id);
+        const userSettings = await getUserSettings(user_id);
 
-        await checkPositionFullVerification(supabase, position, userSettings);
+        // STEP 1: Get ALL positions from EXCHANGE
+        const { data: exchangePositionsResult } = await supabase.functions.invoke('bitget-api', {
+          body: {
+            action: 'get_positions',
+            apiCredentials
+          }
+        });
+
+        const exchangePositions = exchangePositionsResult?.success && exchangePositionsResult.data
+          ? exchangePositionsResult.data.filter((p: any) => parseFloat(p.total || '0') > 0)
+          : [];
+
+        console.log(`📊 Found ${exchangePositions.length} positions on exchange for user ${user_id}`);
+
+        // STEP 2: Get ALL open positions from DB for this user
+        const { data: dbPositions } = await supabase
+          .from('positions')
+          .select('*')
+          .eq('user_id', user_id)
+          .eq('status', 'open');
+
+        const dbPositionsList = dbPositions || [];
+        console.log(`📊 Found ${dbPositionsList.length} positions in DB for user ${user_id}`);
+
+        // STEP 3: SYNC - For each position on EXCHANGE
+        for (const exchPos of exchangePositions) {
+          try {
+            // Find matching position in DB
+            const dbMatch = dbPositionsList.find(p => 
+              p.symbol === exchPos.symbol && 
+              ((p.side === 'BUY' && exchPos.holdSide === 'long') || 
+               (p.side === 'SELL' && exchPos.holdSide === 'short'))
+            );
+
+            if (!dbMatch) {
+              // ORPHAN on exchange - close it
+              console.log(`🚨 ORPHAN position on exchange: ${exchPos.symbol} ${exchPos.holdSide}`);
+              await closeOrphanPosition(supabase, exchPos, apiCredentials);
+              totalPositionsChecked++;
+            } else {
+              // Position exists in both - check SL/TP orders
+              console.log(`✅ Matched position: ${dbMatch.symbol} ${dbMatch.side}`);
+              await checkPositionFullVerification(supabase, dbMatch, userSettings);
+              totalPositionsChecked++;
+            }
+          } catch (error) {
+            console.error(`Error syncing exchange position ${exchPos.symbol}:`, error);
+            await log({
+              functionName: 'position-monitor',
+              message: `Error syncing exchange position`,
+              level: 'error',
+              metadata: { 
+                symbol: exchPos.symbol, 
+                error: error instanceof Error ? error.message : 'Unknown error' 
+              }
+            });
+          }
+        }
+
+        // STEP 4: SYNC - For each position in DB that's NOT on exchange
+        for (const dbPos of dbPositionsList) {
+          try {
+            const exchMatch = exchangePositions.find((e: any) => 
+              e.symbol === dbPos.symbol && 
+              ((dbPos.side === 'BUY' && e.holdSide === 'long') || 
+               (dbPos.side === 'SELL' && e.holdSide === 'short'))
+            );
+
+            if (!exchMatch) {
+              // Position in DB but not on exchange - mark as closed
+              console.log(`⚠️ Position in DB but not on exchange: ${dbPos.symbol}`);
+              await markPositionAsClosed(supabase, dbPos, 'not_found_on_exchange');
+            }
+          } catch (error) {
+            console.error(`Error processing DB position ${dbPos.symbol}:`, error);
+            await log({
+              functionName: 'position-monitor',
+              message: `Error processing DB position`,
+              level: 'error',
+              positionId: dbPos.id,
+              metadata: { 
+                symbol: dbPos.symbol, 
+                error: error instanceof Error ? error.message : 'Unknown error' 
+              }
+            });
+          }
+        }
+
       } catch (error) {
+        console.error(`Error processing user ${user_id}:`, error);
         await log({
           functionName: 'position-monitor',
-          message: `Error checking position ${position.symbol}`,
+          message: `Error processing user`,
           level: 'error',
-          positionId: position.id,
-          metadata: { error: error instanceof Error ? error.message : 'Unknown error' }
+          metadata: { 
+            userId: user_id, 
+            error: error instanceof Error ? error.message : 'Unknown error' 
+          }
         });
-        console.error(`Error checking position ${position.id}:`, error);
-        
-        // Update position with error
-        await supabase
-          .from('positions')
-          .update({
-            check_errors: (position.check_errors || 0) + 1,
-            last_error: error instanceof Error ? error.message : 'Unknown error',
-            last_check_at: new Date().toISOString(),
-          })
-          .eq('id', position.id)
-          .eq('user_id', position.user_id);
       }
     }
 
@@ -429,7 +570,7 @@ serve(async (req) => {
       functionName: 'position-monitor',
       message: '🔥 OKO SAURONA: Monitoring cycle completed',
       level: 'info',
-      metadata: { positionsChecked: positions.length }
+      metadata: { positionsChecked: totalPositionsChecked }
     });
 
     // Release lock
@@ -442,7 +583,7 @@ serve(async (req) => {
 
     return new Response(JSON.stringify({ 
       success: true, 
-      positions_checked: positions.length 
+      positions_checked: totalPositionsChecked 
     }), {
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
     });
@@ -832,25 +973,28 @@ async function checkPositionFullVerification(supabase: any, position: any, setti
       metadata: { expected, currentOrders: planOrders.length }
     });
     
-    // STEP 1: Cancel ALL existing SL/TP orders
+    // STEP 1: Cancel ALL existing SL/TP orders (with verification)
     console.log(`🗑️ Canceling all ${planOrders.length} existing orders...`);
     for (const order of planOrders) {
-      try {
-        await supabase.functions.invoke('bitget-api', {
-          body: {
-            action: 'cancel_plan_order',
-            params: {
-              symbol: position.symbol,
-              orderId: order.orderId,
-              planType: order.planType
-            },
-            apiCredentials
-          }
-        });
-        console.log(`✅ Canceled order ${order.orderId} (${order.planType})`);
-      } catch (e) {
-        console.error(`❌ Failed to cancel order ${order.orderId}:`, e);
+      const { data: cancelResult, error: cancelError } = await supabase.functions.invoke('bitget-api', {
+        body: {
+          action: 'cancel_plan_order',
+          params: {
+            symbol: position.symbol,
+            orderId: order.orderId,
+            planType: order.planType
+          },
+          apiCredentials
+        }
+      });
+      
+      if (cancelError || !cancelResult?.success) {
+        const errorMsg = cancelError?.message || cancelResult?.error || 'Unknown cancel error';
+        console.error(`❌ Failed to cancel order ${order.orderId}:`, errorMsg);
+        throw new Error(`Failed to cancel order ${order.orderId}: ${errorMsg}`);
       }
+      
+      console.log(`✅ Canceled order ${order.orderId} (${order.planType})`);
     }
     
     // Wait a bit for cancellations to process

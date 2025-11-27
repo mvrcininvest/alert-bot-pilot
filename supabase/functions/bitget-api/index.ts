@@ -275,6 +275,7 @@ serve(async (req) => {
 
       case 'close_position':
         // Close entire position - v2 API
+        console.log(`🔄 close_position: ${params.symbol}, side=${params.side}, size=${params.size}`);
         const closeSideParam = params.side.toLowerCase();
         const closeIsLong = closeSideParam.includes('long');
         const closeIsOpen = closeSideParam.includes('open');
@@ -295,6 +296,7 @@ serve(async (req) => {
           orderType: 'market',
           force: 'ioc',
         });
+        console.log(`✅ close_position result:`, result);
         break;
 
       case 'get_ticker':
