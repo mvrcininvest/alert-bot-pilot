@@ -843,6 +843,54 @@ export default function Settings() {
 
                     <Separator />
 
+                    {/* EFFECTIVE RR CALCULATOR */}
+                    <div className="p-4 bg-primary/5 border-2 border-primary/20 rounded-lg">
+                      <div className="flex items-center justify-between mb-2">
+                        <Label className="text-sm font-semibold">Effective Risk:Reward</Label>
+                        <Badge variant="default" className="text-lg px-4 py-1">
+                          {(() => {
+                            const tp1Close = localSettings.tp1_close_percent ?? 100;
+                            const tp2Close = localSettings.tp2_close_percent ?? 0;
+                            const tp3Close = localSettings.tp3_close_percent ?? 0;
+                            const tp1RR = localSettings.tp1_rr_ratio ?? 1.5;
+                            const tp2RR = localSettings.tp2_rr_ratio ?? 2.5;
+                            const tp3RR = localSettings.tp3_rr_ratio ?? 3.5;
+                            
+                            const effectiveRR = (
+                              (tp1Close * tp1RR) +
+                              (localSettings.tp_levels >= 2 ? tp2Close * tp2RR : 0) +
+                              (localSettings.tp_levels >= 3 ? tp3Close * tp3RR : 0)
+                            ) / 100;
+                            
+                            return `${effectiveRR.toFixed(2)}:1`;
+                          })()}
+                        </Badge>
+                      </div>
+                      <p className="text-xs text-muted-foreground">
+                        Średni zysk ÷ strata przy wszystkich TP. Wyliczone na podstawie % zamknięcia i R:R każdego poziomu.
+                      </p>
+                      <div className="mt-3 space-y-1 text-xs">
+                        <div className="flex justify-between">
+                          <span className="text-muted-foreground">TP1: {localSettings.tp1_close_percent ?? 100}% × {localSettings.tp1_rr_ratio ?? 1.5} R:R</span>
+                          <span className="font-medium">= {((localSettings.tp1_close_percent ?? 100) * (localSettings.tp1_rr_ratio ?? 1.5) / 100).toFixed(2)}R</span>
+                        </div>
+                        {localSettings.tp_levels >= 2 && (
+                          <div className="flex justify-between">
+                            <span className="text-muted-foreground">TP2: {localSettings.tp2_close_percent ?? 0}% × {localSettings.tp2_rr_ratio ?? 2.5} R:R</span>
+                            <span className="font-medium">= {((localSettings.tp2_close_percent ?? 0) * (localSettings.tp2_rr_ratio ?? 2.5) / 100).toFixed(2)}R</span>
+                          </div>
+                        )}
+                        {localSettings.tp_levels >= 3 && (
+                          <div className="flex justify-between">
+                            <span className="text-muted-foreground">TP3: {localSettings.tp3_close_percent ?? 0}% × {localSettings.tp3_rr_ratio ?? 3.5} R:R</span>
+                            <span className="font-medium">= {((localSettings.tp3_close_percent ?? 0) * (localSettings.tp3_rr_ratio ?? 3.5) / 100).toFixed(2)}R</span>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+
+                    <Separator />
+
                     <div className="space-y-2">
                       <Label className="text-sm font-semibold">Live Preview - SL & TP %</Label>
                       <div className="space-y-2 text-xs">
