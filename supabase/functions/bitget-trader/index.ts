@@ -502,10 +502,66 @@ serve(async (req) => {
       const symbolLeverageOverrides = settings.symbol_leverage_overrides || {};
       const defaultLeverage = settings.default_leverage || 10;
       
-      if (symbolLeverageOverrides[alert_data.symbol]) {
+      // Check if symbol has override set to "MAX"
+      if (symbolLeverageOverrides[alert_data.symbol] === "MAX") {
+        console.log(`Symbol ${alert_data.symbol} configured for MAX leverage, fetching from API...`);
+        
+        try {
+          const { data: symbolInfoResult } = await supabase.functions.invoke('bitget-api', {
+            body: {
+              action: 'get_symbol_info',
+              apiCredentials,
+              params: { symbol: alert_data.symbol }
+            }
+          });
+          
+          if (symbolInfoResult?.success && symbolInfoResult.data?.[0]?.maxLever) {
+            effectiveLeverage = parseInt(symbolInfoResult.data[0].maxLever);
+            leverageSource = 'symbol_override_max';
+            console.log(`✓ Using MAX leverage for ${alert_data.symbol}: ${effectiveLeverage}x`);
+            
+            await log({
+              functionName: 'bitget-trader',
+              message: `Fetched MAX leverage from API: ${effectiveLeverage}x`,
+              level: 'info',
+              alertId: alert_id,
+              metadata: { symbol: alert_data.symbol, maxLever: effectiveLeverage }
+            });
+          } else {
+            // Fallback to default if API fails
+            effectiveLeverage = defaultLeverage;
+            leverageSource = 'default_fallback';
+            console.warn(`⚠ Could not get MAX leverage for ${alert_data.symbol}, using default: ${effectiveLeverage}x`);
+            
+            await log({
+              functionName: 'bitget-trader',
+              message: `Failed to fetch MAX leverage, using default: ${effectiveLeverage}x`,
+              level: 'warn',
+              alertId: alert_id,
+              metadata: { symbol: alert_data.symbol, defaultLeverage: effectiveLeverage }
+            });
+          }
+        } catch (error) {
+          // Fallback to default on error
+          effectiveLeverage = defaultLeverage;
+          leverageSource = 'default_fallback_error';
+          const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+          console.error(`✗ Error fetching MAX leverage for ${alert_data.symbol}:`, error);
+          
+          await log({
+            functionName: 'bitget-trader',
+            message: `Error fetching MAX leverage: ${errorMessage}`,
+            level: 'error',
+            alertId: alert_id,
+            metadata: { symbol: alert_data.symbol, error: errorMessage }
+          });
+        }
+      } else if (symbolLeverageOverrides[alert_data.symbol]) {
+        // Use custom numeric leverage override
         effectiveLeverage = symbolLeverageOverrides[alert_data.symbol];
         leverageSource = 'symbol_override';
       } else {
+        // Use default leverage
         effectiveLeverage = defaultLeverage;
         leverageSource = 'default';
       }

@@ -12,11 +12,13 @@ import { Separator } from "@/components/ui/separator";
 import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
 import { useState, useEffect } from "react";
+import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 
 export default function Settings() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const [localSettings, setLocalSettings] = useState<any>(null);
+  const [leverageType, setLeverageType] = useState<"custom" | "max">("custom");
 
   const { data: settings, isLoading, error } = useQuery({
     queryKey: ["settings"],
@@ -250,7 +252,7 @@ export default function Settings() {
                     <div className="flex flex-wrap gap-2">
                       {Object.entries(localSettings.symbol_leverage_overrides).map(([symbol, leverage]) => (
                         <Badge key={symbol} variant="outline">
-                          {symbol}: {leverage as number}x
+                          {symbol}: {leverage === "MAX" ? "MAX" : `${leverage}x`}
                         </Badge>
                       ))}
                     </div>
@@ -654,7 +656,9 @@ export default function Settings() {
                       <div key={symbol} className="flex items-center justify-between p-2 border rounded-lg">
                         <div className="flex items-center gap-2">
                           <Badge variant="outline">{symbol}</Badge>
-                          <span className="text-sm">{leverage as number}x</span>
+                          <span className="text-sm font-medium">
+                            {leverage === "MAX" ? "MAX" : `${leverage}x`}
+                          </span>
                         </div>
                         <Button
                           variant="ghost"
@@ -672,58 +676,106 @@ export default function Settings() {
                   </div>
                 )}
 
-                <div className="flex gap-2">
-                  <Input
-                    id="new-symbol"
-                    placeholder="Symbol (np. BTCUSDT)"
-                    className="flex-1"
-                    disabled={localSettings.use_alert_leverage !== false}
-                  />
-                  <Input
-                    id="new-leverage"
-                    type="number"
-                    min="1"
-                    max="125"
-                    placeholder="Dźwignia"
-                    className="w-24"
-                    disabled={localSettings.use_alert_leverage !== false}
-                  />
-                  <Button
-                    disabled={localSettings.use_alert_leverage !== false}
-                    onClick={() => {
-                      const symbolInput = document.getElementById("new-symbol") as HTMLInputElement;
-                      const leverageInput = document.getElementById("new-leverage") as HTMLInputElement;
-                      
-                      const symbol = symbolInput?.value.trim().toUpperCase();
-                      const leverage = parseInt(leverageInput?.value);
-                      
-                      if (symbol && leverage && leverage > 0 && leverage <= 125) {
+                <div className="space-y-3">
+                  <div className="space-y-2">
+                    <Label>Typ dźwigni</Label>
+                    <RadioGroup 
+                      value={leverageType} 
+                      onValueChange={(value) => setLeverageType(value as "custom" | "max")}
+                      disabled={localSettings.use_alert_leverage !== false}
+                    >
+                      <div className="flex items-center space-x-2">
+                        <RadioGroupItem value="custom" id="custom" />
+                        <Label htmlFor="custom" className="font-normal cursor-pointer">
+                          Własna wartość (1-125x)
+                        </Label>
+                      </div>
+                      <div className="flex items-center space-x-2">
+                        <RadioGroupItem value="max" id="max" />
+                        <Label htmlFor="max" className="font-normal cursor-pointer">
+                          Maksymalna dostępna dla symbolu (MAX)
+                        </Label>
+                      </div>
+                    </RadioGroup>
+                  </div>
+
+                  <div className="flex gap-2">
+                    <Input
+                      id="new-symbol"
+                      placeholder="Symbol (np. BTCUSDT)"
+                      className="flex-1"
+                      disabled={localSettings.use_alert_leverage !== false}
+                    />
+                    {leverageType === "custom" && (
+                      <Input
+                        id="new-leverage"
+                        type="number"
+                        min="1"
+                        max="125"
+                        placeholder="Dźwignia"
+                        className="w-24"
+                        disabled={localSettings.use_alert_leverage !== false}
+                      />
+                    )}
+                    <Button
+                      disabled={localSettings.use_alert_leverage !== false}
+                      onClick={() => {
+                        const symbolInput = document.getElementById("new-symbol") as HTMLInputElement;
+                        const symbol = symbolInput?.value.trim().toUpperCase();
+                        
+                        if (!symbol) {
+                          toast({
+                            title: "Błąd",
+                            description: "Wprowadź symbol",
+                            variant: "destructive",
+                          });
+                          return;
+                        }
+
+                        let leverageValue: number | string;
+                        let displayValue: string;
+
+                        if (leverageType === "max") {
+                          leverageValue = "MAX";
+                          displayValue = "MAX";
+                        } else {
+                          const leverageInput = document.getElementById("new-leverage") as HTMLInputElement;
+                          const leverage = parseInt(leverageInput?.value);
+                          
+                          if (!leverage || leverage <= 0 || leverage > 125) {
+                            toast({
+                              title: "Błąd",
+                              description: "Wprowadź prawidłową dźwignię (1-125)",
+                              variant: "destructive",
+                            });
+                            return;
+                          }
+                          
+                          leverageValue = leverage;
+                          displayValue = `${leverage}x`;
+                          leverageInput.value = "";
+                        }
+
                         const updated = {
                           ...(localSettings.symbol_leverage_overrides || {}),
-                          [symbol]: leverage
+                          [symbol]: leverageValue
                         };
                         updateLocal("symbol_leverage_overrides", updated);
                         symbolInput.value = "";
-                        leverageInput.value = "";
+                        
                         toast({
                           title: "Dodano",
-                          description: `Ustawiono ${symbol} na dźwignię ${leverage}x`,
+                          description: `Ustawiono ${symbol} na dźwignię ${displayValue}`,
                         });
-                      } else {
-                        toast({
-                          title: "Błąd",
-                          description: "Wprowadź prawidłowy symbol i dźwignię (1-125)",
-                          variant: "destructive",
-                        });
-                      }
-                    }}
-                  >
-                    Dodaj
-                  </Button>
+                      }}
+                    >
+                      Dodaj
+                    </Button>
+                  </div>
+                  <p className="text-xs text-muted-foreground">
+                    Przykład: BTCUSDT z dźwignią 20x lub MAX dla maksymalnej dostępnej
+                  </p>
                 </div>
-                <p className="text-xs text-muted-foreground">
-                  Przykład: BTCUSDT z dźwignią 20x, ETHUSDT z 15x
-                </p>
               </div>
             </CardContent>
           </Card>
