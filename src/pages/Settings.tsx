@@ -274,157 +274,245 @@ export default function Settings() {
               <Separator />
 
               {/* KALKULATOR SL/TP */}
-              <div>
-                <h3 className="font-semibold mb-3">Kalkulator SL/TP</h3>
-                <div className="grid grid-cols-2 gap-3 text-sm">
-                  <div className="space-y-1">
-                    <div className="text-xs text-muted-foreground">Typ kalkulatora</div>
-                    <div className="font-medium">
-                      {localSettings.calculator_type === "simple_percent" && "Prosty (%)"}
-                      {localSettings.calculator_type === "risk_reward" && "Risk:Reward"}
-                      {localSettings.calculator_type === "atr_based" && "ATR-based"}
+              {localSettings.position_sizing_type !== "scalping_mode" ? (
+                <div>
+                  <h3 className="font-semibold mb-3">Kalkulator SL/TP</h3>
+                  <div className="grid grid-cols-2 gap-3 text-sm">
+                    <div className="space-y-1">
+                      <div className="text-xs text-muted-foreground">Typ kalkulatora</div>
+                      <div className="font-medium">
+                        {localSettings.calculator_type === "simple_percent" && "Prosty (%)"}
+                        {localSettings.calculator_type === "risk_reward" && "Risk:Reward"}
+                        {localSettings.calculator_type === "atr_based" && "ATR-based"}
+                      </div>
+                    </div>
+                    <div className="space-y-1">
+                      <div className="text-xs text-muted-foreground">Liczba poziomów TP</div>
+                      <div className="font-medium">{localSettings.tp_levels || 1}</div>
                     </div>
                   </div>
-                  <div className="space-y-1">
-                    <div className="text-xs text-muted-foreground">Liczba poziomów TP</div>
-                    <div className="font-medium">{localSettings.tp_levels || 1}</div>
-                  </div>
-                </div>
 
-                {/* Simple Percent */}
-                {localSettings.calculator_type === "simple_percent" && (
-                  <div className="mt-3 p-3 bg-muted/30 rounded-lg">
-                    <div className="text-xs font-medium mb-2">Prosty (%)</div>
-                    <div className="grid grid-cols-2 gap-3 text-sm">
-                      <div>
-                        <div className="text-xs text-muted-foreground">SL %</div>
-                        <div className="font-medium">{localSettings.simple_sl_percent || 1.5}%</div>
+                  {/* Simple Percent */}
+                  {localSettings.calculator_type === "simple_percent" && (
+                    <div className="mt-3 p-3 bg-muted/30 rounded-lg">
+                      <div className="text-xs font-medium mb-2">Prosty (%)</div>
+                      <div className="grid grid-cols-2 gap-3 text-sm">
+                        <div>
+                          <div className="text-xs text-muted-foreground">SL %</div>
+                          <div className="font-medium">{localSettings.simple_sl_percent || 1.5}%</div>
+                        </div>
+                        <div>
+                          <div className="text-xs text-muted-foreground">TP1 %</div>
+                          <div className="font-medium">{localSettings.simple_tp_percent || 3}%</div>
+                        </div>
+                        {localSettings.tp_levels >= 2 && (
+                          <div>
+                            <div className="text-xs text-muted-foreground">TP2 %</div>
+                            <div className="font-medium">{localSettings.simple_tp2_percent || (localSettings.simple_tp_percent * 1.5)}%</div>
+                          </div>
+                        )}
+                        {localSettings.tp_levels >= 3 && (
+                          <div>
+                            <div className="text-xs text-muted-foreground">TP3 %</div>
+                            <div className="font-medium">{localSettings.simple_tp3_percent || (localSettings.simple_tp_percent * 2)}%</div>
+                          </div>
+                        )}
                       </div>
+                    </div>
+                  )}
+
+                  {/* Risk Reward */}
+                  {localSettings.calculator_type === "risk_reward" && (
+                    <div className="mt-3 p-3 bg-muted/30 rounded-lg">
+                      <div className="text-xs font-medium mb-2">Risk:Reward</div>
+                      <div className="grid grid-cols-2 gap-3 text-sm">
+                        <div>
+                          <div className="text-xs text-muted-foreground">SL % margin</div>
+                          <div className="font-medium">{localSettings.rr_sl_percent_margin || 2}%</div>
+                        </div>
+                        <div>
+                          <div className="text-xs text-muted-foreground">Adaptive R:R</div>
+                          <div className="font-medium">{localSettings.rr_adaptive ? "✓" : "✗"}</div>
+                        </div>
+                        {localSettings.rr_adaptive && (
+                          <>
+                            <div>
+                              <div className="text-xs text-muted-foreground">Słaby R:R</div>
+                              <div className="font-medium">{localSettings.adaptive_rr_weak_signal || 1.5}</div>
+                            </div>
+                            <div>
+                              <div className="text-xs text-muted-foreground">Standard R:R</div>
+                              <div className="font-medium">{localSettings.adaptive_rr_standard || 2.0}</div>
+                            </div>
+                            <div>
+                              <div className="text-xs text-muted-foreground">Silny R:R</div>
+                              <div className="font-medium">{localSettings.adaptive_rr_strong || 2.5}</div>
+                            </div>
+                            <div>
+                              <div className="text-xs text-muted-foreground">Bardzo silny R:R</div>
+                              <div className="font-medium">{localSettings.adaptive_rr_very_strong || 3.0}</div>
+                            </div>
+                          </>
+                        )}
+                        <div>
+                          <div className="text-xs text-muted-foreground">TP1 R:R</div>
+                          <div className="font-medium">{localSettings.tp1_rr_ratio || 1.5}</div>
+                        </div>
+                        {localSettings.tp_levels >= 2 && (
+                          <div>
+                            <div className="text-xs text-muted-foreground">TP2 R:R</div>
+                            <div className="font-medium">{localSettings.tp2_rr_ratio || 2.5}</div>
+                          </div>
+                        )}
+                        {localSettings.tp_levels >= 3 && (
+                          <div>
+                            <div className="text-xs text-muted-foreground">TP3 R:R</div>
+                            <div className="font-medium">{localSettings.tp3_rr_ratio || 3.5}</div>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* ATR Based */}
+                  {localSettings.calculator_type === "atr_based" && (
+                    <div className="mt-3 p-3 bg-muted/30 rounded-lg">
+                      <div className="text-xs font-medium mb-2">ATR-based</div>
+                      <div className="grid grid-cols-2 gap-3 text-sm">
+                        <div>
+                          <div className="text-xs text-muted-foreground">SL multiplier</div>
+                          <div className="font-medium">{localSettings.atr_sl_multiplier || 1.5}x</div>
+                        </div>
+                        <div>
+                          <div className="text-xs text-muted-foreground">TP1 multiplier</div>
+                          <div className="font-medium">{localSettings.atr_tp_multiplier || 3}x</div>
+                        </div>
+                        {localSettings.tp_levels >= 2 && (
+                          <div>
+                            <div className="text-xs text-muted-foreground">TP2 multiplier</div>
+                            <div className="font-medium">{localSettings.atr_tp2_multiplier || (localSettings.atr_tp_multiplier * 1.5)}x</div>
+                          </div>
+                        )}
+                        {localSettings.tp_levels >= 3 && (
+                          <div>
+                            <div className="text-xs text-muted-foreground">TP3 multiplier</div>
+                            <div className="font-medium">{localSettings.atr_tp3_multiplier || (localSettings.atr_tp_multiplier * 2)}x</div>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* % zamknięcia pozycji */}
+                  <div className="mt-3 p-3 bg-muted/30 rounded-lg">
+                    <div className="text-xs font-medium mb-2">% zamknięcia pozycji</div>
+                    <div className="grid grid-cols-3 gap-3 text-sm">
                       <div>
-                        <div className="text-xs text-muted-foreground">TP1 %</div>
-                        <div className="font-medium">{localSettings.simple_tp_percent || 3}%</div>
+                        <div className="text-xs text-muted-foreground">TP1</div>
+                        <div className="font-medium">{localSettings.tp1_close_percent || 100}%</div>
                       </div>
                       {localSettings.tp_levels >= 2 && (
                         <div>
-                          <div className="text-xs text-muted-foreground">TP2 %</div>
-                          <div className="font-medium">{localSettings.simple_tp2_percent || (localSettings.simple_tp_percent * 1.5)}%</div>
+                          <div className="text-xs text-muted-foreground">TP2</div>
+                          <div className="font-medium">{localSettings.tp2_close_percent || 0}%</div>
                         </div>
                       )}
                       {localSettings.tp_levels >= 3 && (
                         <div>
-                          <div className="text-xs text-muted-foreground">TP3 %</div>
-                          <div className="font-medium">{localSettings.simple_tp3_percent || (localSettings.simple_tp_percent * 2)}%</div>
+                          <div className="text-xs text-muted-foreground">TP3</div>
+                          <div className="font-medium">{localSettings.tp3_close_percent || 0}%</div>
                         </div>
                       )}
                     </div>
                   </div>
-                )}
-
-                {/* Risk Reward */}
-                {localSettings.calculator_type === "risk_reward" && (
-                  <div className="mt-3 p-3 bg-muted/30 rounded-lg">
-                    <div className="text-xs font-medium mb-2">Risk:Reward</div>
+                </div>
+              ) : (
+                <div>
+                  <h3 className="font-semibold mb-3">🎯 Scalping Mode - SL/TP</h3>
+                  <div className="p-3 bg-primary/10 rounded-lg">
                     <div className="grid grid-cols-2 gap-3 text-sm">
-                      <div>
-                        <div className="text-xs text-muted-foreground">SL % margin</div>
-                        <div className="font-medium">{localSettings.rr_sl_percent_margin || 2}%</div>
+                      <div className="space-y-1">
+                        <div className="text-xs text-muted-foreground">Algorytm SL</div>
+                        <div className="font-medium">
+                          SL% = {localSettings.max_loss_per_trade} / ({localSettings.max_margin_per_trade} × leverage)
+                        </div>
                       </div>
-                      <div>
-                        <div className="text-xs text-muted-foreground">Adaptive R:R</div>
-                        <div className="font-medium">{localSettings.rr_adaptive ? "✓" : "✗"}</div>
+                      <div className="space-y-1">
+                        <div className="text-xs text-muted-foreground">Zakres SL%</div>
+                        <div className="font-medium">{localSettings.sl_percent_min}% - {localSettings.sl_percent_max}%</div>
                       </div>
-                      {localSettings.rr_adaptive && (
-                        <>
-                          <div>
-                            <div className="text-xs text-muted-foreground">Słaby R:R</div>
-                            <div className="font-medium">{localSettings.adaptive_rr_weak_signal || 1.5}</div>
-                          </div>
-                          <div>
-                            <div className="text-xs text-muted-foreground">Standard R:R</div>
-                            <div className="font-medium">{localSettings.adaptive_rr_standard || 2.0}</div>
-                          </div>
-                          <div>
-                            <div className="text-xs text-muted-foreground">Silny R:R</div>
-                            <div className="font-medium">{localSettings.adaptive_rr_strong || 2.5}</div>
-                          </div>
-                          <div>
-                            <div className="text-xs text-muted-foreground">Bardzo silny R:R</div>
-                            <div className="font-medium">{localSettings.adaptive_rr_very_strong || 3.0}</div>
-                          </div>
-                        </>
-                      )}
-                      <div>
+                      <div className="space-y-1">
                         <div className="text-xs text-muted-foreground">TP1 R:R</div>
-                        <div className="font-medium">{localSettings.tp1_rr_ratio || 1.5}</div>
+                        <div className="font-medium">{localSettings.tp1_rr_ratio} (distance = SL × {localSettings.tp1_rr_ratio})</div>
                       </div>
                       {localSettings.tp_levels >= 2 && (
-                        <div>
+                        <div className="space-y-1">
                           <div className="text-xs text-muted-foreground">TP2 R:R</div>
-                          <div className="font-medium">{localSettings.tp2_rr_ratio || 2.5}</div>
+                          <div className="font-medium">{localSettings.tp2_rr_ratio} (distance = SL × {localSettings.tp2_rr_ratio})</div>
                         </div>
                       )}
                       {localSettings.tp_levels >= 3 && (
-                        <div>
+                        <div className="space-y-1">
                           <div className="text-xs text-muted-foreground">TP3 R:R</div>
-                          <div className="font-medium">{localSettings.tp3_rr_ratio || 3.5}</div>
+                          <div className="font-medium">{localSettings.tp3_rr_ratio} (distance = SL × {localSettings.tp3_rr_ratio})</div>
                         </div>
                       )}
                     </div>
-                  </div>
-                )}
-
-                {/* ATR Based */}
-                {localSettings.calculator_type === "atr_based" && (
-                  <div className="mt-3 p-3 bg-muted/30 rounded-lg">
-                    <div className="text-xs font-medium mb-2">ATR-based</div>
-                    <div className="grid grid-cols-2 gap-3 text-sm">
-                      <div>
-                        <div className="text-xs text-muted-foreground">SL multiplier</div>
-                        <div className="font-medium">{localSettings.atr_sl_multiplier || 1.5}x</div>
+                    
+                    {/* Live calculation example */}
+                    <div className="mt-3 pt-3 border-t border-border/50 text-xs">
+                      <div className="font-medium mb-2">Przykład dla 75x leverage:</div>
+                      <div className="grid grid-cols-4 gap-2">
+                        <div>
+                          <div className="text-muted-foreground">SL%:</div>
+                          <div className="font-medium">{((localSettings.max_loss_per_trade / (localSettings.max_margin_per_trade * 75)) * 100).toFixed(2)}%</div>
+                        </div>
+                        <div>
+                          <div className="text-muted-foreground">Loss:</div>
+                          <div className="font-medium">{localSettings.max_loss_per_trade} USDT</div>
+                        </div>
+                        <div>
+                          <div className="text-muted-foreground">TP1%:</div>
+                          <div className="font-medium">{((localSettings.max_loss_per_trade / (localSettings.max_margin_per_trade * 75)) * 100 * localSettings.tp1_rr_ratio).toFixed(2)}%</div>
+                        </div>
+                        {localSettings.tp_levels >= 2 && (
+                          <div>
+                            <div className="text-muted-foreground">TP2%:</div>
+                            <div className="font-medium">{((localSettings.max_loss_per_trade / (localSettings.max_margin_per_trade * 75)) * 100 * localSettings.tp2_rr_ratio).toFixed(2)}%</div>
+                          </div>
+                        )}
                       </div>
+                    </div>
+                  </div>
+                  
+                  <Badge variant="outline" className="mt-2">
+                    ⚠️ Standardowy kalkulator (Risk:Reward, SL% margin) jest ignorowany
+                  </Badge>
+
+                  {/* % zamknięcia pozycji */}
+                  <div className="mt-3 p-3 bg-muted/30 rounded-lg">
+                    <div className="text-xs font-medium mb-2">% zamknięcia pozycji</div>
+                    <div className="grid grid-cols-3 gap-3 text-sm">
                       <div>
-                        <div className="text-xs text-muted-foreground">TP1 multiplier</div>
-                        <div className="font-medium">{localSettings.atr_tp_multiplier || 3}x</div>
+                        <div className="text-xs text-muted-foreground">TP1</div>
+                        <div className="font-medium">{localSettings.tp1_close_percent || 100}%</div>
                       </div>
                       {localSettings.tp_levels >= 2 && (
                         <div>
-                          <div className="text-xs text-muted-foreground">TP2 multiplier</div>
-                          <div className="font-medium">{localSettings.atr_tp2_multiplier || (localSettings.atr_tp_multiplier * 1.5)}x</div>
+                          <div className="text-xs text-muted-foreground">TP2</div>
+                          <div className="font-medium">{localSettings.tp2_close_percent || 0}%</div>
                         </div>
                       )}
                       {localSettings.tp_levels >= 3 && (
                         <div>
-                          <div className="text-xs text-muted-foreground">TP3 multiplier</div>
-                          <div className="font-medium">{localSettings.atr_tp3_multiplier || (localSettings.atr_tp_multiplier * 2)}x</div>
+                          <div className="text-xs text-muted-foreground">TP3</div>
+                          <div className="font-medium">{localSettings.tp3_close_percent || 0}%</div>
                         </div>
                       )}
                     </div>
-                  </div>
-                )}
-
-                {/* % zamknięcia pozycji */}
-                <div className="mt-3 p-3 bg-muted/30 rounded-lg">
-                  <div className="text-xs font-medium mb-2">% zamknięcia pozycji</div>
-                  <div className="grid grid-cols-3 gap-3 text-sm">
-                    <div>
-                      <div className="text-xs text-muted-foreground">TP1</div>
-                      <div className="font-medium">{localSettings.tp1_close_percent || 100}%</div>
-                    </div>
-                    {localSettings.tp_levels >= 2 && (
-                      <div>
-                        <div className="text-xs text-muted-foreground">TP2</div>
-                        <div className="font-medium">{localSettings.tp2_close_percent || 0}%</div>
-                      </div>
-                    )}
-                    {localSettings.tp_levels >= 3 && (
-                      <div>
-                        <div className="text-xs text-muted-foreground">TP3</div>
-                        <div className="font-medium">{localSettings.tp3_close_percent || 0}%</div>
-                      </div>
-                    )}
                   </div>
                 </div>
-              </div>
+              )}
 
               <Separator />
 
