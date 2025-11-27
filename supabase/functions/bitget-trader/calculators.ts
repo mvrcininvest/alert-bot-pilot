@@ -73,7 +73,8 @@ export function calculatePositionSize(
 export function calculateSLTP(
   alertData: AlertData,
   settings: Settings,
-  positionSize: number
+  positionSize: number,
+  effectiveLeverage: number
 ): CalculatedPrices {
   let slPrice: number;
   let tp1Price: number | undefined;
@@ -84,7 +85,7 @@ export function calculateSLTP(
   // CRITICAL: When using risk_reward calculator, use rr_sl_percent_margin
   if (settings.calculator_type === 'risk_reward' && settings.sl_method === 'percent_entry') {
     // For risk_reward: use rr_sl_percent_margin (e.g., 10% margin = 1% from entry at 10x leverage)
-    slPrice = calculateSLByPercentMargin(alertData, settings, positionSize);
+    slPrice = calculateSLByPercentMargin(alertData, settings, positionSize, effectiveLeverage);
   } else {
     // For other calculators or methods, use the specified sl_method
     switch (settings.sl_method) {
@@ -92,7 +93,7 @@ export function calculateSLTP(
         slPrice = calculateSLByPercentEntry(alertData, settings);
         break;
       case 'percent_margin':
-        slPrice = calculateSLByPercentMargin(alertData, settings, positionSize);
+        slPrice = calculateSLByPercentMargin(alertData, settings, positionSize, effectiveLeverage);
         break;
       case 'fixed_usdt':
         slPrice = calculateSLByFixedUSDT(alertData, settings, positionSize);
@@ -172,9 +173,11 @@ function calculateSLByPercentEntry(alertData: AlertData, settings: Settings): nu
 function calculateSLByPercentMargin(
   alertData: AlertData,
   settings: Settings,
-  positionSize: number
+  positionSize: number,
+  effectiveLeverage: number
 ): number {
-  const marginValue = positionSize * alertData.price / alertData.leverage;
+  // CRITICAL FIX: Use effectiveLeverage (from bot settings) instead of alertData.leverage (from TradingView)
+  const marginValue = positionSize * alertData.price / effectiveLeverage;
   const maxLoss = marginValue * (settings.rr_sl_percent_margin / 100);
   const slDistance = maxLoss / positionSize;
   
