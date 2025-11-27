@@ -98,9 +98,60 @@ export default function Dashboard() {
             }
           });
           
+          // Get accurate position data from exchange
+          const { data: positionData } = await supabase.functions.invoke('bitget-api', {
+            body: { 
+              action: 'get_position',
+              params: { symbol: pos.symbol }
+            }
+          });
+          
+          const exchangePosition = positionData?.success && positionData.data?.[0] 
+            ? positionData.data[0] 
+            : null;
+          
+          // Update DB entry_price if exchange openPriceAvg differs
+          if (exchangePosition?.openPriceAvg) {
+            const dbEntryPrice = Number(pos.entry_price);
+            const exchangeEntryPrice = Number(exchangePosition.openPriceAvg);
+            
+            if (Math.abs(dbEntryPrice - exchangeEntryPrice) > 0.0001) {
+              console.log(`📝 Updating entry_price for ${pos.symbol}: ${dbEntryPrice} → ${exchangeEntryPrice}`);
+              await supabase
+                .from('positions')
+                .update({ entry_price: exchangeEntryPrice })
+                .eq('id', pos.id);
+            }
+          }
+          
           dataMap[pos.symbol] = {
             currentPrice: tickerData?.success && tickerData.data?.[0]?.lastPr 
               ? Number(tickerData.data[0].lastPr) 
+              : null,
+            markPrice: tickerData?.success && tickerData.data?.[0]?.markPrice
+              ? Number(tickerData.data[0].markPrice)
+              : null,
+            fundingRate: tickerData?.success && tickerData.data?.[0]?.fundingRate
+              ? Number(tickerData.data[0].fundingRate)
+              : null,
+            // Exchange position data
+            liquidationPrice: exchangePosition?.liquidationPrice 
+              ? Number(exchangePosition.liquidationPrice) 
+              : null,
+            unrealizedPL: exchangePosition?.unrealizedPL 
+              ? Number(exchangePosition.unrealizedPL) 
+              : null,
+            margin: exchangePosition?.margin 
+              ? Number(exchangePosition.margin) 
+              : null,
+            achievedProfits: exchangePosition?.achievedProfits 
+              ? Number(exchangePosition.achievedProfits) 
+              : null,
+            breakEvenPrice: exchangePosition?.breakEvenPrice 
+              ? Number(exchangePosition.breakEvenPrice) 
+              : null,
+            openPriceAvg: exchangePosition?.openPriceAvg 
+              ? Number(exchangePosition.openPriceAvg) 
               : null,
             slOrders: ordersData?.success && ordersData.data?.entrustedList
               ? ordersData.data.entrustedList.filter((o: any) => 
@@ -121,7 +172,19 @@ export default function Dashboard() {
           };
         } catch (err) {
           console.error(`Failed to fetch data for ${pos.symbol}:`, err);
-          dataMap[pos.symbol] = { currentPrice: null, slOrders: [], tpOrders: [] };
+          dataMap[pos.symbol] = { 
+            currentPrice: null, 
+            markPrice: null,
+            fundingRate: null,
+            liquidationPrice: null,
+            unrealizedPL: null,
+            margin: null,
+            achievedProfits: null,
+            breakEvenPrice: null,
+            openPriceAvg: null,
+            slOrders: [], 
+            tpOrders: [] 
+          };
         }
       }
       
@@ -134,14 +197,18 @@ export default function Dashboard() {
   const positionsWithLivePnL = positions?.map(pos => {
     const liveInfo = liveData?.[pos.symbol];
     const currentPrice = liveInfo?.currentPrice || Number(pos.current_price) || Number(pos.entry_price);
+    const markPrice = liveInfo?.markPrice || currentPrice;
     const quantity = Number(pos.quantity);
-    const entryPrice = Number(pos.entry_price);
+    const entryPrice = liveInfo?.openPriceAvg || Number(pos.entry_price);
     
-    let unrealizedPnL = 0;
-    if (pos.side === 'BUY') {
-      unrealizedPnL = (currentPrice - entryPrice) * quantity;
-    } else {
-      unrealizedPnL = (entryPrice - currentPrice) * quantity;
+    // Use exchange PnL if available, otherwise calculate locally
+    let unrealizedPnL = liveInfo?.unrealizedPL;
+    if (unrealizedPnL === null || unrealizedPnL === undefined) {
+      if (pos.side === 'BUY') {
+        unrealizedPnL = (currentPrice - entryPrice) * quantity;
+      } else {
+        unrealizedPnL = (entryPrice - currentPrice) * quantity;
+      }
     }
     
     const slOrders = liveInfo?.slOrders || [];
@@ -160,7 +227,14 @@ export default function Dashboard() {
     return {
       ...pos,
       current_price: currentPrice,
+      mark_price: markPrice,
+      entry_price: entryPrice,
       unrealized_pnl: unrealizedPnL,
+      liquidation_price: liveInfo?.liquidationPrice,
+      breakeven_price: liveInfo?.breakEvenPrice,
+      margin_used: liveInfo?.margin,
+      achieved_profits: liveInfo?.achievedProfits || 0,
+      funding_rate: liveInfo?.fundingRate,
       real_sl_price: realSlPrice,
       real_tp_prices: realTpPrices,
       has_sl_order: slOrders.length > 0,
@@ -456,15 +530,39 @@ export default function Dashboard() {
                       </div>
                       
                       {/* Price Info Grid */}
-                      <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4 pl-3">
+                      <div className="grid grid-cols-2 md:grid-cols-5 gap-3 mb-4 pl-3">
                         <div className="space-y-1">
-                          <p className="text-xs text-muted-foreground">Entry Price</p>
+                          <p className="text-xs text-muted-foreground">Entry</p>
                           <p className="text-sm font-semibold">${Number(pos.entry_price).toFixed(4)}</p>
                         </div>
                         <div className="space-y-1">
-                          <p className="text-xs text-muted-foreground">Current Price</p>
+                          <p className="text-xs text-muted-foreground">Current</p>
                           <p className="text-sm font-semibold">${Number(pos.current_price).toFixed(4)}</p>
                         </div>
+                        <div className="space-y-1">
+                          <p className="text-xs text-muted-foreground">Mark</p>
+                          <p className="text-sm font-semibold">${(pos.mark_price || pos.current_price).toFixed(4)}</p>
+                        </div>
+                        <div className="space-y-1">
+                          <p className="text-xs text-muted-foreground">Breakeven</p>
+                          <p className="text-sm font-semibold">
+                            {pos.breakeven_price ? `$${Number(pos.breakeven_price).toFixed(4)}` : '-'}
+                          </p>
+                        </div>
+                        <div className="space-y-1">
+                          <p className="text-xs text-muted-foreground">Liquidation</p>
+                          <p className={`text-sm font-semibold ${
+                            pos.liquidation_price && Math.abs(Number(pos.current_price) - Number(pos.liquidation_price)) / Number(pos.current_price) < 0.1 
+                              ? 'text-loss animate-pulse' 
+                              : 'text-muted-foreground'
+                          }`}>
+                            {pos.liquidation_price ? `$${Number(pos.liquidation_price).toFixed(4)}` : '-'}
+                          </p>
+                        </div>
+                      </div>
+                      
+                      {/* Additional Info Row */}
+                      <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4 pl-3">
                         <div className="space-y-1">
                           <p className="text-xs text-muted-foreground">Quantity</p>
                           <p className="text-sm font-semibold">{Number(pos.quantity).toFixed(4)}</p>
@@ -473,7 +571,35 @@ export default function Dashboard() {
                           <p className="text-xs text-muted-foreground">Notional</p>
                           <p className="text-sm font-semibold">${notionalValue.toFixed(2)}</p>
                         </div>
+                        <div className="space-y-1">
+                          <p className="text-xs text-muted-foreground">Margin (Exchange)</p>
+                          <p className="text-sm font-semibold">
+                            ${pos.margin_used ? Number(pos.margin_used).toFixed(2) : marginUsed.toFixed(2)}
+                          </p>
+                        </div>
+                        <div className="space-y-1">
+                          <p className="text-xs text-muted-foreground">Funding Rate</p>
+                          <p className="text-sm font-semibold">
+                            {pos.funding_rate !== null && pos.funding_rate !== undefined 
+                              ? `${(Number(pos.funding_rate) * 100).toFixed(4)}%` 
+                              : '-'}
+                          </p>
+                        </div>
                       </div>
+                      
+                      {/* Warning badge if close to liquidation */}
+                      {pos.liquidation_price && (
+                        (() => {
+                          const distanceToLiq = Math.abs((Number(pos.current_price) - Number(pos.liquidation_price)) / Number(pos.current_price)) * 100;
+                          return distanceToLiq < 10 ? (
+                            <div className="mb-4 pl-3">
+                              <Badge variant="destructive" className="animate-pulse">
+                                ⚠️ BLISKO LIKWIDACJI: {distanceToLiq.toFixed(1)}% odległości
+                              </Badge>
+                            </div>
+                          ) : null;
+                        })()
+                      )}
 
                       {/* SL/TP Section */}
                       <div className="grid grid-cols-2 gap-3 mb-4 pl-3 pt-3 border-t border-border/50">
@@ -518,14 +644,26 @@ export default function Dashboard() {
                       )}
 
                       {/* PnL Display */}
-                      <div className={`text-right pl-3 pt-3 border-t border-border/50`}>
-                        <p className="text-xs text-muted-foreground mb-1">Unrealized P&L</p>
-                        <p className={`text-2xl font-bold ${Number(pos.unrealized_pnl || 0) >= 0 ? "text-profit glow-text" : "text-loss glow-text"}`}>
-                          ${Number(pos.unrealized_pnl || 0).toFixed(2)}
-                          <span className="text-sm ml-2">
-                            ({pnlPercent >= 0 ? '+' : ''}{pnlPercent.toFixed(2)}%)
-                          </span>
-                        </p>
+                      <div className="pl-3 pt-3 border-t border-border/50 space-y-2">
+                        <div className="flex items-center justify-between">
+                          <div>
+                            <p className="text-xs text-muted-foreground mb-1">Unrealized P&L (Exchange)</p>
+                            <p className={`text-2xl font-bold ${Number(pos.unrealized_pnl || 0) >= 0 ? "text-profit glow-text" : "text-loss glow-text"}`}>
+                              ${Number(pos.unrealized_pnl || 0).toFixed(2)}
+                              <span className="text-sm ml-2">
+                                ({pnlPercent >= 0 ? '+' : ''}{pnlPercent.toFixed(2)}%)
+                              </span>
+                            </p>
+                          </div>
+                          {pos.achieved_profits > 0 && (
+                            <div className="text-right">
+                              <p className="text-xs text-muted-foreground mb-1">Zrealizowane z TP</p>
+                              <p className="text-lg font-bold text-profit">
+                                +${Number(pos.achieved_profits).toFixed(2)}
+                              </p>
+                            </div>
+                          )}
+                        </div>
                       </div>
                     </div>
                   );
