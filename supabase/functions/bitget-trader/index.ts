@@ -869,50 +869,197 @@ serve(async (req) => {
       console.error('Failed to place SL order:', slResult);
     }
 
-    // Calculate quantities for partial TP closing
-    // CRITICAL: Ensure each TP quantity meets Bitget's minimum (minQuantity)
-    // If tp_strategy is partial_close but the split would be below minimum,
-    // place full position size on each TP instead
+    // Helper function: Determine how many TP levels can be set based on quantity
+    function determineActualTPLevels(
+      quantity: number,
+      minQuantity: number,
+      requestedLevels: number,
+      percentages: { tp1: number; tp2: number; tp3: number }
+    ): number {
+      // Check if we can split into 3 TP levels
+      if (requestedLevels >= 3) {
+        const tp1Qty = quantity * (percentages.tp1 / 100);
+        const tp2Qty = quantity * (percentages.tp2 / 100);
+        const tp3Qty = quantity * (percentages.tp3 / 100);
+        
+        if (tp1Qty >= minQuantity && tp2Qty >= minQuantity && tp3Qty >= minQuantity) {
+          return 3;
+        }
+      }
+      
+      // Check if we can split into 2 TP levels (with redistributed TP3 %)
+      if (requestedLevels >= 2) {
+        const redistributed = percentages.tp3 / 2;
+        const adjustedTp1Percent = percentages.tp1 + redistributed;
+        const adjustedTp2Percent = percentages.tp2 + redistributed;
+        
+        const tp1Qty = quantity * (adjustedTp1Percent / 100);
+        const tp2Qty = quantity * (adjustedTp2Percent / 100);
+        
+        if (tp1Qty >= minQuantity && tp2Qty >= minQuantity) {
+          return 2;
+        }
+      }
+      
+      // Fallback: only 1 TP level
+      return 1;
+    }
+
+    // Helper function: Round TP quantities and ensure sum equals total quantity
+    function roundTPQuantitiesWithBalance(
+      quantities: { tp1: number; tp2: number; tp3: number },
+      totalQuantity: number,
+      volumePlace: number
+    ): { tp1: number; tp2: number; tp3: number } {
+      const precision = Math.pow(10, volumePlace);
+      
+      // Round DOWN each quantity to volumePlace precision
+      let rounded = {
+        tp1: Math.floor(quantities.tp1 * precision) / precision,
+        tp2: Math.floor(quantities.tp2 * precision) / precision,
+        tp3: Math.floor(quantities.tp3 * precision) / precision
+      };
+      
+      // Calculate remainder (what was lost in rounding)
+      const sumRounded = rounded.tp1 + rounded.tp2 + rounded.tp3;
+      const remainder = Math.round((totalQuantity - sumRounded) * precision) / precision;
+      
+      // Add remainder to the largest active TP to maintain exact total
+      if (remainder > 0) {
+        if (rounded.tp1 >= rounded.tp2 && rounded.tp1 >= rounded.tp3) {
+          rounded.tp1 = Math.round((rounded.tp1 + remainder) * precision) / precision;
+        } else if (rounded.tp2 >= rounded.tp3) {
+          rounded.tp2 = Math.round((rounded.tp2 + remainder) * precision) / precision;
+        } else {
+          rounded.tp3 = Math.round((rounded.tp3 + remainder) * precision) / precision;
+        }
+      }
+      
+      return rounded;
+    }
+
+    // Calculate quantities for partial TP closing with intelligent allocation
     let tp1Quantity = quantity;
     let tp2Quantity = 0;
     let tp3Quantity = 0;
+    let effectiveTp1Price = roundedTp1Price;
+    let effectiveTp2Price = roundedTp2Price;
+    let effectiveTp3Price = roundedTp3Price;
     
     if (settings.tp_strategy === 'partial_close' && settings.tp_levels >= 2) {
-      const potentialTp1Qty = quantity * (settings.tp1_close_percent / 100);
-      const potentialTp2Qty = quantity * (settings.tp2_close_percent / 100);
-      
-      // Check if both TP1 and TP2 would meet minimum quantity
-      if (potentialTp1Qty >= minQuantity && potentialTp2Qty >= minQuantity) {
-        tp1Quantity = potentialTp1Qty;
-        tp2Quantity = potentialTp2Qty;
+      const requestedLevels = settings.tp_levels;
+      const originalPercentages = {
+        tp1: settings.tp1_close_percent,
+        tp2: settings.tp2_close_percent,
+        tp3: settings.tp3_close_percent
+      };
+
+      // Determine how many TP levels we can actually set
+      const actualLevels = determineActualTPLevels(
+        quantity,
+        minQuantity,
+        requestedLevels,
+        originalPercentages
+      );
+
+      console.log(`📊 TP Levels: requested=${requestedLevels}, actual=${actualLevels} (minQty=${minQuantity})`);
+
+      // Calculate new percentages based on actual levels
+      let tp1Percent, tp2Percent, tp3Percent;
+
+      if (actualLevels === 3) {
+        // Can set 3 TP - use original settings
+        tp1Percent = originalPercentages.tp1;
+        tp2Percent = originalPercentages.tp2;
+        tp3Percent = originalPercentages.tp3;
+        effectiveTp1Price = roundedTp1Price;
+        effectiveTp2Price = roundedTp2Price;
+        effectiveTp3Price = roundedTp3Price;
         
-        if (settings.tp_levels >= 3) {
-          const potentialTp3Qty = quantity * (settings.tp3_close_percent / 100);
-          if (potentialTp3Qty >= minQuantity) {
-            tp3Quantity = potentialTp3Qty;
-          }
-        }
+      } else if (actualLevels === 2) {
+        // Redistribute TP3 quantity to TP1 and TP2
+        const redistributed = originalPercentages.tp3 / 2;
+        tp1Percent = originalPercentages.tp1 + redistributed;
+        tp2Percent = originalPercentages.tp2 + redistributed;
+        tp3Percent = 0;
         
-        console.log(`✓ Using partial close strategy: TP1=${tp1Quantity}, TP2=${tp2Quantity}, TP3=${tp3Quantity}`);
+        // Keep original R:R for TP1 and TP2 (not TP3)
+        effectiveTp1Price = roundedTp1Price;  // Maintains TP1 R:R
+        effectiveTp2Price = roundedTp2Price;  // Maintains TP2 R:R
+        effectiveTp3Price = null;             // No TP3
+        
+        console.log(`⚠️ Cannot split into 3 TP, using 2 TP with redistributed quantity`);
+        console.log(`   TP1: ${originalPercentages.tp1}% → ${tp1Percent}%`);
+        console.log(`   TP2: ${originalPercentages.tp2}% → ${tp2Percent}%`);
+        
       } else {
-        // Quantities too small - use full position for each TP level
-        console.warn(`⚠️ Partial close quantities below minimum (${minQuantity}), using full position for each TP`);
-        console.warn(`   Would be: TP1=${potentialTp1Qty}, TP2=${potentialTp2Qty}`);
-        tp1Quantity = quantity;
-        tp2Quantity = tp2_price ? quantity : 0;
-        tp3Quantity = tp3_price ? quantity : 0;
+        // Only 1 TP - 100% of position at TP1
+        tp1Percent = 100;
+        tp2Percent = 0;
+        tp3Percent = 0;
+        
+        effectiveTp1Price = roundedTp1Price;  // Maintains TP1 R:R
+        effectiveTp2Price = null;
+        effectiveTp3Price = null;
+        
+        console.log(`⚠️ Cannot split position, using single TP (100% at TP1 R:R)`);
       }
+
+      // Calculate raw quantities
+      const rawQuantities = {
+        tp1: quantity * (tp1Percent / 100),
+        tp2: quantity * (tp2Percent / 100),
+        tp3: quantity * (tp3Percent / 100)
+      };
+
+      // Round quantities with balance to ensure sum = quantity
+      const roundedQuantities = roundTPQuantitiesWithBalance(
+        rawQuantities,
+        quantity,
+        volumePlace
+      );
+
+      tp1Quantity = roundedQuantities.tp1;
+      tp2Quantity = roundedQuantities.tp2;
+      tp3Quantity = roundedQuantities.tp3;
+
+      // Log detailed TP calculation
+      await log({
+        functionName: 'bitget-trader',
+        message: 'TP quantities calculated with intelligent allocation',
+        level: 'info',
+        alertId: alert_id,
+        metadata: {
+          requestedLevels,
+          actualLevels,
+          originalPercentages,
+          adjustedPercentages: { tp1: tp1Percent, tp2: tp2Percent, tp3: tp3Percent },
+          rawQuantities,
+          roundedQuantities,
+          totalQuantity: quantity,
+          minQuantity,
+          volumePlace,
+          sumCheck: tp1Quantity + tp2Quantity + tp3Quantity
+        }
+      });
+
+      console.log(`✓ Final TP quantities: TP1=${tp1Quantity}, TP2=${tp2Quantity}, TP3=${tp3Quantity}`);
+      console.log(`✓ Sum verification: ${tp1Quantity + tp2Quantity + tp3Quantity} = ${quantity}`);
+      
     } else if (settings.tp_strategy === 'main_tp_only') {
       // Only one TP with full quantity
       tp1Quantity = quantity;
       tp2Quantity = 0;
       tp3Quantity = 0;
+      effectiveTp1Price = roundedTp1Price;
+      effectiveTp2Price = null;
+      effectiveTp3Price = null;
     }
 
     // Place TP orders
     let tp1OrderId, tp2OrderId, tp3OrderId;
 
-    if (roundedTp1Price && tp1Quantity > 0) {
+    if (effectiveTp1Price && tp1Quantity > 0) {
       const { data: tp1Result } = await supabase.functions.invoke('bitget-api', {
         body: {
           action: 'place_tpsl_order',
@@ -920,7 +1067,7 @@ serve(async (req) => {
           params: {
             symbol: alert_data.symbol,
             planType: 'pos_profit',
-            triggerPrice: roundedTp1Price,
+            triggerPrice: effectiveTp1Price,
             triggerType: 'mark_price',
             holdSide: holdSide,
             executePrice: 0,
@@ -934,7 +1081,7 @@ serve(async (req) => {
       }
     }
 
-    if (roundedTp2Price && tp2Quantity > 0) {
+    if (effectiveTp2Price && tp2Quantity > 0) {
       const { data: tp2Result } = await supabase.functions.invoke('bitget-api', {
         body: {
           action: 'place_tpsl_order',
@@ -942,7 +1089,7 @@ serve(async (req) => {
           params: {
             symbol: alert_data.symbol,
             planType: 'pos_profit',
-            triggerPrice: roundedTp2Price,
+            triggerPrice: effectiveTp2Price,
             triggerType: 'mark_price',
             holdSide: holdSide,
             executePrice: 0,
@@ -956,7 +1103,7 @@ serve(async (req) => {
       }
     }
 
-    if (roundedTp3Price && tp3Quantity > 0) {
+    if (effectiveTp3Price && tp3Quantity > 0) {
       const { data: tp3Result } = await supabase.functions.invoke('bitget-api', {
         body: {
           action: 'place_tpsl_order',
@@ -964,7 +1111,7 @@ serve(async (req) => {
           params: {
             symbol: alert_data.symbol,
             planType: 'pos_profit',
-            triggerPrice: roundedTp3Price,
+            triggerPrice: effectiveTp3Price,
             triggerType: 'mark_price',
             holdSide: holdSide,
             executePrice: 0,
