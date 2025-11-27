@@ -541,59 +541,242 @@ async function cleanupOrphanOrders(supabase: any, userId: string, apiCredentials
   }
 }
 
-// Helper function to close orphan position on exchange
-async function closeOrphanPosition(supabase: any, exchangePosition: any, apiCredentials: any) {
-  const side = exchangePosition.holdSide === 'long' ? 'close_long' : 'close_short';
+// Helper function to recover orphan position from exchange
+async function recoverOrphanPosition(
+  supabase: any, 
+  exchangePosition: any, 
+  apiCredentials: any, 
+  userId: string,
+  userSettings: any
+) {
+  const symbol = exchangePosition.symbol;
+  const side = exchangePosition.holdSide === 'long' ? 'BUY' : 'SELL';
+  const entryPrice = parseFloat(exchangePosition.openPriceAvg || exchangePosition.averageOpenPrice);
+  const quantity = parseFloat(exchangePosition.total);
+  const leverage = parseInt(exchangePosition.leverage || '20');
   
-  console.log(`🚨 Closing ORPHAN position: ${exchangePosition.symbol} ${side}, size=${exchangePosition.total}`);
+  console.log(`🔄 RECOVERING orphan position: ${symbol} ${side}, qty=${quantity}, entry=${entryPrice}`);
   
-  const { data: closeResult, error: closeError } = await supabase.functions.invoke('bitget-api', {
-    body: {
-      action: 'close_position',
-      apiCredentials,
-      params: {
-        symbol: exchangePosition.symbol,
-        size: exchangePosition.total,
-        side: side
-      }
-    }
-  });
-  
-  if (closeError || !closeResult?.success) {
-    console.error(`❌ Failed to close ORPHAN position:`, closeError || closeResult);
-    await log({
-      functionName: 'position-monitor',
-      message: `Failed to close orphan position`,
-      level: 'error',
+  try {
+    // 1. Get symbol precision
+    const { pricePlace, volumePlace } = await getSymbolPrecision(supabase, symbol, apiCredentials);
+    
+    // 2. Prepare position data for SL/TP calculation
+    const positionData = {
+      entry_price: entryPrice,
+      sl_price: entryPrice, // placeholder - will be calculated
+      tp1_price: null,
+      tp2_price: null,
+      tp3_price: null,
+      quantity,
+      leverage,
+      side,
+      tp1_filled: false,
+      tp2_filled: false,
+      tp3_filled: false,
       metadata: { 
-        symbol: exchangePosition.symbol, 
-        error: closeError?.message || closeResult?.error || 'Unknown error' 
+        atr: entryPrice * 0.01, // estimated ATR as 1% of price
+        effective_leverage: leverage,
+        strength: 0.5
+      }
+    };
+    
+    // 3. Calculate SL/TP according to user settings
+    const calculated = calculateExpectedSLTP(positionData, userSettings);
+    
+    // 4. Create position record in DB
+    const { data: newPosition, error: insertError } = await supabase
+      .from('positions')
+      .insert({
+        user_id: userId,
+        symbol,
+        side,
+        entry_price: entryPrice,
+        quantity,
+        leverage,
+        sl_price: calculated.sl_price,
+        tp1_price: calculated.tp1_price,
+        tp1_quantity: calculated.tp1_quantity,
+        tp2_price: calculated.tp2_price,
+        tp2_quantity: calculated.tp2_quantity,
+        tp3_price: calculated.tp3_price,
+        tp3_quantity: calculated.tp3_quantity,
+        status: 'open',
+        metadata: {
+          recovered: true,
+          recovered_at: new Date().toISOString(),
+          original_exchange_data: exchangePosition
+        }
+      })
+      .select()
+      .single();
+    
+    if (insertError) {
+      console.error(`❌ Failed to create recovered position:`, insertError);
+      await log({
+        functionName: 'position-monitor',
+        message: `Failed to recover orphan position`,
+        level: 'error',
+        metadata: { symbol, error: insertError.message }
+      });
+      return null;
+    }
+    
+    // 5. Check for existing SL/TP orders on exchange
+    const { data: ordersResult } = await supabase.functions.invoke('bitget-api', {
+      body: {
+        action: 'get_plan_orders',
+        params: { symbol, planType: 'profit_loss' },
+        apiCredentials
       }
     });
-    return;
+    
+    const existingOrders = ordersResult?.data?.entrustedList?.filter(
+      (o: any) => o.symbol.toLowerCase() === symbol.toLowerCase() && o.planStatus === 'live'
+    ) || [];
+    
+    // 6. If no SL/TP orders exist - place them
+    if (existingOrders.length === 0) {
+      console.log(`📊 No existing SL/TP orders - placing new ones for recovered position`);
+      
+      // Place SL order
+      const { data: slResult } = await supabase.functions.invoke('bitget-api', {
+        body: {
+          action: 'place_tpsl_order',
+          params: {
+            symbol,
+            planType: 'loss_plan',
+            triggerPrice: roundPrice(calculated.sl_price, pricePlace),
+            holdSide: side === 'BUY' ? 'long' : 'short',
+            size: quantity.toFixed(volumePlace)
+          },
+          apiCredentials
+        }
+      });
+      
+      if (slResult?.success) {
+        await supabase.from('positions').update({
+          sl_order_id: slResult.data?.orderId
+        }).eq('id', newPosition.id);
+        console.log(`✅ SL order placed: ${slResult.data?.orderId}`);
+      }
+      
+      // Place TP1 order
+      if (calculated.tp1_price && calculated.tp1_quantity) {
+        const { data: tp1Result } = await supabase.functions.invoke('bitget-api', {
+          body: {
+            action: 'place_tpsl_order',
+            params: {
+              symbol,
+              planType: 'profit_plan',
+              triggerPrice: roundPrice(calculated.tp1_price, pricePlace),
+              holdSide: side === 'BUY' ? 'long' : 'short',
+              size: calculated.tp1_quantity.toFixed(volumePlace)
+            },
+            apiCredentials
+          }
+        });
+        
+        if (tp1Result?.success) {
+          await supabase.from('positions').update({
+            tp1_order_id: tp1Result.data?.orderId
+          }).eq('id', newPosition.id);
+          console.log(`✅ TP1 order placed: ${tp1Result.data?.orderId}`);
+        }
+      }
+      
+      // Place TP2 order
+      if (calculated.tp2_price && calculated.tp2_quantity) {
+        const { data: tp2Result } = await supabase.functions.invoke('bitget-api', {
+          body: {
+            action: 'place_tpsl_order',
+            params: {
+              symbol,
+              planType: 'profit_plan',
+              triggerPrice: roundPrice(calculated.tp2_price, pricePlace),
+              holdSide: side === 'BUY' ? 'long' : 'short',
+              size: calculated.tp2_quantity.toFixed(volumePlace)
+            },
+            apiCredentials
+          }
+        });
+        
+        if (tp2Result?.success) {
+          await supabase.from('positions').update({
+            tp2_order_id: tp2Result.data?.orderId
+          }).eq('id', newPosition.id);
+          console.log(`✅ TP2 order placed: ${tp2Result.data?.orderId}`);
+        }
+      }
+      
+      // Place TP3 order
+      if (calculated.tp3_price && calculated.tp3_quantity) {
+        const { data: tp3Result } = await supabase.functions.invoke('bitget-api', {
+          body: {
+            action: 'place_tpsl_order',
+            params: {
+              symbol,
+              planType: 'profit_plan',
+              triggerPrice: roundPrice(calculated.tp3_price, pricePlace),
+              holdSide: side === 'BUY' ? 'long' : 'short',
+              size: calculated.tp3_quantity.toFixed(volumePlace)
+            },
+            apiCredentials
+          }
+        });
+        
+        if (tp3Result?.success) {
+          await supabase.from('positions').update({
+            tp3_order_id: tp3Result.data?.orderId
+          }).eq('id', newPosition.id);
+          console.log(`✅ TP3 order placed: ${tp3Result.data?.orderId}`);
+        }
+      }
+    } else {
+      console.log(`📊 Found ${existingOrders.length} existing orders - position recovered with existing protection`);
+    }
+    
+    // 7. Log success
+    await log({
+      functionName: 'position-monitor',
+      message: `✅ Orphan position RECOVERED: ${symbol}`,
+      level: 'info',
+      positionId: newPosition.id,
+      metadata: { 
+        symbol, side, entryPrice, quantity, leverage,
+        sl_price: calculated.sl_price,
+        tp1_price: calculated.tp1_price,
+        existing_orders: existingOrders.length
+      }
+    });
+    
+    await supabase.from('monitoring_logs').insert({
+      check_type: 'orphan_recovered',
+      position_id: newPosition.id,
+      status: 'completed',
+      actions_taken: JSON.stringify({
+        symbol, side, entryPrice, quantity,
+        sl_price: calculated.sl_price,
+        tp1_price: calculated.tp1_price,
+        tp2_price: calculated.tp2_price,
+        tp3_price: calculated.tp3_price
+      })
+    });
+    
+    return newPosition;
+  } catch (error) {
+    console.error(`❌ Error recovering orphan position ${symbol}:`, error);
+    await log({
+      functionName: 'position-monitor',
+      message: `Error recovering orphan position`,
+      level: 'error',
+      metadata: { 
+        symbol,
+        error: error instanceof Error ? error.message : 'Unknown error'
+      }
+    });
+    return null;
   }
-  
-  console.log(`✅ ORPHAN position closed: ${exchangePosition.symbol}`);
-  
-  // Log the orphan closure
-  await supabase.from('monitoring_logs').insert({
-    check_type: 'orphan_closed',
-    position_id: null,
-    status: 'completed',
-    actions_taken: JSON.stringify({
-      symbol: exchangePosition.symbol,
-      side: exchangePosition.holdSide,
-      size: exchangePosition.total,
-      reason: 'Orphan position found on exchange without matching DB record'
-    })
-  });
-  
-  await log({
-    functionName: 'position-monitor',
-    message: `Orphan position closed successfully`,
-    level: 'info',
-    metadata: { symbol: exchangePosition.symbol, side: exchangePosition.holdSide }
-  });
 }
 
 // Helper function to mark position as closed in DB
@@ -787,18 +970,33 @@ serve(async (req) => {
         const userSettings = await getUserSettings(user_id);
 
         // STEP 1: Get ALL positions from EXCHANGE
-        const { data: exchangePositionsResult } = await supabase.functions.invoke('bitget-api', {
+        const { data: exchangePositionsResult, error: exchangeError } = await supabase.functions.invoke('bitget-api', {
           body: {
             action: 'get_positions',
             apiCredentials
           }
         });
 
-        const exchangePositions = exchangePositionsResult?.success && exchangePositionsResult.data
+        // CRITICAL: Validate API response before any sync operations
+        if (exchangeError || !exchangePositionsResult?.success) {
+          console.error(`❌ API error getting positions from exchange - SKIPPING user sync to prevent data loss`);
+          await log({
+            functionName: 'position-monitor',
+            message: 'API error - skipping user sync',
+            level: 'error',
+            metadata: { 
+              userId: user_id, 
+              error: exchangeError?.message || exchangePositionsResult?.error || 'Unknown API error'
+            }
+          });
+          continue; // Skip this user entirely - don't close positions based on failed API response
+        }
+
+        const exchangePositions = exchangePositionsResult.data
           ? exchangePositionsResult.data.filter((p: any) => parseFloat(p.total || '0') > 0)
           : [];
 
-        console.log(`📊 Found ${exchangePositions.length} positions on exchange for user ${user_id}`);
+        console.log(`📊 Exchange API response: success=${exchangePositionsResult?.success}, positions=${exchangePositions.length}`);
 
         // STEP 2: Get ALL open positions from DB for this user
         const { data: dbPositions } = await supabase
@@ -821,9 +1019,9 @@ serve(async (req) => {
             );
 
             if (!dbMatch) {
-              // ORPHAN on exchange - close it
-              console.log(`🚨 ORPHAN position on exchange: ${exchPos.symbol} ${exchPos.holdSide}`);
-              await closeOrphanPosition(supabase, exchPos, apiCredentials);
+              // ORPHAN on exchange - RECOVER it!
+              console.log(`🔄 ORPHAN position on exchange - RECOVERING: ${exchPos.symbol} ${exchPos.holdSide}`);
+              await recoverOrphanPosition(supabase, exchPos, apiCredentials, user_id, userSettings);
               totalPositionsChecked++;
             } else {
               // Position exists in both - check SL/TP orders
@@ -845,6 +1043,22 @@ serve(async (req) => {
           }
         }
 
+        // SAFETY CHECK: If exchange shows 0 positions but DB has many, something is wrong
+        if (exchangePositions.length === 0 && dbPositionsList.length > 0) {
+          console.warn(`⚠️ SAFETY: Exchange returned 0 positions but DB has ${dbPositionsList.length} - NOT auto-closing to prevent data loss`);
+          await log({
+            functionName: 'position-monitor',
+            message: 'Safety check: Skipping auto-close due to empty exchange response',
+            level: 'warn',
+            metadata: { 
+              userId: user_id, 
+              dbPositions: dbPositionsList.length,
+              exchangePositions: 0
+            }
+          });
+          continue; // Skip closing positions for this user
+        }
+
         // STEP 4: SYNC - For each position in DB that's NOT on exchange
         for (const dbPos of dbPositionsList) {
           try {
@@ -855,9 +1069,42 @@ serve(async (req) => {
             );
 
             if (!exchMatch) {
-              // Position in DB but not on exchange - mark as closed
-              console.log(`⚠️ Position in DB but not on exchange: ${dbPos.symbol}`);
-              await markPositionAsClosed(supabase, dbPos, 'not_found_on_exchange');
+              // DOUBLE CHECK: Verify this specific position directly before closing
+              console.log(`⚠️ Position in DB but not in main exchange list: ${dbPos.symbol} - verifying...`);
+              
+              const { data: verifyResult } = await supabase.functions.invoke('bitget-api', {
+                body: {
+                  action: 'get_position',
+                  params: { symbol: dbPos.symbol },
+                  apiCredentials
+                }
+              });
+              
+              const verifiedEmpty = verifyResult?.success && 
+                (!verifyResult.data || verifyResult.data.length === 0 ||
+                 !verifyResult.data.some((p: any) => 
+                   parseFloat(p.total || '0') > 0 &&
+                   ((dbPos.side === 'BUY' && p.holdSide === 'long') ||
+                    (dbPos.side === 'SELL' && p.holdSide === 'short'))
+                 ));
+              
+              if (verifiedEmpty) {
+                console.log(`✅ Double-verified: ${dbPos.symbol} truly not on exchange - marking as closed`);
+                await markPositionAsClosed(supabase, dbPos, 'not_found_on_exchange');
+              } else {
+                console.warn(`⚠️ Verification inconclusive for ${dbPos.symbol} - NOT closing to be safe`);
+                await log({
+                  functionName: 'position-monitor',
+                  message: 'Position verification inconclusive - skipped closing',
+                  level: 'warn',
+                  positionId: dbPos.id,
+                  metadata: { 
+                    symbol: dbPos.symbol,
+                    verifySuccess: verifyResult?.success,
+                    verifyDataLength: verifyResult?.data?.length
+                  }
+                });
+              }
             }
           } catch (error) {
             console.error(`Error processing DB position ${dbPos.symbol}:`, error);
