@@ -346,8 +346,14 @@ export default function History() {
             <div 
               ref={topScrollRef}
               id="history-table-top-scroll"
-              className="overflow-x-auto overflow-y-hidden border rounded-md bg-muted/20"
-              style={{ height: '20px' }}
+              style={{ 
+                height: '20px',
+                overflowX: 'auto',
+                overflowY: 'hidden',
+                border: '1px solid hsl(var(--border))',
+                borderRadius: '6px',
+                backgroundColor: 'hsl(var(--muted) / 0.2)'
+              }}
               onScroll={(e) => {
                 const bottomScroll = document.getElementById('history-table-container');
                 if (bottomScroll) {
@@ -357,7 +363,8 @@ export default function History() {
             >
               <div style={{ 
                 width: `${tableWidth}px`,
-                height: '100%',
+                height: '16px',
+                pointerEvents: 'none'
               }} />
             </div>
             
