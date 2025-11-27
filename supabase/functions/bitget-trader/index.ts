@@ -545,8 +545,8 @@ serve(async (req) => {
       }
     });
 
-    // Calculate position size
-    let quantity = calculatePositionSize(settings, alert_data, accountBalance);
+    // Calculate position size (pass effective leverage for correct margin calculation)
+    let quantity = calculatePositionSize(settings, alert_data, accountBalance, effectiveLeverage);
     await log({
       functionName: 'bitget-trader',
       message: 'Position size calculated',
@@ -611,19 +611,18 @@ serve(async (req) => {
     const roundUpToVolumePlace = (qty: number, volumePlacePrecision: number, minNotional: number, price: number): number => {
       const precision = Math.pow(10, volumePlacePrecision);
       
-      // Round UP to required precision
-      let rounded = Math.ceil(qty * precision) / precision;
+      // CRITICAL FIX: Add buffer BEFORE rounding (1% instead of 3% to avoid doubling)
+      const withBuffer = qty * 1.01;
       
-      // Ensure we meet minimum notional
+      // Round up to required precision (only ONCE!)
+      let rounded = Math.ceil(withBuffer * precision) / precision;
+      
+      // Ensure it meets minimum notional value
       while (rounded * price < minNotional) {
         rounded += 1 / precision;
       }
       
-      // Add 3% buffer for safety
-      const buffered = rounded * 1.03;
-      
-      // Round up again after buffer
-      return Math.ceil(buffered * precision) / precision;
+      return rounded;
     };
     
     // Calculate notional value of our position

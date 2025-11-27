@@ -53,17 +53,20 @@ interface CalculatedPrices {
 export function calculatePositionSize(
   settings: Settings,
   alertData: AlertData,
-  accountBalance: number
+  accountBalance: number,
+  effectiveLeverage: number
 ): number {
   const positionSizingType = (settings as any).position_sizing_type || 'fixed_usdt';
   const positionSizeValue = (settings as any).position_size_value || 100;
 
   if (positionSizingType === 'fixed_usdt') {
-    // Fixed USDT amount
-    const quantity = positionSizeValue / alertData.price;
+    // CRITICAL FIX: position_size_value represents MARGIN, not notional
+    // If position_size_value = 3 USDT and leverage = 10x, then notional = 30 USDT
+    const notional = positionSizeValue * effectiveLeverage;
+    const quantity = notional / alertData.price;
     return quantity;
   } else {
-    // Percentage of capital
+    // Percentage of capital (treated as notional)
     const capitalToUse = accountBalance * (positionSizeValue / 100);
     const quantity = capitalToUse / alertData.price;
     return quantity;
