@@ -252,7 +252,10 @@ export default function Dashboard() {
     }
 
     // Calculate potential TP gains (per TP level with quantities)
-    const tpGains: { price: number; quantity: number; gain: number }[] = [];
+    const tpGains: { price: number; quantity: number; gain: number; rr: number; percentage: number }[] = [];
+    
+    // Calculate SL distance for RR calculations
+    const slDistance = Math.abs(entryPrice - slPrice);
 
     // TP1
     if (Number(pos.tp1_price) && Number(pos.tp1_quantity)) {
@@ -261,7 +264,10 @@ export default function Dashboard() {
       const gain = pos.side === 'BUY' 
         ? (tp1Price - entryPrice) * tp1Qty 
         : (entryPrice - tp1Price) * tp1Qty;
-      tpGains.push({ price: tp1Price, quantity: tp1Qty, gain });
+      const tp1Distance = Math.abs(tp1Price - entryPrice);
+      const rr = slDistance > 0 ? tp1Distance / slDistance : 0;
+      const percentage = quantity > 0 ? (tp1Qty / quantity) * 100 : 0;
+      tpGains.push({ price: tp1Price, quantity: tp1Qty, gain, rr, percentage });
     }
 
     // TP2
@@ -271,7 +277,10 @@ export default function Dashboard() {
       const gain = pos.side === 'BUY' 
         ? (tp2Price - entryPrice) * tp2Qty 
         : (entryPrice - tp2Price) * tp2Qty;
-      tpGains.push({ price: tp2Price, quantity: tp2Qty, gain });
+      const tp2Distance = Math.abs(tp2Price - entryPrice);
+      const rr = slDistance > 0 ? tp2Distance / slDistance : 0;
+      const percentage = quantity > 0 ? (tp2Qty / quantity) * 100 : 0;
+      tpGains.push({ price: tp2Price, quantity: tp2Qty, gain, rr, percentage });
     }
 
     // TP3
@@ -281,8 +290,15 @@ export default function Dashboard() {
       const gain = pos.side === 'BUY' 
         ? (tp3Price - entryPrice) * tp3Qty 
         : (entryPrice - tp3Price) * tp3Qty;
-      tpGains.push({ price: tp3Price, quantity: tp3Qty, gain });
+      const tp3Distance = Math.abs(tp3Price - entryPrice);
+      const rr = slDistance > 0 ? tp3Distance / slDistance : 0;
+      const percentage = quantity > 0 ? (tp3Qty / quantity) * 100 : 0;
+      tpGains.push({ price: tp3Price, quantity: tp3Qty, gain, rr, percentage });
     }
+    
+    // Calculate total potential gain and effective RR
+    const totalPotentialGain = tpGains.reduce((sum, tp) => sum + tp.gain, 0);
+    const effectiveRR = potentialSlLoss !== 0 ? totalPotentialGain / Math.abs(potentialSlLoss) : 0;
     
     return {
       ...pos,
@@ -301,6 +317,8 @@ export default function Dashboard() {
       has_tp_orders: tpOrders.length > 0,
       potential_sl_loss: potentialSlLoss,
       tp_gains: tpGains,
+      total_potential_gain: totalPotentialGain,
+      effective_rr: effectiveRR,
     };
   }) || [];
 
@@ -692,17 +710,48 @@ export default function Dashboard() {
                         <div className="space-y-1">
                           <p className="text-xs text-muted-foreground">Take Profit</p>
                           {pos.tp_gains && pos.tp_gains.length > 0 ? (
-                            <div className="space-y-1">
+                            <div className="space-y-1.5">
                               {pos.tp_gains.map((tp, i) => (
-                                <div key={i} className="flex items-center gap-2">
-                                  <span className="text-xs font-semibold text-profit">
-                                    TP{i+1}: ${tp.price.toFixed(4)}
-                                  </span>
-                                  <span className="text-xs text-profit/70">
-                                    (+${tp.gain.toFixed(2)})
-                                  </span>
+                                <div key={i} className="space-y-0.5">
+                                  <div className="flex items-center gap-2">
+                                    <span className="text-xs font-semibold text-profit">
+                                      TP{i+1} ({tp.percentage.toFixed(0)}%):
+                                    </span>
+                                    <span className="text-xs text-profit">
+                                      ${tp.price.toFixed(4)}
+                                    </span>
+                                  </div>
+                                  <div className="flex items-center gap-2">
+                                    <Badge variant="outline" className="text-[10px] px-1.5 py-0 h-4 bg-profit/10 text-profit border-profit/30">
+                                      {tp.rr.toFixed(1)}:1 RR
+                                    </Badge>
+                                    <span className="text-xs text-profit/70">
+                                      +${tp.gain.toFixed(2)}
+                                    </span>
+                                  </div>
                                 </div>
                               ))}
+                              {/* Total Potential Summary */}
+                              {pos.tp_gains.length > 1 && pos.total_potential_gain !== undefined && (
+                                <div className="pt-1.5 mt-1.5 border-t border-profit/20">
+                                  <div className="flex items-center justify-between">
+                                    <span className="text-xs font-semibold text-profit">
+                                      Total:
+                                    </span>
+                                    <span className="text-xs text-profit">
+                                      +${pos.total_potential_gain.toFixed(2)}
+                                    </span>
+                                  </div>
+                                  <div className="flex items-center justify-between mt-0.5">
+                                    <span className="text-[10px] text-profit/70">
+                                      Effective RR:
+                                    </span>
+                                    <Badge variant="outline" className="text-[10px] px-1.5 py-0 h-4 bg-profit/10 text-profit border-profit/30">
+                                      {pos.effective_rr.toFixed(2)}:1
+                                    </Badge>
+                                  </div>
+                                </div>
+                              )}
                             </div>
                           ) : pos.has_tp_orders && pos.real_tp_prices && pos.real_tp_prices.length > 0 ? (
                             <div className="flex gap-2">
