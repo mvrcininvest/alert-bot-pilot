@@ -75,7 +75,7 @@ export default function Dashboard() {
     staleTime: 0, // Always treat data as stale
   });
 
-  const { data: liveData } = useQuery({
+  const { data: liveData, dataUpdatedAt } = useQuery({
     queryKey: ["live-data", positions?.map(p => p.symbol).join(',')],
     queryFn: async () => {
       if (!positions || positions.length === 0) return {};
@@ -205,6 +205,9 @@ export default function Dashboard() {
     },
     enabled: !!positions && positions.length > 0,
     refetchInterval: 3000,
+    staleTime: 0,
+    refetchOnWindowFocus: true,
+    refetchIntervalInBackground: true,
   });
 
   const positionsWithLivePnL = positions?.map(pos => {
@@ -237,6 +240,50 @@ export default function Dashboard() {
         pos.side === 'BUY' ? a - b : b - a
       );
     
+    // Calculate potential SL loss
+    let potentialSlLoss = 0;
+    const slPrice = realSlPrice || Number(pos.sl_price);
+    if (slPrice) {
+      if (pos.side === 'BUY') {
+        potentialSlLoss = (slPrice - entryPrice) * quantity;
+      } else {
+        potentialSlLoss = (entryPrice - slPrice) * quantity;
+      }
+    }
+
+    // Calculate potential TP gains (per TP level with quantities)
+    const tpGains: { price: number; quantity: number; gain: number }[] = [];
+
+    // TP1
+    if (Number(pos.tp1_price) && Number(pos.tp1_quantity)) {
+      const tp1Price = realTpPrices[0] || Number(pos.tp1_price);
+      const tp1Qty = Number(pos.tp1_quantity);
+      const gain = pos.side === 'BUY' 
+        ? (tp1Price - entryPrice) * tp1Qty 
+        : (entryPrice - tp1Price) * tp1Qty;
+      tpGains.push({ price: tp1Price, quantity: tp1Qty, gain });
+    }
+
+    // TP2
+    if (Number(pos.tp2_price) && Number(pos.tp2_quantity)) {
+      const tp2Price = realTpPrices[1] || Number(pos.tp2_price);
+      const tp2Qty = Number(pos.tp2_quantity);
+      const gain = pos.side === 'BUY' 
+        ? (tp2Price - entryPrice) * tp2Qty 
+        : (entryPrice - tp2Price) * tp2Qty;
+      tpGains.push({ price: tp2Price, quantity: tp2Qty, gain });
+    }
+
+    // TP3
+    if (Number(pos.tp3_price) && Number(pos.tp3_quantity)) {
+      const tp3Price = realTpPrices[2] || Number(pos.tp3_price);
+      const tp3Qty = Number(pos.tp3_quantity);
+      const gain = pos.side === 'BUY' 
+        ? (tp3Price - entryPrice) * tp3Qty 
+        : (entryPrice - tp3Price) * tp3Qty;
+      tpGains.push({ price: tp3Price, quantity: tp3Qty, gain });
+    }
+    
     return {
       ...pos,
       current_price: currentPrice,
@@ -251,7 +298,9 @@ export default function Dashboard() {
       real_sl_price: realSlPrice,
       real_tp_prices: realTpPrices,
       has_sl_order: slOrders.length > 0,
-      has_tp_orders: tpOrders.length > 0
+      has_tp_orders: tpOrders.length > 0,
+      potential_sl_loss: potentialSlLoss,
+      tp_gains: tpGains,
     };
   }) || [];
 
@@ -274,7 +323,8 @@ export default function Dashboard() {
       
       return { equity: 0, available: 0 };
     },
-    refetchInterval: 30000,
+    refetchInterval: 15000,
+    staleTime: 0,
   });
 
   const usedMargin = positionsWithLivePnL?.reduce((sum, pos) => {
@@ -394,10 +444,20 @@ export default function Dashboard() {
       <Card className="glass-card glass-card-hover gradient-border">
         <CardHeader>
           <div className="flex items-center justify-between">
-            <CardTitle className="text-2xl font-bold">Otwarte Pozycje</CardTitle>
-            <Badge variant="outline" className="text-sm">
-              {positionsWithLivePnL?.length || 0} pozycji
-            </Badge>
+            <div className="flex items-center gap-2">
+              <div className="w-2 h-2 bg-profit rounded-full animate-pulse" title="Live" />
+              <CardTitle className="text-2xl font-bold">Otwarte Pozycje</CardTitle>
+            </div>
+            <div className="flex items-center gap-2">
+              <Badge variant="outline" className="text-sm">
+                {positionsWithLivePnL?.length || 0} pozycji
+              </Badge>
+              {dataUpdatedAt && (
+                <Badge variant="secondary" className="text-xs">
+                  {new Date(dataUpdatedAt).toLocaleTimeString('pl-PL')}
+                </Badge>
+              )}
+            </div>
           </div>
         </CardHeader>
         <CardContent>
@@ -615,16 +675,36 @@ export default function Dashboard() {
                         <div className="space-y-1">
                           <p className="text-xs text-muted-foreground">Stop Loss</p>
                           {pos.has_sl_order ? (
-                            <p className="text-sm font-semibold text-loss">
-                              ${(pos.real_sl_price || Number(pos.sl_price)).toFixed(4)}
-                            </p>
+                            <div>
+                              <p className="text-sm font-semibold text-loss">
+                                ${(pos.real_sl_price || Number(pos.sl_price)).toFixed(4)}
+                              </p>
+                              {pos.potential_sl_loss !== undefined && pos.potential_sl_loss !== 0 && (
+                                <p className="text-xs text-loss/70 mt-1">
+                                  {pos.potential_sl_loss < 0 ? '' : '+'}{pos.potential_sl_loss.toFixed(2)} USD
+                                </p>
+                              )}
+                            </div>
                           ) : (
                             <p className="text-sm text-muted-foreground">-</p>
                           )}
                         </div>
                         <div className="space-y-1">
                           <p className="text-xs text-muted-foreground">Take Profit</p>
-                          {pos.has_tp_orders && pos.real_tp_prices && pos.real_tp_prices.length > 0 ? (
+                          {pos.tp_gains && pos.tp_gains.length > 0 ? (
+                            <div className="space-y-1">
+                              {pos.tp_gains.map((tp, i) => (
+                                <div key={i} className="flex items-center gap-2">
+                                  <span className="text-xs font-semibold text-profit">
+                                    TP{i+1}: ${tp.price.toFixed(4)}
+                                  </span>
+                                  <span className="text-xs text-profit/70">
+                                    (+${tp.gain.toFixed(2)})
+                                  </span>
+                                </div>
+                              ))}
+                            </div>
+                          ) : pos.has_tp_orders && pos.real_tp_prices && pos.real_tp_prices.length > 0 ? (
                             <div className="flex gap-2">
                               {pos.real_tp_prices.slice(0, 3).map((tp, i) => (
                                 <p key={i} className="text-xs font-semibold text-profit">
