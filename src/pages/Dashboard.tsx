@@ -165,6 +165,7 @@ export default function Dashboard() {
               ? ordersData.data.entrustedList.filter((o: any) => 
                   o.symbol.toLowerCase() === pos.symbol.toLowerCase() &&
                   (o.planType === 'pos_profit' || o.planType === 'profit_plan' || 
+                   o.planType === 'normal_plan' ||  // ✅ Added normal_plan for TP orders from bitget-trader
                    (o.planType === 'profit_loss' && o.stopSurplusTriggerPrice)) && 
                   o.planStatus === 'live'
                 )
