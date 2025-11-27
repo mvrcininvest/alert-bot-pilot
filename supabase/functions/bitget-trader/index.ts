@@ -570,11 +570,13 @@ serve(async (req) => {
     
     let minQuantity = 0.001; // Default fallback
     let minNotionalValue = 5; // Default fallback
+    let volumePlace = 4; // Default precision (4 decimal places)
     
     if (symbolInfoResult?.success && symbolInfoResult.data?.length > 0) {
       const contractInfo = symbolInfoResult.data[0];
       minQuantity = parseFloat(contractInfo.minTradeNum || '0.001');
       minNotionalValue = parseFloat(contractInfo.minTradeUSDT || '5');
+      volumePlace = parseInt(contractInfo.volumePlace || '4', 10);
       
       await log({
         functionName: 'bitget-trader',
@@ -584,13 +586,15 @@ serve(async (req) => {
         metadata: {
           symbol: alert_data.symbol,
           minTradeNum: minQuantity,
-          minTradeUSDT: minNotionalValue
+          minTradeUSDT: minNotionalValue,
+          volumePlace: volumePlace
         }
       });
       
       console.log(`✅ ${alert_data.symbol} minimums from Bitget API:`, {
         minTradeNum: minQuantity,
-        minTradeUSDT: minNotionalValue
+        minTradeUSDT: minNotionalValue,
+        volumePlace: volumePlace
       });
     } else {
       console.warn('⚠️ Could not fetch symbol info from API, using defaults');
@@ -603,19 +607,42 @@ serve(async (req) => {
       });
     }
     
+    // Helper function to round quantity to required precision with buffer
+    const roundUpToVolumePlace = (qty: number, volumePlacePrecision: number, minNotional: number, price: number): number => {
+      const precision = Math.pow(10, volumePlacePrecision);
+      
+      // Round UP to required precision
+      let rounded = Math.ceil(qty * precision) / precision;
+      
+      // Ensure we meet minimum notional
+      while (rounded * price < minNotional) {
+        rounded += 1 / precision;
+      }
+      
+      // Add 3% buffer for safety
+      const buffered = rounded * 1.03;
+      
+      // Round up again after buffer
+      return Math.ceil(buffered * precision) / precision;
+    };
+    
     // Calculate notional value of our position
     const notionalValue = quantity * alert_data.price;
     
     // Check BOTH quantity and notional minimums and use whichever is HIGHER
     if (quantity < minQuantity || notionalValue < minNotionalValue) {
       const quantityFromMinNotional = minNotionalValue / alert_data.price;
-      const adjustedQuantity = Math.max(minQuantity, quantityFromMinNotional);
+      let adjustedQuantity = Math.max(minQuantity, quantityFromMinNotional);
+      
+      // Apply volumePlace rounding with buffer
+      adjustedQuantity = roundUpToVolumePlace(adjustedQuantity, volumePlace, minNotionalValue, alert_data.price);
+      
       const adjustedNotional = adjustedQuantity * alert_data.price;
       const adjustedMargin = adjustedNotional / effectiveLeverage;
       
       await log({
         functionName: 'bitget-trader',
-        message: 'Position size adjusted to meet Bitget minimums',
+        message: 'Position size adjusted to meet Bitget minimums and precision',
         level: 'info',
         alertId: alert_id,
         metadata: {
@@ -626,18 +653,27 @@ serve(async (req) => {
           adjustedNotional: adjustedNotional,
           adjustedMargin: adjustedMargin,
           minQuantity: minQuantity,
-          minNotional: minNotionalValue
+          minNotional: minNotionalValue,
+          volumePlace: volumePlace
         }
       });
       
-      console.log(`⚠️ Position size too small! Adjusting to meet Bitget requirements:`);
+      console.log(`⚠️ Position size adjusted to meet Bitget requirements:`);
       console.log(`   Original: quantity=${quantity}, notional=${notionalValue.toFixed(2)} USDT, margin=${(notionalValue/effectiveLeverage).toFixed(2)} USDT`);
-      console.log(`   Minimums: quantity=${minQuantity}, notional=${minNotionalValue} USDT`);
+      console.log(`   Minimums: quantity=${minQuantity}, notional=${minNotionalValue} USDT, volumePlace=${volumePlace}`);
       console.log(`   Adjusted: quantity=${adjustedQuantity}, notional=${adjustedNotional.toFixed(2)} USDT, margin=${adjustedMargin.toFixed(2)} USDT`);
       
       quantity = adjustedQuantity;
     } else {
-      console.log(`✅ Position size meets Bitget requirements: quantity=${quantity}, notional=${notionalValue.toFixed(2)} USDT, margin=${(notionalValue/effectiveLeverage).toFixed(2)} USDT`);
+      // Still apply volumePlace rounding even if we meet minimums
+      const originalQuantity = quantity;
+      quantity = roundUpToVolumePlace(quantity, volumePlace, minNotionalValue, alert_data.price);
+      
+      if (quantity !== originalQuantity) {
+        console.log(`✓ Quantity rounded for precision: ${originalQuantity} → ${quantity} (volumePlace=${volumePlace})`);
+      } else {
+        console.log(`✅ Position size meets Bitget requirements: quantity=${quantity}, notional=${notionalValue.toFixed(2)} USDT, margin=${(notionalValue/effectiveLeverage).toFixed(2)} USDT`);
+      }
     }
 
     // Calculate SL/TP prices
