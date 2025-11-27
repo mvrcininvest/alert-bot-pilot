@@ -161,7 +161,13 @@ export function Layout({ children }: { children: React.ReactNode }) {
   }
 
   if (!user) {
-    return null;
+    // Redirect to auth page when not logged in
+    navigate('/auth');
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-background">
+        <div className="animate-pulse text-muted-foreground">Przekierowywanie...</div>
+      </div>
+    );
   }
 
   const displayName = user.user_metadata?.display_name || user.email?.split('@')[0] || 'User';
