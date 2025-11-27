@@ -353,7 +353,7 @@ export default function History() {
                 }
               }}
             >
-              <div style={{ width: `${tableWidth}px`, height: '1px' }} />
+              <div style={{ width: `${tableWidth}px`, height: '12px' }} />
             </div>
             
             {/* Main table with bottom scrollbar synced */}
