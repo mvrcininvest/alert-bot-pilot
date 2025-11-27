@@ -271,7 +271,7 @@ export default function Alerts() {
               ref={topScrollRef}
               id="alerts-table-top-scroll"
               className="overflow-x-auto overflow-y-hidden border rounded-md bg-muted/20"
-              style={{ height: '17px' }}
+              style={{ height: '20px' }}
               onScroll={(e) => {
                 const bottomScroll = document.getElementById('alerts-table-container');
                 if (bottomScroll) {
@@ -281,7 +281,7 @@ export default function Alerts() {
             >
               <div style={{ 
                 width: `${tableWidth}px`,
-                height: '1px',
+                height: '100%',
               }} />
             </div>
             
