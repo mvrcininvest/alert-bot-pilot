@@ -14,8 +14,11 @@ import { SignalStrengthCard } from "@/components/stats/SignalStrengthCard";
 import { DurationAnalysisCard } from "@/components/stats/DurationAnalysisCard";
 import { RegimeAnalysisCard } from "@/components/stats/RegimeAnalysisCard";
 import { TimeBasedAnalysis } from "@/components/stats/TimeBasedAnalysis";
+import { ROIAnalysisCard } from "@/components/stats/ROIAnalysisCard";
+import { AdvancedMetricsCard } from "@/components/stats/AdvancedMetricsCard";
+import { MonthlyComparison } from "@/components/stats/MonthlyComparison";
 import { exportToCSV, exportStatsToCSV } from "@/lib/exportStats";
-import { startOfDay, subDays, isAfter, isBefore, format, getDay } from "date-fns";
+import { startOfDay, subDays, isAfter, isBefore, format, getDay, startOfMonth, endOfMonth } from "date-fns";
 import { pl } from "date-fns/locale";
 import { FileDown } from "lucide-react";
 
@@ -610,6 +613,172 @@ export default function Stats() {
       }));
   }, [filteredPositions]);
 
+  // ROI by leverage analysis
+  const roiStats = useMemo(() => {
+    if (!filteredPositions) return [];
+    
+    const ranges = [
+      { min: 1, max: 10, label: "1x-10x" },
+      { min: 10, max: 25, label: "10x-25x" },
+      { min: 25, max: 50, label: "25x-50x" },
+      { min: 50, max: 100, label: "50x-100x" },
+      { min: 100, max: Infinity, label: "100x+" },
+    ];
+
+    const rangeMap = new Map<string, {
+      range: string;
+      trades: number;
+      wins: number;
+      totalPnL: number;
+      totalMargin: number;
+    }>();
+
+    filteredPositions.forEach(p => {
+      const leverage = p.leverage;
+      const pnl = Number(p.realized_pnl || 0);
+      const isWin = pnl > 0;
+      
+      // Calculate margin used (entry_price * quantity / leverage)
+      const marginUsed = (p.entry_price * p.quantity) / leverage;
+
+      const matchingRange = ranges.find(r => leverage >= r.min && leverage < r.max);
+      if (!matchingRange) return;
+
+      const label = matchingRange.label;
+      if (!rangeMap.has(label)) {
+        rangeMap.set(label, {
+          range: label,
+          trades: 0,
+          wins: 0,
+          totalPnL: 0,
+          totalMargin: 0,
+        });
+      }
+
+      const stats = rangeMap.get(label)!;
+      stats.trades++;
+      stats.totalPnL += pnl;
+      stats.totalMargin += marginUsed;
+      if (isWin) stats.wins++;
+    });
+
+    return ranges
+      .map(r => {
+        const stats = rangeMap.get(r.label);
+        if (!stats) return null;
+        const avgMargin = stats.totalMargin / stats.trades;
+        const avgROI = (stats.totalPnL / stats.totalMargin) * 100;
+        return {
+          range: stats.range,
+          trades: stats.trades,
+          wins: stats.wins,
+          avgROI,
+          totalPnL: stats.totalPnL,
+          avgMarginUsed: avgMargin,
+        };
+      })
+      .filter(Boolean) as any[];
+  }, [filteredPositions]);
+
+  // Advanced metrics
+  const advancedMetrics = useMemo(() => {
+    if (!stats || !filteredPositions || filteredPositions.length === 0) {
+      return {
+        sharpeRatio: 0,
+        sortinoRatio: 0,
+        calmarRatio: 0,
+        recoveryFactor: 0,
+        avgRRR: 0,
+        payoffRatio: 0,
+      };
+    }
+
+    // Calculate returns for each trade
+    const returns = filteredPositions.map(p => Number(p.realized_pnl || 0));
+    const avgReturn = returns.reduce((sum, r) => sum + r, 0) / returns.length;
+    
+    // Standard deviation of returns
+    const variance = returns.reduce((sum, r) => sum + Math.pow(r - avgReturn, 2), 0) / returns.length;
+    const stdDev = Math.sqrt(variance);
+    
+    // Sharpe Ratio (assuming risk-free rate = 0)
+    const sharpeRatio = stdDev > 0 ? avgReturn / stdDev : 0;
+    
+    // Sortino Ratio (only negative returns)
+    const negativeReturns = returns.filter(r => r < 0);
+    const downside = negativeReturns.length > 0
+      ? Math.sqrt(negativeReturns.reduce((sum, r) => sum + Math.pow(r, 2), 0) / negativeReturns.length)
+      : 0;
+    const sortinoRatio = downside > 0 ? avgReturn / downside : 0;
+    
+    // Calmar Ratio
+    const calmarRatio = stats.maxDrawdown > 0 ? stats.totalPnL / stats.maxDrawdown : 0;
+    
+    // Recovery Factor
+    const recoveryFactor = stats.maxDrawdown > 0 ? stats.totalPnL / stats.maxDrawdown : 0;
+    
+    // Average R:R Ratio (approximate from win/loss ratio and profit factor)
+    const avgRRR = stats.avgLoss !== 0 ? Math.abs(stats.avgWin / stats.avgLoss) : 0;
+    
+    // Payoff Ratio
+    const payoffRatio = stats.avgLoss !== 0 ? stats.avgWin / Math.abs(stats.avgLoss) : 0;
+
+    return {
+      sharpeRatio,
+      sortinoRatio,
+      calmarRatio,
+      recoveryFactor,
+      avgRRR,
+      payoffRatio,
+    };
+  }, [stats, filteredPositions]);
+
+  // Monthly comparison
+  const monthlyData = useMemo(() => {
+    if (!filteredPositions) return [];
+    
+    const monthMap = new Map<string, {
+      month: string;
+      trades: number;
+      wins: number;
+      totalPnL: number;
+    }>();
+
+    filteredPositions.forEach(p => {
+      if (!p.closed_at) return;
+      
+      const date = new Date(p.closed_at);
+      const monthKey = format(date, "yyyy-MM", { locale: pl });
+      const monthLabel = format(date, "MMM yyyy", { locale: pl });
+      const pnl = Number(p.realized_pnl || 0);
+      const isWin = pnl > 0;
+
+      if (!monthMap.has(monthKey)) {
+        monthMap.set(monthKey, {
+          month: monthLabel,
+          trades: 0,
+          wins: 0,
+          totalPnL: 0,
+        });
+      }
+
+      const stats = monthMap.get(monthKey)!;
+      stats.trades++;
+      stats.totalPnL += pnl;
+      if (isWin) stats.wins++;
+    });
+
+    return Array.from(monthMap.values())
+      .map(m => ({
+        month: m.month,
+        trades: m.trades,
+        wins: m.wins,
+        totalPnL: m.totalPnL,
+        winRate: (m.wins / m.trades) * 100,
+      }))
+      .sort((a, b) => a.month.localeCompare(b.month));
+  }, [filteredPositions]);
+
   // Export handlers
   const handleExportPositions = () => {
     if (!filteredPositions || filteredPositions.length === 0) {
@@ -942,6 +1111,15 @@ export default function Stats() {
 
           {/* Time-based Analysis */}
           <TimeBasedAnalysis hourlyStats={hourlyStats} dailyStats={dailyStats} />
+
+          {/* ROI Analysis */}
+          <ROIAnalysisCard roiStats={roiStats} />
+
+          {/* Advanced Metrics */}
+          <AdvancedMetricsCard metrics={advancedMetrics} />
+
+          {/* Monthly Comparison */}
+          <MonthlyComparison monthlyData={monthlyData} />
 
           {/* By Symbol */}
           <Card className="glass-card">
