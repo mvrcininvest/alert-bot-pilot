@@ -73,6 +73,68 @@ function calculateExpectedSLTP(position: any, settings: any): ExpectedSLTP {
     strength: (position.metadata as any)?.strength || 0.5,
   };
 
+  // CHECK BREAKEVEN CONDITION FIRST - if TP was hit and sl_to_breakeven is enabled
+  const triggerTP = settings.breakeven_trigger_tp || 1;
+  const shouldBeAtBreakeven = settings.sl_to_breakeven && (
+    (triggerTP === 1 && position.tp1_filled) ||
+    (triggerTP === 2 && position.tp2_filled) ||
+    (triggerTP === 3 && position.tp3_filled)
+  );
+  
+  if (shouldBeAtBreakeven) {
+    // SL should be at entry price (with small buffer to avoid exact entry close)
+    const beBuffer = position.entry_price * 0.0001; // 0.01% buffer
+    const slPrice = position.side === 'BUY' 
+      ? position.entry_price + beBuffer 
+      : position.entry_price - beBuffer;
+    
+    console.log(`📍 Expected SL at BREAKEVEN: ${slPrice} (entry: ${position.entry_price})`);
+    
+    // Still calculate TPs normally - only SL changes
+    const totalQty = position.quantity;
+    const tp1Qty = (!position.tp1_filled && settings.tp_levels >= 1) 
+      ? totalQty * (settings.tp1_close_percent / 100) 
+      : 0;
+    const tp2Qty = (!position.tp2_filled && settings.tp_levels >= 2) 
+      ? totalQty * (settings.tp2_close_percent / 100) 
+      : 0;
+    const tp3Qty = (!position.tp3_filled && settings.tp_levels >= 3) 
+      ? totalQty * (settings.tp3_close_percent / 100) 
+      : 0;
+    
+    // Get TP prices based on calculator type
+    let tp1Price, tp2Price, tp3Price;
+    if (settings.position_sizing_type === 'scalping_mode') {
+      const effectiveLeverage = (position.metadata as any)?.effective_leverage || position.leverage;
+      const tpPrices = calculateScalpingSLTP(alertData, settings, effectiveLeverage);
+      tp1Price = tpPrices.tp1_price;
+      tp2Price = tpPrices.tp2_price;
+      tp3Price = tpPrices.tp3_price;
+    } else {
+      switch (settings.calculator_type) {
+        case 'simple_percent':
+          ({ tp1Price, tp2Price, tp3Price } = calculateTPSimple(alertData, settings));
+          break;
+        case 'risk_reward':
+          ({ tp1Price, tp2Price, tp3Price } = calculateTPRiskReward(alertData, settings, slPrice));
+          break;
+        case 'atr_based':
+          ({ tp1Price, tp2Price, tp3Price } = calculateTPATR(alertData, settings));
+          break;
+      }
+    }
+    
+    return {
+      sl_price: slPrice,
+      tp1_price: !position.tp1_filled ? tp1Price : undefined,
+      tp2_price: !position.tp2_filled ? tp2Price : undefined,
+      tp3_price: !position.tp3_filled ? tp3Price : undefined,
+      tp1_quantity: tp1Qty > 0 ? tp1Qty : undefined,
+      tp2_quantity: tp2Qty > 0 ? tp2Qty : undefined,
+      tp3_quantity: tp3Qty > 0 ? tp3Qty : undefined,
+    };
+  }
+
   // Check for scalping mode FIRST
   if (settings.position_sizing_type === 'scalping_mode') {
     const effectiveLeverage = (position.metadata as any)?.effective_leverage || position.leverage;
@@ -318,12 +380,43 @@ function checkIfResyncNeeded(
     return { mismatch: true, reason: `Expected 1 SL order, found ${slOrders.length}` };
   }
   
-  const slPriceDiff = Math.abs(Number(slOrders[0].triggerPrice) - expected.sl_price) / expected.sl_price;
-  if (slPriceDiff > 0.001) { // 0.1% tolerance (increased from 0.001%)
-    return { 
-      mismatch: true, 
-      reason: `SL price mismatch: expected=${expected.sl_price.toFixed(4)}, actual=${slOrders[0].triggerPrice}, diff=${(slPriceDiff * 100).toFixed(4)}%` 
-    };
+  const actualSlPrice = Number(slOrders[0].triggerPrice);
+  const isBuy = position.side === 'BUY';
+  
+  // SPECIAL CASE: If position has tp filled and sl_to_breakeven enabled, allow SL at entry price
+  const triggerTP = settings.breakeven_trigger_tp || 1;
+  const shouldBeAtBreakeven = settings.sl_to_breakeven && (
+    (triggerTP === 1 && position.tp1_filled) ||
+    (triggerTP === 2 && position.tp2_filled) ||
+    (triggerTP === 3 && position.tp3_filled)
+  );
+  
+  if (shouldBeAtBreakeven) {
+    // Check if SL is at breakeven or better (more protective)
+    const slAtBEOrBetter = isBuy 
+      ? actualSlPrice >= position.entry_price * 0.9999 // Allow small tolerance
+      : actualSlPrice <= position.entry_price * 1.0001;
+      
+    if (slAtBEOrBetter) {
+      console.log(`✅ SL at breakeven or better - no resync needed`);
+      // SL is at breakeven or better - don't flag as mismatch
+      // Continue to check TPs...
+    } else {
+      // SL should be at BE but it's not - flag for correction
+      return { 
+        mismatch: true, 
+        reason: `SL should be at breakeven (${position.entry_price.toFixed(4)}) but is at ${actualSlPrice}` 
+      };
+    }
+  } else {
+    // Normal SL check when not at breakeven
+    const slPriceDiff = Math.abs(actualSlPrice - expected.sl_price) / expected.sl_price;
+    if (slPriceDiff > 0.001) { // 0.1% tolerance
+      return { 
+        mismatch: true, 
+        reason: `SL price mismatch: expected=${expected.sl_price.toFixed(4)}, actual=${actualSlPrice}, diff=${(slPriceDiff * 100).toFixed(4)}%` 
+      };
+    }
   }
   
   // Check TP count - must match tp_levels MINUS filled TPs
@@ -365,6 +458,135 @@ function checkIfResyncNeeded(
   }
   
   return { mismatch: false, reason: '' };
+}
+
+// Helper function to move SL to breakeven after TP hit
+async function moveSlToBreakeven(
+  supabase: any, 
+  position: any, 
+  apiCredentials: any,
+  pricePlace: number
+): Promise<boolean> {
+  const entryPrice = Number(position.entry_price);
+  const currentSlPrice = Number(position.sl_price);
+  const isBuy = position.side === 'BUY';
+  
+  // Check if SL already at BE or better
+  const slAlreadyAtBE = isBuy 
+    ? currentSlPrice >= entryPrice 
+    : currentSlPrice <= entryPrice;
+    
+  if (slAlreadyAtBE) {
+    console.log(`✅ SL already at breakeven or better for ${position.symbol} (current: ${currentSlPrice}, entry: ${entryPrice})`);
+    return true;
+  }
+  
+  // Add small buffer (0.01%) to avoid closing exactly at entry
+  const beBuffer = entryPrice * 0.0001;
+  const newSlPrice = isBuy ? entryPrice + beBuffer : entryPrice - beBuffer;
+  
+  console.log(`🔄 Moving SL to breakeven: ${position.symbol} ${currentSlPrice} → ${newSlPrice}`);
+  
+  try {
+    // 1. Cancel existing SL order
+    if (position.sl_order_id) {
+      console.log(`🗑️ Canceling existing SL order: ${position.sl_order_id}`);
+      const { data: cancelResult } = await supabase.functions.invoke('bitget-api', {
+        body: {
+          action: 'cancel_plan_order',
+          params: { 
+            symbol: position.symbol, 
+            orderId: position.sl_order_id,
+            planType: 'pos_loss'
+          },
+          apiCredentials
+        }
+      });
+      
+      if (!cancelResult?.success) {
+        console.warn(`⚠️ Failed to cancel SL order, continuing anyway...`);
+      }
+    }
+    
+    // 2. Place new SL at breakeven
+    const roundedSlPrice = roundPrice(newSlPrice, pricePlace);
+    const holdSide = isBuy ? 'long' : 'short';
+    
+    console.log(`📊 Placing new SL at breakeven: ${roundedSlPrice}`);
+    const { data: newSlResult } = await supabase.functions.invoke('bitget-api', {
+      body: {
+        action: 'place_tpsl_order',
+        params: {
+          symbol: position.symbol,
+          planType: 'pos_loss',
+          triggerPrice: roundedSlPrice,
+          triggerType: 'mark_price',
+          holdSide: holdSide,
+          executePrice: 0,
+        },
+        apiCredentials
+      }
+    });
+    
+    // 3. Update DB
+    if (newSlResult?.success && newSlResult.data?.orderId) {
+      await supabase
+        .from('positions')
+        .update({
+          sl_price: newSlPrice,
+          sl_order_id: newSlResult.data.orderId,
+          metadata: {
+            ...position.metadata,
+            sl_moved_to_breakeven: true,
+            sl_moved_at: new Date().toISOString()
+          }
+        })
+        .eq('id', position.id);
+      
+      console.log(`✅ SL moved to breakeven successfully: ${newSlPrice} (order: ${newSlResult.data.orderId})`);
+      
+      await log({
+        functionName: 'position-monitor',
+        message: `SL moved to breakeven after TP hit`,
+        level: 'info',
+        positionId: position.id,
+        metadata: { 
+          symbol: position.symbol,
+          old_sl: currentSlPrice,
+          new_sl: newSlPrice,
+          entry_price: entryPrice
+        }
+      });
+      
+      return true;
+    } else {
+      console.error(`❌ Failed to place breakeven SL:`, newSlResult);
+      await log({
+        functionName: 'position-monitor',
+        message: `Failed to move SL to breakeven`,
+        level: 'error',
+        positionId: position.id,
+        metadata: { 
+          symbol: position.symbol,
+          error: newSlResult?.error || 'Unknown error'
+        }
+      });
+      return false;
+    }
+  } catch (error) {
+    console.error(`❌ Error moving SL to breakeven:`, error);
+    await log({
+      functionName: 'position-monitor',
+      message: `Error moving SL to breakeven`,
+      level: 'error',
+      positionId: position.id,
+      metadata: { 
+        symbol: position.symbol,
+        error: error instanceof Error ? error.message : 'Unknown error'
+      }
+    });
+    return false;
+  }
 }
 
 // Helper function to log deviations (when they exist but are within tolerance)
@@ -558,6 +780,20 @@ async function recoverOrphanPosition(
   console.log(`🔄 RECOVERING orphan position: ${symbol} ${side}, qty=${quantity}, entry=${entryPrice}`);
   
   try {
+    // CHECK IF POSITION ALREADY EXISTS (avoid duplicates!)
+    const { data: existingPosition } = await supabase
+      .from('positions')
+      .select('id')
+      .eq('user_id', userId)
+      .eq('symbol', symbol)
+      .eq('side', side)
+      .eq('status', 'open')
+      .maybeSingle();
+    
+    if (existingPosition) {
+      console.log(`⏭️ Position already exists in DB for ${symbol} ${side} - skipping recovery`);
+      return existingPosition;
+    }
     // 1. Get symbol precision
     const { pricePlace, volumePlace } = await getSymbolPrecision(supabase, symbol, apiCredentials);
     
@@ -1549,6 +1785,20 @@ async function checkPositionFullVerification(supabase: any, position: any, setti
     if (updates.tp1_filled) position.tp1_filled = true;
     if (updates.tp2_filled) position.tp2_filled = true;
     if (updates.tp3_filled) position.tp3_filled = true;
+    
+    // MOVE SL TO BREAKEVEN if enabled
+    if (settings.sl_to_breakeven) {
+      const triggerTP = settings.breakeven_trigger_tp || 1;
+      const shouldMoveBE = 
+        (triggerTP === 1 && updates.tp1_filled) ||
+        (triggerTP === 2 && updates.tp2_filled) ||
+        (triggerTP === 3 && updates.tp3_filled);
+      
+      if (shouldMoveBE) {
+        console.log(`🔄 TP${triggerTP} filled - moving SL to breakeven`);
+        await moveSlToBreakeven(supabase, position, apiCredentials, pricePlace);
+      }
+    }
   } else if (Math.abs(bitgetQuantity - dbQuantity) > 0.0001) {
     issues.push({
       type: 'quantity_mismatch',
