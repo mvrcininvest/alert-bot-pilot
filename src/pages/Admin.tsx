@@ -8,7 +8,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Switch } from '@/components/ui/switch';
-import { Shield, User, CheckCircle, XCircle, Loader2, RefreshCw, Ban, Clock, Activity, Search, Filter, X } from 'lucide-react';
+import { Shield, User, CheckCircle, XCircle, Loader2, RefreshCw, Ban, Clock, Activity, Search, Filter, X, AlertTriangle } from 'lucide-react';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Textarea } from '@/components/ui/textarea';
@@ -17,9 +17,11 @@ import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Calendar } from '@/components/ui/calendar';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { format } from 'date-fns';
 import { pl } from 'date-fns/locale';
 import UserDetailDialog from '@/components/admin/UserDetailDialog';
+import AdminAlertErrors from '@/components/admin/AdminAlertErrors';
 
 interface UserData {
   id: string;
@@ -60,6 +62,7 @@ export default function Admin() {
   const [selectedUsers, setSelectedUsers] = useState<Set<string>>(new Set());
   const [bulkBanDialogOpen, setBulkBanDialogOpen] = useState(false);
   const [bulkBanReason, setBulkBanReason] = useState('');
+  const [activeTab, setActiveTab] = useState('users');
 
   useEffect(() => {
     if (!authLoading && !isAdmin) {
@@ -631,6 +634,20 @@ export default function Admin() {
         </Button>
       </div>
 
+      {/* Tabs */}
+      <Tabs value={activeTab} onValueChange={setActiveTab}>
+        <TabsList className="grid w-full max-w-md grid-cols-2">
+          <TabsTrigger value="users" className="gap-2">
+            <User className="h-4 w-4" />
+            Użytkownicy
+          </TabsTrigger>
+          <TabsTrigger value="errors" className="gap-2">
+            <AlertTriangle className="h-4 w-4" />
+            Błędy Alertów
+          </TabsTrigger>
+        </TabsList>
+
+        <TabsContent value="users" className="space-y-6 mt-6">
       {/* Filters */}
       <Card>
         <CardHeader>
@@ -1090,6 +1107,12 @@ export default function Admin() {
           )}
         </CardContent>
       </Card>
+        </TabsContent>
+
+        <TabsContent value="errors" className="space-y-6 mt-6">
+          <AdminAlertErrors />
+        </TabsContent>
+      </Tabs>
 
       {/* Single Ban Dialog */}
       <Dialog open={banDialogOpen} onOpenChange={setBanDialogOpen}>
