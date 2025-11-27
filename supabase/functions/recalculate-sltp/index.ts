@@ -63,8 +63,15 @@ interface CalculatedPrices {
 function calculateSLTP(
   alertData: AlertData,
   settings: Settings,
-  positionSize: number
+  positionSize: number,
+  effectiveLeverage?: number
 ): CalculatedPrices {
+  // Check for scalping mode FIRST
+  if ((settings as any).position_sizing_type === 'scalping_mode') {
+    const leverage = effectiveLeverage || alertData.leverage;
+    return calculateScalpingSLTP(alertData, settings as any, leverage);
+  }
+
   let slPrice: number;
   let tp1Price: number | undefined;
   let tp2Price: number | undefined;
@@ -213,6 +220,53 @@ function calculateTPATR(alertData: AlertData, settings: Settings, slPrice: numbe
   return { tp1Price, tp2Price, tp3Price };
 }
 
+// ============= SCALPING MODE CALCULATION =============
+function calculateScalpingSLTP(
+  alertData: AlertData,
+  settings: any,
+  effectiveLeverage: number
+): CalculatedPrices {
+  const maxMargin = settings.max_margin_per_trade || 2;
+  const maxLoss = settings.max_loss_per_trade || 1;
+  const slMin = (settings.sl_percent_min || 0.3) / 100;
+  const slMax = (settings.sl_percent_max || 2.0) / 100;
+
+  let slPercent = maxLoss / (maxMargin * effectiveLeverage);
+
+  if (slPercent < slMin) {
+    slPercent = slMin;
+  } else if (slPercent > slMax) {
+    slPercent = slMax;
+  }
+
+  const slDistance = alertData.price * slPercent;
+  const slPrice = alertData.side === 'BUY'
+    ? alertData.price - slDistance
+    : alertData.price + slDistance;
+
+  // Calculate TP prices using RR ratios
+  const tp1Distance = slDistance * (settings.tp1_rr_ratio || 1.5);
+  const tp1Price = alertData.side === 'BUY'
+    ? alertData.price + tp1Distance
+    : alertData.price - tp1Distance;
+
+  let tp2Price, tp3Price;
+  if (settings.tp_levels >= 2) {
+    const tp2Distance = slDistance * (settings.tp2_rr_ratio || 2.5);
+    tp2Price = alertData.side === 'BUY'
+      ? alertData.price + tp2Distance
+      : alertData.price - tp2Distance;
+  }
+  if (settings.tp_levels >= 3) {
+    const tp3Distance = slDistance * (settings.tp3_rr_ratio || 3.5);
+    tp3Price = alertData.side === 'BUY'
+      ? alertData.price + tp3Distance
+      : alertData.price - tp3Distance;
+  }
+
+  return { sl_price: slPrice, tp1_price: tp1Price, tp2_price: tp2Price, tp3_price: tp3Price };
+}
+
 // ============= MAIN FUNCTION =============
 
 serve(async (req) => {
@@ -291,10 +345,12 @@ serve(async (req) => {
       };
 
       // Recalculate SL/TP
+      const effectiveLeverage = (position.metadata as any)?.effective_leverage || position.leverage;
       const { sl_price, tp1_price, tp2_price, tp3_price } = calculateSLTP(
         alertData,
         settings as unknown as Settings,
-        position.quantity
+        position.quantity,
+        effectiveLeverage
       );
 
       console.log(`  Recalculated: SL=${sl_price}, TP1=${tp1_price}, TP2=${tp2_price}`);
