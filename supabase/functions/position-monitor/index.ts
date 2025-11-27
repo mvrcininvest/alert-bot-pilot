@@ -333,7 +333,7 @@ function checkIfResyncNeeded(
     const matchingTP = validTPOrders.find((o: any) => {
       const priceDiff = Math.abs(Number(o.triggerPrice) - expectedPrice) / expectedPrice;
       const qtyDiff = Math.abs(Number(o.size) - expectedQty) / expectedQty;
-      return priceDiff < 0.001 && qtyDiff < 0.01; // 0.1% price, 1% qty tolerance (increased)
+      return priceDiff < 0.001 && qtyDiff < 0.02; // 0.1% price, 2% qty tolerance (increased to prevent floating point issues)
     });
     
     if (!matchingTP) {
@@ -1233,7 +1233,33 @@ async function checkPositionFullVerification(supabase: any, position: any, setti
   // 5. VALIDATION & RESYNC LOGIC
   // Calculate expected SL/TP from current user settings
   const expected = calculateExpectedSLTP(position, settings);
-  console.log(`📊 Expected from settings: SL=${expected.sl_price.toFixed(4)}, TP1=${expected.tp1_price?.toFixed(4)}, TP2=${expected.tp2_price?.toFixed(4)}, TP3=${expected.tp3_price?.toFixed(4)}`);
+  
+  // Round expected values to exchange precision BEFORE comparison to prevent resync loop
+  // This ensures expected values match what will actually be placed on exchange
+  expected.sl_price = parseFloat(roundPrice(expected.sl_price, pricePlace));
+  
+  if (expected.tp1_price) {
+    expected.tp1_price = parseFloat(roundPrice(expected.tp1_price, pricePlace));
+  }
+  if (expected.tp1_quantity) {
+    expected.tp1_quantity = Math.floor(expected.tp1_quantity * Math.pow(10, volumePlace)) / Math.pow(10, volumePlace);
+  }
+  
+  if (expected.tp2_price) {
+    expected.tp2_price = parseFloat(roundPrice(expected.tp2_price, pricePlace));
+  }
+  if (expected.tp2_quantity) {
+    expected.tp2_quantity = Math.floor(expected.tp2_quantity * Math.pow(10, volumePlace)) / Math.pow(10, volumePlace);
+  }
+  
+  if (expected.tp3_price) {
+    expected.tp3_price = parseFloat(roundPrice(expected.tp3_price, pricePlace));
+  }
+  if (expected.tp3_quantity) {
+    expected.tp3_quantity = Math.floor(expected.tp3_quantity * Math.pow(10, volumePlace)) / Math.pow(10, volumePlace);
+  }
+  
+  console.log(`📊 Expected from settings (rounded): SL=${expected.sl_price.toFixed(4)}, TP1=${expected.tp1_price?.toFixed(4)} (qty=${expected.tp1_quantity?.toFixed(6)}), TP2=${expected.tp2_price?.toFixed(4)} (qty=${expected.tp2_quantity?.toFixed(6)}), TP3=${expected.tp3_price?.toFixed(4)} (qty=${expected.tp3_quantity?.toFixed(6)})`);
   
   // Separate SL and TP orders
   const slOrders = planOrders.filter((order: any) => 
