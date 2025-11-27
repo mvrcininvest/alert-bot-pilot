@@ -529,6 +529,7 @@ export type Database = {
           trailing_stop_trigger_tp: number | null
           updated_at: string
           use_alert_leverage: boolean | null
+          use_max_leverage_global: boolean | null
         }
         Insert: {
           adaptive_rr?: boolean | null
@@ -596,6 +597,7 @@ export type Database = {
           trailing_stop_trigger_tp?: number | null
           updated_at?: string
           use_alert_leverage?: boolean | null
+          use_max_leverage_global?: boolean | null
         }
         Update: {
           adaptive_rr?: boolean | null
@@ -663,6 +665,7 @@ export type Database = {
           trailing_stop_trigger_tp?: number | null
           updated_at?: string
           use_alert_leverage?: boolean | null
+          use_max_leverage_global?: boolean | null
         }
         Relationships: []
       }
@@ -790,6 +793,7 @@ export type Database = {
           trailing_stop_trigger_tp: number | null
           updated_at: string | null
           use_alert_leverage: boolean | null
+          use_max_leverage_global: boolean | null
           user_id: string
         }
         Insert: {
@@ -860,6 +864,7 @@ export type Database = {
           trailing_stop_trigger_tp?: number | null
           updated_at?: string | null
           use_alert_leverage?: boolean | null
+          use_max_leverage_global?: boolean | null
           user_id: string
         }
         Update: {
@@ -930,6 +935,7 @@ export type Database = {
           trailing_stop_trigger_tp?: number | null
           updated_at?: string | null
           use_alert_leverage?: boolean | null
+          use_max_leverage_global?: boolean | null
           user_id?: string
         }
         Relationships: []

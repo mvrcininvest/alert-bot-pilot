@@ -18,7 +18,8 @@ export default function Settings() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const [localSettings, setLocalSettings] = useState<any>(null);
-  const [leverageType, setLeverageType] = useState<"custom" | "max">("custom");
+  const [newSymbolLeverage, setNewSymbolLeverage] = useState<string>("");
+  const [leverageSource, setLeverageSource] = useState<"alert" | "global_max" | "custom">("alert");
 
   const { data: settings, isLoading, error } = useQuery({
     queryKey: ["settings"],
@@ -71,6 +72,15 @@ export default function Settings() {
     if (settings) {
       console.log("Ładowanie ustawień do lokalnego stanu:", settings);
       setLocalSettings(settings);
+      
+      // Determine leverage source from settings
+      if (settings.use_alert_leverage !== false) {
+        setLeverageSource("alert");
+      } else if (settings.use_max_leverage_global) {
+        setLeverageSource("global_max");
+      } else {
+        setLeverageSource("custom");
+      }
     }
   }, [settings]);
 
@@ -250,22 +260,22 @@ export default function Settings() {
                   <div className="space-y-1">
                     <div className="text-xs text-muted-foreground">Źródło dźwigni</div>
                     <div className="font-medium">
-                      {localSettings.use_alert_leverage !== false ? "Z alertu" : "Własna"}
+                      {localSettings.use_alert_leverage !== false 
+                        ? "Z alertu TradingView" 
+                        : localSettings.use_max_leverage_global 
+                        ? "MAX dla wszystkich" 
+                        : `Własna (${localSettings.default_leverage || 10}x)`}
                     </div>
-                  </div>
-                  <div className="space-y-1">
-                    <div className="text-xs text-muted-foreground">Domyślna dźwignia</div>
-                    <div className="font-medium">{localSettings.default_leverage || 10}x</div>
                   </div>
                 </div>
                 {localSettings.symbol_leverage_overrides && 
                   Object.keys(localSettings.symbol_leverage_overrides).length > 0 && (
                   <div className="mt-3">
-                    <div className="text-xs text-muted-foreground mb-2">Niestandardowa dźwignia:</div>
+                    <div className="text-xs text-muted-foreground mb-2">Wyjątki dla symboli:</div>
                     <div className="flex flex-wrap gap-2">
-                      {Object.entries(localSettings.symbol_leverage_overrides).map(([symbol, leverage]) => (
+                      {Object.entries(localSettings.symbol_leverage_overrides).map(([symbol, leverage]: [string, any]) => (
                         <Badge key={symbol} variant="outline">
-                          {symbol}: {leverage === "MAX" ? "MAX" : `${leverage}x`}
+                          {symbol}: {leverage}x
                         </Badge>
                       ))}
                     </div>
@@ -901,46 +911,82 @@ export default function Settings() {
               <CardDescription>Konfiguracja dźwigni dla pozycji</CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
-              <div className="flex items-center justify-between">
-                <div className="space-y-0.5">
-                  <Label>Używaj dźwigni z alertu</Label>
-                  <div className="text-sm text-muted-foreground">
-                    Jeśli włączone, używa dźwigni z TradingView. Jeśli wyłączone, używa Twoich ustawień poniżej.
+              <div className="space-y-3">
+                <Label>Źródło dźwigni</Label>
+                <RadioGroup 
+                  value={leverageSource} 
+                  onValueChange={(value) => {
+                    setLeverageSource(value as "alert" | "global_max" | "custom");
+                    
+                    if (value === "alert") {
+                      updateLocal("use_alert_leverage", true);
+                      updateLocal("use_max_leverage_global", false);
+                    } else if (value === "global_max") {
+                      updateLocal("use_alert_leverage", false);
+                      updateLocal("use_max_leverage_global", true);
+                    } else {
+                      updateLocal("use_alert_leverage", false);
+                      updateLocal("use_max_leverage_global", false);
+                    }
+                  }}
+                >
+                  <div className="flex items-center space-x-2">
+                    <RadioGroupItem value="alert" id="alert" />
+                    <Label htmlFor="alert" className="font-normal cursor-pointer">
+                      Z alertu TradingView
+                    </Label>
                   </div>
-                </div>
-                <Switch
-                  checked={localSettings.use_alert_leverage !== false}
-                  onCheckedChange={(checked) => updateLocal("use_alert_leverage", checked)}
-                />
-              </div>
-
-              <Separator />
-
-              <div className="space-y-2">
-                <Label>Domyślna dźwignia</Label>
-                <Input
-                  type="number"
-                  min="1"
-                  max="125"
-                  value={localSettings.default_leverage || 10}
-                  onChange={(e) => updateLocal("default_leverage", parseInt(e.target.value))}
-                  disabled={localSettings.use_alert_leverage !== false}
-                />
+                  <div className="flex items-center space-x-2">
+                    <RadioGroupItem value="global_max" id="global_max" />
+                    <Label htmlFor="global_max" className="font-normal cursor-pointer">
+                      Maksymalna dostępna (MAX dla wszystkich symboli)
+                    </Label>
+                  </div>
+                  <div className="flex items-center space-x-2">
+                    <RadioGroupItem value="custom" id="custom" />
+                    <Label htmlFor="custom" className="font-normal cursor-pointer">
+                      Własna dźwignia
+                    </Label>
+                  </div>
+                </RadioGroup>
                 <p className="text-xs text-muted-foreground">
-                  {localSettings.use_alert_leverage !== false 
-                    ? "Wyłącz 'Używaj dźwigni z alertu' aby ustawić własną dźwignię"
-                    : "Dźwignia używana dla wszystkich symboli (jeśli nie ma custom ustawienia)"}
+                  {leverageSource === "alert" 
+                    ? "Bot użyje dźwigni wysłanej w alercie z TradingView"
+                    : leverageSource === "global_max"
+                    ? "Bot automatycznie użyje maksymalnej dozwolonej dźwigni dla każdego symbolu"
+                    : "Bot użyje poniższej domyślnej dźwigni dla wszystkich symboli"}
                 </p>
               </div>
+
+              {leverageSource === "custom" && (
+                <>
+                  <Separator />
+                  <div className="space-y-2">
+                    <Label>Domyślna dźwignia</Label>
+                    <Input
+                      type="number"
+                      min="1"
+                      max="125"
+                      value={localSettings.default_leverage || 10}
+                      onChange={(e) => updateLocal("default_leverage", parseInt(e.target.value))}
+                    />
+                    <p className="text-xs text-muted-foreground">
+                      Dźwignia używana dla wszystkich symboli (chyba że ustawisz wyjątek poniżej)
+                    </p>
+                  </div>
+                </>
+              )}
 
               <Separator />
 
               <div className="space-y-3">
                 <div>
-                  <Label>Niestandardowa dźwignia dla symboli</Label>
+                  <Label>Wyjątki dla konkretnych symboli</Label>
                   <p className="text-xs text-muted-foreground mt-1">
-                    {localSettings.use_alert_leverage !== false
-                      ? "Wyłącz 'Używaj dźwigni z alertu' aby móc ustawić custom dźwignię"
+                    {leverageSource === "alert"
+                      ? "Zmień źródło dźwigni aby móc ustawić wyjątki"
+                      : leverageSource === "global_max"
+                      ? "Ustaw mniejszą dźwignię dla symboli, dla których nie chcesz używać MAX"
                       : "Ustaw różną dźwignię dla konkretnych par handlowych"}
                   </p>
                 </div>
@@ -948,13 +994,11 @@ export default function Settings() {
                 {localSettings.symbol_leverage_overrides && 
                   Object.keys(localSettings.symbol_leverage_overrides).length > 0 && (
                   <div className="space-y-2">
-                    {Object.entries(localSettings.symbol_leverage_overrides).map(([symbol, leverage]) => (
+                    {Object.entries(localSettings.symbol_leverage_overrides).map(([symbol, leverage]: [string, any]) => (
                       <div key={symbol} className="flex items-center justify-between p-2 border rounded-lg">
                         <div className="flex items-center gap-2">
                           <Badge variant="outline">{symbol}</Badge>
-                          <span className="text-sm font-medium">
-                            {leverage === "MAX" ? "MAX" : `${leverage}x`}
-                          </span>
+                          <span className="text-sm font-medium">{leverage}x</span>
                         </div>
                         <Button
                           variant="ghost"
@@ -964,6 +1008,7 @@ export default function Settings() {
                             delete updated[symbol];
                             updateLocal("symbol_leverage_overrides", updated);
                           }}
+                          disabled={leverageSource === "alert"}
                         >
                           Usuń
                         </Button>
@@ -972,106 +1017,72 @@ export default function Settings() {
                   </div>
                 )}
 
-                <div className="space-y-3">
-                  <div className="space-y-2">
-                    <Label>Typ dźwigni</Label>
-                    <RadioGroup 
-                      value={leverageType} 
-                      onValueChange={(value) => setLeverageType(value as "custom" | "max")}
-                      disabled={localSettings.use_alert_leverage !== false}
-                    >
-                      <div className="flex items-center space-x-2">
-                        <RadioGroupItem value="custom" id="custom" />
-                        <Label htmlFor="custom" className="font-normal cursor-pointer">
-                          Własna wartość (1-125x)
-                        </Label>
-                      </div>
-                      <div className="flex items-center space-x-2">
-                        <RadioGroupItem value="max" id="max" />
-                        <Label htmlFor="max" className="font-normal cursor-pointer">
-                          Maksymalna dostępna dla symbolu (MAX)
-                        </Label>
-                      </div>
-                    </RadioGroup>
-                  </div>
-
-                  <div className="flex gap-2">
-                    <Input
-                      id="new-symbol"
-                      placeholder="Symbol (np. BTCUSDT)"
-                      className="flex-1"
-                      disabled={localSettings.use_alert_leverage !== false}
-                    />
-                    {leverageType === "custom" && (
-                      <Input
-                        id="new-leverage"
-                        type="number"
-                        min="1"
-                        max="125"
-                        placeholder="Dźwignia"
-                        className="w-24"
-                        disabled={localSettings.use_alert_leverage !== false}
-                      />
-                    )}
-                    <Button
-                      disabled={localSettings.use_alert_leverage !== false}
-                      onClick={() => {
-                        const symbolInput = document.getElementById("new-symbol") as HTMLInputElement;
-                        const symbol = symbolInput?.value.trim().toUpperCase();
-                        
-                        if (!symbol) {
-                          toast({
-                            title: "Błąd",
-                            description: "Wprowadź symbol",
-                            variant: "destructive",
-                          });
-                          return;
-                        }
-
-                        let leverageValue: number | string;
-                        let displayValue: string;
-
-                        if (leverageType === "max") {
-                          leverageValue = "MAX";
-                          displayValue = "MAX";
-                        } else {
-                          const leverageInput = document.getElementById("new-leverage") as HTMLInputElement;
-                          const leverage = parseInt(leverageInput?.value);
-                          
-                          if (!leverage || leverage <= 0 || leverage > 125) {
-                            toast({
-                              title: "Błąd",
-                              description: "Wprowadź prawidłową dźwignię (1-125)",
-                              variant: "destructive",
-                            });
-                            return;
-                          }
-                          
-                          leverageValue = leverage;
-                          displayValue = `${leverage}x`;
-                          leverageInput.value = "";
-                        }
-
-                        const updated = {
-                          ...(localSettings.symbol_leverage_overrides || {}),
-                          [symbol]: leverageValue
-                        };
-                        updateLocal("symbol_leverage_overrides", updated);
-                        symbolInput.value = "";
-                        
+                <div className="flex gap-2">
+                  <Input
+                    id="new-symbol"
+                    placeholder="Symbol (np. BTCUSDT)"
+                    className="flex-1"
+                    disabled={leverageSource === "alert"}
+                  />
+                  <Input
+                    id="new-leverage"
+                    type="number"
+                    min="1"
+                    max="125"
+                    placeholder="Dźwignia"
+                    className="w-32"
+                    value={newSymbolLeverage}
+                    onChange={(e) => setNewSymbolLeverage(e.target.value)}
+                    disabled={leverageSource === "alert"}
+                  />
+                  <Button
+                    disabled={leverageSource === "alert"}
+                    onClick={() => {
+                      const symbolInput = document.getElementById("new-symbol") as HTMLInputElement;
+                      const symbol = symbolInput?.value.trim().toUpperCase();
+                      
+                      if (!symbol) {
                         toast({
-                          title: "Dodano",
-                          description: `Ustawiono ${symbol} na dźwignię ${displayValue}`,
+                          title: "Błąd",
+                          description: "Wprowadź symbol",
+                          variant: "destructive",
                         });
-                      }}
-                    >
-                      Dodaj
-                    </Button>
-                  </div>
-                  <p className="text-xs text-muted-foreground">
-                    Przykład: BTCUSDT z dźwignią 20x lub MAX dla maksymalnej dostępnej
-                  </p>
+                        return;
+                      }
+
+                      const leverage = parseInt(newSymbolLeverage);
+                      
+                      if (!leverage || leverage <= 0 || leverage > 125) {
+                        toast({
+                          title: "Błąd",
+                          description: "Wprowadź prawidłową dźwignię (1-125)",
+                          variant: "destructive",
+                        });
+                        return;
+                      }
+
+                      const updated = {
+                        ...(localSettings.symbol_leverage_overrides || {}),
+                        [symbol]: leverage
+                      };
+                      updateLocal("symbol_leverage_overrides", updated);
+                      symbolInput.value = "";
+                      setNewSymbolLeverage("");
+                      
+                      toast({
+                        title: "Dodano",
+                        description: `${symbol}: ${leverage}x`,
+                      });
+                    }}
+                  >
+                    Dodaj
+                  </Button>
                 </div>
+                <p className="text-xs text-muted-foreground">
+                  {leverageSource === "global_max"
+                    ? "Przykład: BTCUSDT z dźwignią 50x zamiast MAX"
+                    : "Przykład: BTCUSDT z dźwignią 20x"}
+                </p>
               </div>
             </CardContent>
           </Card>

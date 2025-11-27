@@ -506,9 +506,15 @@ serve(async (req) => {
       const symbolLeverageOverrides = settings.symbol_leverage_overrides || {};
       const defaultLeverage = settings.default_leverage || 10;
       
-      // Check if symbol has override set to "MAX"
-      if (symbolLeverageOverrides[alert_data.symbol] === "MAX") {
-        console.log(`Symbol ${alert_data.symbol} configured for MAX leverage, fetching from API...`);
+      // Priority: symbol-specific numeric override > global MAX > default
+      if (symbolLeverageOverrides[alert_data.symbol] && typeof symbolLeverageOverrides[alert_data.symbol] === 'number') {
+        // Use custom numeric leverage override for this symbol
+        effectiveLeverage = symbolLeverageOverrides[alert_data.symbol];
+        leverageSource = 'symbol_override';
+        console.log(`Using symbol-specific leverage for ${alert_data.symbol}: ${effectiveLeverage}x`);
+      } else if (settings.use_max_leverage_global) {
+        // Global MAX enabled - fetch max leverage from API
+        console.log(`Global MAX leverage enabled, fetching from API for ${alert_data.symbol}...`);
         
         try {
           const { data: symbolInfoResult } = await supabase.functions.invoke('bitget-api', {
@@ -521,12 +527,12 @@ serve(async (req) => {
           
           if (symbolInfoResult?.success && symbolInfoResult.data?.[0]?.maxLever) {
             effectiveLeverage = parseInt(symbolInfoResult.data[0].maxLever);
-            leverageSource = 'symbol_override_max';
-            console.log(`✓ Using MAX leverage for ${alert_data.symbol}: ${effectiveLeverage}x`);
+            leverageSource = 'global_max';
+            console.log(`✓ Using global MAX leverage for ${alert_data.symbol}: ${effectiveLeverage}x`);
             
             await log({
               functionName: 'bitget-trader',
-              message: `Fetched MAX leverage from API: ${effectiveLeverage}x`,
+              message: `Using global MAX leverage: ${effectiveLeverage}x`,
               level: 'info',
               alertId: alert_id,
               metadata: { symbol: alert_data.symbol, maxLever: effectiveLeverage }
@@ -539,7 +545,7 @@ serve(async (req) => {
             
             await log({
               functionName: 'bitget-trader',
-              message: `Failed to fetch MAX leverage, using default: ${effectiveLeverage}x`,
+              message: `Failed to fetch global MAX leverage, using default: ${effectiveLeverage}x`,
               level: 'warn',
               alertId: alert_id,
               metadata: { symbol: alert_data.symbol, defaultLeverage: effectiveLeverage }
@@ -550,20 +556,16 @@ serve(async (req) => {
           effectiveLeverage = defaultLeverage;
           leverageSource = 'default_fallback_error';
           const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-          console.error(`✗ Error fetching MAX leverage for ${alert_data.symbol}:`, error);
+          console.error(`✗ Error fetching global MAX leverage for ${alert_data.symbol}:`, error);
           
           await log({
             functionName: 'bitget-trader',
-            message: `Error fetching MAX leverage: ${errorMessage}`,
+            message: `Error fetching global MAX leverage: ${errorMessage}`,
             level: 'error',
             alertId: alert_id,
             metadata: { symbol: alert_data.symbol, error: errorMessage }
           });
         }
-      } else if (symbolLeverageOverrides[alert_data.symbol]) {
-        // Use custom numeric leverage override
-        effectiveLeverage = symbolLeverageOverrides[alert_data.symbol];
-        leverageSource = 'symbol_override';
       } else {
         // Use default leverage
         effectiveLeverage = defaultLeverage;
