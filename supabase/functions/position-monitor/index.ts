@@ -418,12 +418,30 @@ async function logDeviations(
   
   // Only log if we found deviations
   if (deviations.length > 0) {
-    await supabase.from('monitoring_logs').insert({
-      check_type: 'deviations',
-      position_id: position.id,
-      status: 'detected',
-      issues: deviations
-    });
+    // Check if there's a recent deviation log with the same issues
+    const { data: lastDeviation } = await supabase
+      .from('monitoring_logs')
+      .select('issues')
+      .eq('position_id', position.id)
+      .eq('check_type', 'deviations')
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .single();
+    
+    // Only insert if:
+    // 1. No previous deviation exists, OR
+    // 2. The deviations are different
+    const shouldLog = !lastDeviation || 
+      JSON.stringify(lastDeviation.issues) !== JSON.stringify(deviations);
+    
+    if (shouldLog) {
+      await supabase.from('monitoring_logs').insert({
+        check_type: 'deviations',
+        position_id: position.id,
+        status: 'detected',
+        issues: deviations
+      });
+    }
   }
 }
 
