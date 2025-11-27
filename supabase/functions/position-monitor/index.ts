@@ -9,6 +9,31 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
+// ============= PART A: PRICE VALIDATION FUNCTION =============
+function isPriceBeyondLevel(
+  currentPrice: number,
+  targetPrice: number,
+  side: 'BUY' | 'SELL',
+  orderType: 'TP' | 'SL',
+  tolerancePercent: number = 0.1 // 0.1% tolerance
+): boolean {
+  const tolerance = targetPrice * (tolerancePercent / 100);
+  const isBuy = side === 'BUY';
+  
+  if (orderType === 'TP') {
+    // For BUY: TP is above entry, price must be BELOW TP for order to make sense
+    // For SELL: TP is below entry, price must be ABOVE TP for order to make sense
+    return isBuy 
+      ? currentPrice >= (targetPrice - tolerance)  // BUY: price already reached TP
+      : currentPrice <= (targetPrice + tolerance); // SELL: price already reached TP
+  } else {
+    // SL
+    return isBuy
+      ? currentPrice <= (targetPrice + tolerance)  // BUY: price already hit SL
+      : currentPrice >= (targetPrice - tolerance); // SELL: price already hit SL
+  }
+}
+
 // Helper function to get price and volume precision from Bitget API
 async function getSymbolPrecision(supabase: any, symbol: string, apiCredentials: any): Promise<{ pricePlace: number; volumePlace: number }> {
   const { data: symbolInfoResult } = await supabase.functions.invoke('bitget-api', {
@@ -780,20 +805,6 @@ async function recoverOrphanPosition(
   console.log(`🔄 RECOVERING orphan position: ${symbol} ${side}, qty=${quantity}, entry=${entryPrice}`);
   
   try {
-    // CHECK IF POSITION ALREADY EXISTS (avoid duplicates!)
-    const { data: existingPosition } = await supabase
-      .from('positions')
-      .select('id')
-      .eq('user_id', userId)
-      .eq('symbol', symbol)
-      .eq('side', side)
-      .eq('status', 'open')
-      .maybeSingle();
-    
-    if (existingPosition) {
-      console.log(`⏭️ Position already exists in DB for ${symbol} ${side} - skipping recovery`);
-      return existingPosition;
-    }
     // 1. Get symbol precision
     const { pricePlace, volumePlace } = await getSymbolPrecision(supabase, symbol, apiCredentials);
     
@@ -820,7 +831,8 @@ async function recoverOrphanPosition(
     // 3. Calculate SL/TP according to user settings
     const calculated = calculateExpectedSLTP(positionData, userSettings);
     
-    // 4. Create position record in DB
+    // ============= PART B4: INSERT WITH ON CONFLICT HANDLING =============
+    // 4. Try to create position record in DB (atomic insert)
     const { data: newPosition, error: insertError } = await supabase
       .from('positions')
       .insert({
@@ -847,7 +859,25 @@ async function recoverOrphanPosition(
       .select()
       .single();
     
-    if (insertError) {
+    // Handle unique violation (concurrent insert)
+    if (insertError?.code === '23505') {
+      console.log(`⚠️ Position already exists (concurrent insert) - fetching existing`);
+      const { data: existing } = await supabase
+        .from('positions')
+        .select('*')
+        .eq('user_id', userId)
+        .eq('symbol', symbol)
+        .eq('side', side)
+        .eq('status', 'open')
+        .single();
+      
+      if (existing) {
+        console.log(`✅ Using existing position: ${existing.id}`);
+        return existing;
+      }
+    }
+    
+    if (insertError && insertError.code !== '23505') {
       console.error(`❌ Failed to create recovered position:`, insertError);
       await log({
         functionName: 'position-monitor',
@@ -1106,52 +1136,55 @@ serve(async (req) => {
     return new Response(null, { headers: corsHeaders });
   }
 
-  let lockRecord: any = null;
-
   try {
     const supabase = createClient(
       Deno.env.get('SUPABASE_URL') ?? '',
       Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
     );
 
-    // Check if another monitor cycle is already running (prevent parallel execution)
-    const { data: existingLock } = await supabase
-      .from('monitoring_logs')
-      .select('*')
-      .eq('check_type', 'monitor_lock')
-      .eq('status', 'running')
-      .gte('created_at', new Date(Date.now() - 60000).toISOString())
-      .maybeSingle();
+    // ============= PART B3: ATOMIC LOCKING MECHANISM =============
+    // Generate unique instance ID for this run
+    const instanceId = crypto.randomUUID();
+    
+    // Try to acquire lock (atomic upsert)
+    await supabase
+      .from('monitor_locks')
+      .upsert({
+        lock_type: 'position_monitor',
+        instance_id: instanceId,
+        acquired_at: new Date().toISOString(),
+        expires_at: new Date(Date.now() + 120000).toISOString()
+      }, { 
+        onConflict: 'lock_type',
+        ignoreDuplicates: true  // If lock exists, do nothing
+      });
 
-    if (existingLock) {
-      console.log('⏳ Another monitor cycle is running, skipping...');
+    // Check if WE own the lock
+    const { data: ourLock } = await supabase
+      .from('monitor_locks')
+      .select('instance_id')
+      .eq('lock_type', 'position_monitor')
+      .single();
+
+    if (ourLock?.instance_id !== instanceId) {
+      console.log('⏳ Another instance holds the lock, skipping');
       return new Response(JSON.stringify({ 
         skipped: true, 
-        reason: 'Another cycle in progress',
-        existingLock: existingLock.id
+        reason: 'Another instance holds the lock',
+        ourInstance: instanceId,
+        lockOwner: ourLock?.instance_id
       }), {
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       });
     }
 
-    // Create lock
-    const { data: newLock } = await supabase
-      .from('monitoring_logs')
-      .insert({
-        check_type: 'monitor_lock',
-        status: 'running',
-        position_id: null
-      })
-      .select()
-      .single();
-    
-    lockRecord = newLock;
+    console.log(`🔒 Lock acquired by instance ${instanceId}`);
 
     await log({
       functionName: 'position-monitor',
       message: '🔥 OKO SAURONA: Starting monitoring cycle',
       level: 'info',
-      metadata: { lockId: lockRecord?.id }
+      metadata: { instanceId }
     });
     console.log('🔥 OKO SAURONA: Starting position monitoring cycle');
 
@@ -1169,12 +1202,12 @@ serve(async (req) => {
     if (!activeUsers || activeUsers.length === 0) {
       console.log('No active users with API keys');
       
-      if (lockRecord) {
-        await supabase
-          .from('monitoring_logs')
-          .update({ status: 'completed' })
-          .eq('id', lockRecord.id);
-      }
+      // Release lock before returning
+      await supabase
+        .from('monitor_locks')
+        .delete()
+        .eq('lock_type', 'position_monitor')
+        .eq('instance_id', instanceId);
       
       return new Response(JSON.stringify({ message: 'No active users' }), {
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
@@ -1381,13 +1414,14 @@ serve(async (req) => {
       metadata: { positionsChecked: totalPositionsChecked }
     });
 
-    // Release lock
-    if (lockRecord) {
-      await supabase
-        .from('monitoring_logs')
-        .update({ status: 'completed' })
-        .eq('id', lockRecord.id);
-    }
+    // Release lock (delete from monitor_locks)
+    await supabase
+      .from('monitor_locks')
+      .delete()
+      .eq('lock_type', 'position_monitor')
+      .eq('instance_id', instanceId);
+    
+    console.log(`🔓 Lock released by instance ${instanceId}`);
 
     return new Response(JSON.stringify({ 
       success: true, 
@@ -1397,21 +1431,21 @@ serve(async (req) => {
     });
 
   } catch (error) {
-    // Release lock on error
-    if (lockRecord) {
-      try {
-        const supabase = createClient(
-          Deno.env.get('SUPABASE_URL') ?? '',
-          Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
-        );
-        
-        await supabase
-          .from('monitoring_logs')
-          .update({ status: 'error' })
-          .eq('id', lockRecord.id);
-      } catch (lockError) {
-        console.error('Failed to release lock on error:', lockError);
-      }
+    // Release lock on error (delete from monitor_locks)
+    try {
+      const supabase = createClient(
+        Deno.env.get('SUPABASE_URL') ?? '',
+        Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
+      );
+      
+      await supabase
+        .from('monitor_locks')
+        .delete()
+        .eq('lock_type', 'position_monitor');
+      
+      console.log(`🔓 Lock released on error`);
+    } catch (lockError) {
+      console.error('Failed to release lock on error:', lockError);
     }
 
     await log({
@@ -1929,7 +1963,57 @@ async function checkPositionFullVerification(supabase: any, position: any, setti
     // STEP 3: Place NEW orders using correct types (pos_loss, pos_profit)
     const holdSide = position.side === 'BUY' ? 'long' : 'short';
     
-    // Place SL
+    // ============= PART A3: SL PRICE VALIDATION =============
+    // Check if price already passed SL level
+    const slAlreadyTriggered = isPriceBeyondLevel(currentPrice, expected.sl_price, position.side, 'SL');
+    
+    if (slAlreadyTriggered) {
+      console.log(`🚨 CRITICAL: Price ${currentPrice} already past SL ${expected.sl_price} - closing position immediately!`);
+      
+      // Get current position size from exchange
+      const { data: posData } = await supabase.functions.invoke('bitget-api', {
+        body: {
+          action: 'get_position',
+          params: { symbol: position.symbol },
+          apiCredentials
+        }
+      });
+      
+      const exchangePosition = posData?.data?.find((p: any) => 
+        p.holdSide === (position.side === 'BUY' ? 'long' : 'short')
+      );
+      
+      if (exchangePosition && parseFloat(exchangePosition.total) > 0) {
+        // Close entire remaining position at market
+        await supabase.functions.invoke('bitget-api', {
+          body: {
+            action: 'close_position',
+            params: {
+              symbol: position.symbol,
+              holdSide: position.side === 'BUY' ? 'long' : 'short',
+            },
+            apiCredentials
+          }
+        });
+        
+        // Mark position as closed
+        await markPositionAsClosed(supabase, position, 'sl_hit_delayed');
+        
+        await log({
+          functionName: 'position-monitor',
+          message: `🚨 Emergency close - SL already breached at ${currentPrice}`,
+          level: 'warn',
+          positionId: position.id,
+          metadata: { expected_sl: expected.sl_price, current_price: currentPrice }
+        });
+        
+        console.log(`✅ Emergency close executed - SL was already breached`);
+        actions.push(`Emergency close - SL already hit (price: ${currentPrice})`);
+        return;
+      }
+    }
+    
+    // Normal SL placement (price hasn't reached SL yet)
     console.log(`🔧 Placing SL order at ${expected.sl_price.toFixed(4)}...`);
     const roundedSlPrice = roundPrice(expected.sl_price, pricePlace);
     const { data: newSlResult } = await supabase.functions.invoke('bitget-api', {
@@ -1959,7 +2043,7 @@ async function checkPositionFullVerification(supabase: any, position: any, setti
       console.error(`❌ Failed to place SL:`, newSlResult);
     }
     
-    // Place TP orders with proper quantity rounding
+    // ============= PART A2: TP ORDERS WITH PRICE VALIDATION =============
     for (let i = 1; i <= settings.tp_levels; i++) {
       // SKIP already filled TPs
       const tpFilledKey = `tp${i}_filled` as 'tp1_filled' | 'tp2_filled' | 'tp3_filled';
@@ -1973,6 +2057,62 @@ async function checkPositionFullVerification(supabase: any, position: any, setti
       
       if (!tpPrice || !tpQty) continue;
       
+      // Check if price already passed this TP level
+      const priceAlreadyPastTP = isPriceBeyondLevel(currentPrice, tpPrice, position.side, 'TP');
+      
+      if (priceAlreadyPastTP) {
+        console.log(`⚠️ Price ${currentPrice} already past TP${i} ${tpPrice} - executing immediate partial close`);
+        
+        // Round quantity to volumePlace precision
+        const roundedQty = Math.floor(tpQty * Math.pow(10, volumePlace)) / Math.pow(10, volumePlace);
+        
+        // Execute immediate market close for this TP quantity
+        const { data: closeResult } = await supabase.functions.invoke('bitget-api', {
+          body: {
+            action: 'close_position',
+            params: {
+              symbol: position.symbol,
+              holdSide: holdSide,
+              size: roundedQty.toString()
+            },
+            apiCredentials
+          }
+        });
+        
+        if (closeResult?.success) {
+          // Mark this TP as filled
+          await supabase
+            .from('positions')
+            .update({ [tpFilledKey]: true })
+            .eq('id', position.id);
+          
+          await log({
+            functionName: 'position-monitor',
+            message: `✅ Immediate TP${i} close - price already past level`,
+            level: 'info',
+            positionId: position.id,
+            metadata: { 
+              current_price: currentPrice, 
+              tp_price: tpPrice, 
+              quantity: roundedQty 
+            }
+          });
+          
+          console.log(`✅ Immediate partial close executed for TP${i} (price ${currentPrice} past ${tpPrice})`);
+          actions.push(`Immediate TP${i} close (price ${currentPrice} past ${tpPrice})`);
+          
+          // Check if SL should move to breakeven after this TP
+          if (settings.sl_to_breakeven && i >= (settings.breakeven_trigger_tp || 1)) {
+            await moveSlToBreakeven(supabase, position, apiCredentials, pricePlace);
+          }
+        } else {
+          console.error(`❌ Failed immediate close for TP${i}:`, closeResult);
+        }
+        
+        continue; // Skip placing the order since we closed immediately
+      }
+      
+      // Normal TP order placement (price hasn't reached TP yet)
       // Round quantity to volumePlace precision
       const roundedQty = Math.floor(tpQty * Math.pow(10, volumePlace)) / Math.pow(10, volumePlace);
       

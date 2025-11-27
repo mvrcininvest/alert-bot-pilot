@@ -194,6 +194,30 @@ export type Database = {
           },
         ]
       }
+      monitor_locks: {
+        Row: {
+          acquired_at: string | null
+          expires_at: string | null
+          id: string
+          instance_id: string
+          lock_type: string
+        }
+        Insert: {
+          acquired_at?: string | null
+          expires_at?: string | null
+          id?: string
+          instance_id: string
+          lock_type: string
+        }
+        Update: {
+          acquired_at?: string | null
+          expires_at?: string | null
+          id?: string
+          instance_id?: string
+          lock_type?: string
+        }
+        Relationships: []
+      }
       monitoring_logs: {
         Row: {
           actions_taken: string | null
