@@ -70,6 +70,30 @@ function calculateExpectedSLTP(position: any, settings: any): ExpectedSLTP {
     strength: (position.metadata as any)?.strength || 0.5,
   };
 
+  // Check for scalping mode FIRST
+  if (settings.position_sizing_type === 'scalping_mode') {
+    const effectiveLeverage = (position.metadata as any)?.effective_leverage || position.leverage;
+    const { sl_price, tp1_price, tp2_price, tp3_price } = calculateScalpingSLTP(
+      alertData, settings, effectiveLeverage
+    );
+    
+    // Calculate quantities
+    const totalQty = position.quantity;
+    const tp1Qty = settings.tp_levels >= 1 ? totalQty * (settings.tp1_close_percent / 100) : totalQty;
+    const tp2Qty = settings.tp_levels >= 2 ? totalQty * (settings.tp2_close_percent / 100) : 0;
+    const tp3Qty = settings.tp_levels >= 3 ? totalQty * (settings.tp3_close_percent / 100) : 0;
+    
+    return {
+      sl_price,
+      tp1_price,
+      tp2_price,
+      tp3_price,
+      tp1_quantity: tp1Qty > 0 ? tp1Qty : undefined,
+      tp2_quantity: tp2Qty > 0 ? tp2Qty : undefined,
+      tp3_quantity: tp3Qty > 0 ? tp3Qty : undefined,
+    };
+  }
+
   // Calculate SL
   let slPrice: number;
   if (settings.calculator_type === 'risk_reward' && settings.sl_method === 'percent_entry') {
@@ -215,6 +239,53 @@ function calculateTPATR(alertData: AlertData, settings: any): { tp1Price?: numbe
   }
 
   return { tp1Price, tp2Price, tp3Price };
+}
+
+// ============= SCALPING MODE CALCULATION =============
+function calculateScalpingSLTP(
+  alertData: AlertData,
+  settings: any,
+  effectiveLeverage: number
+): { sl_price: number; tp1_price?: number; tp2_price?: number; tp3_price?: number } {
+  const maxMargin = settings.max_margin_per_trade || 2;
+  const maxLoss = settings.max_loss_per_trade || 1;
+  const slMin = (settings.sl_percent_min || 0.3) / 100;
+  const slMax = (settings.sl_percent_max || 2.0) / 100;
+
+  let slPercent = maxLoss / (maxMargin * effectiveLeverage);
+
+  if (slPercent < slMin) {
+    slPercent = slMin;
+  } else if (slPercent > slMax) {
+    slPercent = slMax;
+  }
+
+  const slDistance = alertData.price * slPercent;
+  const slPrice = alertData.side === 'BUY'
+    ? alertData.price - slDistance
+    : alertData.price + slDistance;
+
+  // Calculate TP prices using RR ratios
+  const tp1Distance = slDistance * (settings.tp1_rr_ratio || 1.5);
+  const tp1Price = alertData.side === 'BUY'
+    ? alertData.price + tp1Distance
+    : alertData.price - tp1Distance;
+
+  let tp2Price, tp3Price;
+  if (settings.tp_levels >= 2) {
+    const tp2Distance = slDistance * (settings.tp2_rr_ratio || 2.5);
+    tp2Price = alertData.side === 'BUY'
+      ? alertData.price + tp2Distance
+      : alertData.price - tp2Distance;
+  }
+  if (settings.tp_levels >= 3) {
+    const tp3Distance = slDistance * (settings.tp3_rr_ratio || 3.5);
+    tp3Price = alertData.side === 'BUY'
+      ? alertData.price + tp3Distance
+      : alertData.price - tp3Distance;
+  }
+
+  return { sl_price: slPrice, tp1_price: tp1Price, tp2_price: tp2Price, tp3_price: tp3Price };
 }
 
 // Check if resync is needed
