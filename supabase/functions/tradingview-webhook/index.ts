@@ -1,6 +1,7 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { log } from "../_shared/logger.ts";
+import { getUserSettings } from "../_shared/userSettings.ts";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -103,34 +104,21 @@ serve(async (req) => {
 
     console.log('Alert saved with ID:', alert.id);
 
-    // Get user settings (will handle copy_admin logic internally)
-    const { data: userSettings, error: settingsError } = await supabase
-      .from('user_settings')
-      .select('*')
-      .eq('user_id', userId)
-      .maybeSingle();
-
-    if (settingsError) {
+    // Get user settings (handles copy_admin logic internally)
+    let userSettings;
+    try {
+      userSettings = await getUserSettings(userId);
+      console.log('User settings loaded, bot_active:', userSettings.bot_active);
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
       await log({
         functionName: 'tradingview-webhook',
         message: 'Failed to fetch user settings',
         level: 'error',
         alertId: alert.id,
-        metadata: { error: settingsError.message, userId }
+        metadata: { error: errorMessage, userId }
       });
-      console.error('Error fetching user settings:', settingsError);
-      throw settingsError;
-    }
-
-    if (!userSettings) {
-      await log({
-        functionName: 'tradingview-webhook',
-        message: 'No user settings found',
-        level: 'error',
-        alertId: alert.id,
-        metadata: { userId }
-      });
-      console.error('No user settings found for user:', userId);
+      console.error('Error fetching user settings:', error);
       await supabase
         .from('alerts')
         .update({ status: 'error', error_message: 'User settings not configured' })
@@ -141,8 +129,6 @@ serve(async (req) => {
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       });
     }
-
-    console.log('User settings loaded, bot_active:', userSettings.bot_active);
 
     if (!userSettings.bot_active) {
       await log({
