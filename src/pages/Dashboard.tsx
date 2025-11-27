@@ -1,4 +1,5 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useEffect } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { TrendingUp, Activity, DollarSign, Wallet, TrendingDown, Target } from "lucide-react";
@@ -11,6 +12,50 @@ import { Progress } from "@/components/ui/progress";
 export default function Dashboard() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
+
+  // Realtime subscription for positions updates
+  useEffect(() => {
+    console.log('🔥 Setting up realtime subscription for positions');
+    
+    const channel = supabase
+      .channel('positions-changes')
+      .on(
+        'postgres_changes',
+        {
+          event: '*', // Listen to all events (INSERT, UPDATE, DELETE)
+          schema: 'public',
+          table: 'positions'
+        },
+        (payload) => {
+          console.log('🔥 Position changed:', payload);
+          
+          // Invalidate queries to refetch data
+          queryClient.invalidateQueries({ queryKey: ['open-positions'] });
+          
+          // Show toast notification
+          if (payload.eventType === 'UPDATE' && payload.new.status === 'closed') {
+            toast({
+              title: "Pozycja zamknięta",
+              description: `${payload.new.symbol} - ${payload.new.close_reason || 'Zamknięta'}`,
+              variant: payload.new.realized_pnl && payload.new.realized_pnl > 0 ? "default" : "destructive",
+            });
+          } else if (payload.eventType === 'INSERT') {
+            toast({
+              title: "Nowa pozycja",
+              description: `${payload.new.symbol} ${payload.new.side}`,
+            });
+          }
+        }
+      )
+      .subscribe((status) => {
+        console.log('🔥 Realtime subscription status:', status);
+      });
+
+    return () => {
+      console.log('🔥 Cleaning up realtime subscription');
+      supabase.removeChannel(channel);
+    };
+  }, [queryClient, toast]);
   
   const { data: positions, refetch: refetchPositions } = useQuery({
     queryKey: ["open-positions"],
