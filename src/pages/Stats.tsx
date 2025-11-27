@@ -3,6 +3,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { BarChart3, Download, TrendingUp, TrendingDown } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useToast } from "@/hooks/use-toast";
 import { useState, useMemo } from "react";
 import { TimeFilters, type TimeFilter } from "@/components/stats/TimeFilters";
@@ -1303,86 +1304,104 @@ export default function Stats() {
             </Card>
           </div>
 
-          {/* Equity Curve */}
-          <EquityCurve 
-            equityData={equityData} 
-            maxDrawdown={stats.maxDrawdown}
-          />
+          {/* Tabs for organized sections */}
+          <Tabs defaultValue="overview" className="w-full">
+            <TabsList className="grid w-full grid-cols-4">
+              <TabsTrigger value="overview">Przegląd</TabsTrigger>
+              <TabsTrigger value="strategy">Strategia</TabsTrigger>
+              <TabsTrigger value="time">Czas</TabsTrigger>
+              <TabsTrigger value="advanced">Zaawansowane</TabsTrigger>
+            </TabsList>
+            
+            <TabsContent value="overview" className="space-y-6 mt-6">
+              {/* Equity Curve */}
+              <EquityCurve 
+                equityData={equityData} 
+                maxDrawdown={stats.maxDrawdown}
+              />
 
-          {/* Tier Analysis */}
-          <TierAnalysisCard tierStats={tierStats} />
+              {/* Monthly Comparison */}
+              <MonthlyComparison monthlyData={monthlyData} />
 
-          {/* Close Reason Analysis */}
-          <CloseReasonChart closeReasons={closeReasonStats} />
-
-          {/* Session Analysis */}
-          <SessionAnalysisCard sessionStats={sessionStats} />
-
-          {/* Signal Strength Analysis */}
-          <SignalStrengthCard strengthStats={strengthStats} />
-
-          {/* Duration Analysis */}
-          <DurationAnalysisCard durationStats={durationStats} />
-
-          {/* Regime Analysis */}
-          <RegimeAnalysisCard regimeStats={regimeStats} />
-
-          {/* Time-based Analysis */}
-          <TimeBasedAnalysis hourlyStats={hourlyStats} dailyStats={dailyStats} />
-
-          {/* ROI Analysis */}
-          <ROIAnalysisCard roiStats={roiStats} />
-
-          {/* Advanced Metrics */}
-          <AdvancedMetricsCard metrics={advancedMetrics} />
-
-          {/* Monthly Comparison */}
-          <MonthlyComparison monthlyData={monthlyData} />
-
-          {/* BTC Correlation */}
-          <BTCCorrelationCard correlationStats={btcCorrelationStats} />
-
-          {/* Zone Type Analysis */}
-          <ZoneTypeCard zoneStats={zoneTypeStats} />
-
-          {/* Mode Analysis */}
-          <ModeAnalysisCard modeStats={modeStats} />
-
-          {/* Volatility Analysis */}
-          <VolatilityAnalysisCard volatilityStats={volatilityStats} />
-
-          {/* By Symbol */}
-          <Card className="glass-card">
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <BarChart3 className="h-5 w-5 text-primary" />
-                Wyniki według pary
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="space-y-4">
-                {symbolStats.map((sym) => {
-                  const winRate = (sym.wins / sym.trades) * 100;
-                  return (
-                    <div key={sym.symbol} className="flex items-center justify-between border-b border-border pb-3 last:border-0">
-                      <div className="flex-1">
-                        <div className="font-medium">{sym.symbol}</div>
-                        <div className="text-sm text-muted-foreground">
-                          {sym.trades} trade{sym.trades !== 1 ? "s" : ""} • {winRate.toFixed(0)}% win rate
+              {/* By Symbol */}
+              <Card className="glass-card">
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2">
+                    <BarChart3 className="h-5 w-5 text-primary" />
+                    Wyniki według pary
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="space-y-4">
+                    {symbolStats.map((sym) => {
+                      const winRate = (sym.wins / sym.trades) * 100;
+                      return (
+                        <div key={sym.symbol} className="flex items-center justify-between border-b border-border pb-3 last:border-0">
+                          <div className="flex-1">
+                            <div className="font-medium">{sym.symbol}</div>
+                            <div className="text-sm text-muted-foreground">
+                              {sym.trades} trade{sym.trades !== 1 ? "s" : ""} • {winRate.toFixed(0)}% win rate
+                            </div>
+                          </div>
+                          <div className={`text-xl font-bold ${sym.pnl >= 0 ? "text-profit" : "text-loss"}`}>
+                            ${sym.pnl.toFixed(2)}
+                          </div>
                         </div>
-                      </div>
-                      <div className={`text-xl font-bold ${sym.pnl >= 0 ? "text-profit" : "text-loss"}`}>
-                        ${sym.pnl.toFixed(2)}
-                      </div>
-                    </div>
-                  );
-                })}
-                {symbolStats.length === 0 && (
-                  <p className="text-center text-muted-foreground py-4">Brak danych</p>
-                )}
-              </div>
-            </CardContent>
-          </Card>
+                      );
+                    })}
+                    {symbolStats.length === 0 && (
+                      <p className="text-center text-muted-foreground py-4">Brak danych</p>
+                    )}
+                  </div>
+                </CardContent>
+              </Card>
+            </TabsContent>
+
+            <TabsContent value="strategy" className="space-y-6 mt-6">
+              {/* Tier Analysis */}
+              <TierAnalysisCard tierStats={tierStats} />
+
+              {/* Close Reason Analysis */}
+              <CloseReasonChart closeReasons={closeReasonStats} />
+
+              {/* Signal Strength Analysis */}
+              <SignalStrengthCard strengthStats={strengthStats} />
+
+              {/* Zone Type Analysis */}
+              <ZoneTypeCard zoneStats={zoneTypeStats} />
+
+              {/* Mode Analysis */}
+              <ModeAnalysisCard modeStats={modeStats} />
+
+              {/* Regime Analysis */}
+              <RegimeAnalysisCard regimeStats={regimeStats} />
+            </TabsContent>
+
+            <TabsContent value="time" className="space-y-6 mt-6">
+              {/* Session Analysis */}
+              <SessionAnalysisCard sessionStats={sessionStats} />
+
+              {/* Time-based Analysis */}
+              <TimeBasedAnalysis hourlyStats={hourlyStats} dailyStats={dailyStats} />
+
+              {/* Duration Analysis */}
+              <DurationAnalysisCard durationStats={durationStats} />
+            </TabsContent>
+
+            <TabsContent value="advanced" className="space-y-6 mt-6">
+              {/* Advanced Metrics */}
+              <AdvancedMetricsCard metrics={advancedMetrics} />
+
+              {/* ROI Analysis */}
+              <ROIAnalysisCard roiStats={roiStats} />
+
+              {/* BTC Correlation */}
+              <BTCCorrelationCard correlationStats={btcCorrelationStats} />
+
+              {/* Volatility Analysis */}
+              <VolatilityAnalysisCard volatilityStats={volatilityStats} />
+            </TabsContent>
+          </Tabs>
         </>
       ) : (
         <Card className="glass-card">
