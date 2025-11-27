@@ -345,16 +345,7 @@ export default function History() {
             {/* Top scrollbar - identical copy for width sync */}
             <div 
               ref={topScrollRef}
-              id="history-table-top-scroll"
-              style={{ 
-                height: '20px',
-                overflowX: 'scroll',
-                overflowY: 'hidden',
-                border: '1px solid hsl(var(--border))',
-                borderRadius: '6px',
-                backgroundColor: 'hsl(var(--muted) / 0.2)',
-                WebkitOverflowScrolling: 'touch'
-              }}
+              className="overflow-x-auto"
               onScroll={(e) => {
                 const bottomScroll = document.getElementById('history-table-container');
                 if (bottomScroll) {
@@ -362,10 +353,7 @@ export default function History() {
                 }
               }}
             >
-              <div style={{ 
-                width: `${tableWidth}px`,
-                height: '1px',
-              }} />
+              <div style={{ width: `${tableWidth}px`, height: '1px' }} />
             </div>
             
             {/* Main table with bottom scrollbar synced */}
