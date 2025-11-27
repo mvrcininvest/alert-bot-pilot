@@ -278,16 +278,52 @@ serve(async (req) => {
     return new Response(null, { headers: corsHeaders });
   }
 
+  let lockRecord: any = null;
+
   try {
     const supabase = createClient(
       Deno.env.get('SUPABASE_URL') ?? '',
       Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
     );
 
+    // Check if another monitor cycle is already running (prevent parallel execution)
+    const { data: existingLock } = await supabase
+      .from('monitoring_logs')
+      .select('*')
+      .eq('check_type', 'monitor_lock')
+      .eq('status', 'running')
+      .gte('created_at', new Date(Date.now() - 60000).toISOString())
+      .maybeSingle();
+
+    if (existingLock) {
+      console.log('⏳ Another monitor cycle is running, skipping...');
+      return new Response(JSON.stringify({ 
+        skipped: true, 
+        reason: 'Another cycle in progress',
+        existingLock: existingLock.id
+      }), {
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
+    }
+
+    // Create lock
+    const { data: newLock } = await supabase
+      .from('monitoring_logs')
+      .insert({
+        check_type: 'monitor_lock',
+        status: 'running',
+        position_id: null
+      })
+      .select()
+      .single();
+    
+    lockRecord = newLock;
+
     await log({
       functionName: 'position-monitor',
       message: '🔥 OKO SAURONA: Starting monitoring cycle',
-      level: 'info'
+      level: 'info',
+      metadata: { lockId: lockRecord?.id }
     });
     console.log('🔥 OKO SAURONA: Starting position monitoring cycle');
 
@@ -396,6 +432,14 @@ serve(async (req) => {
       metadata: { positionsChecked: positions.length }
     });
 
+    // Release lock
+    if (lockRecord) {
+      await supabase
+        .from('monitoring_logs')
+        .update({ status: 'completed' })
+        .eq('id', lockRecord.id);
+    }
+
     return new Response(JSON.stringify({ 
       success: true, 
       positions_checked: positions.length 
@@ -404,6 +448,23 @@ serve(async (req) => {
     });
 
   } catch (error) {
+    // Release lock on error
+    if (lockRecord) {
+      try {
+        const supabase = createClient(
+          Deno.env.get('SUPABASE_URL') ?? '',
+          Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
+        );
+        
+        await supabase
+          .from('monitoring_logs')
+          .update({ status: 'error' })
+          .eq('id', lockRecord.id);
+      } catch (lockError) {
+        console.error('Failed to release lock on error:', lockError);
+      }
+    }
+
     await log({
       functionName: 'position-monitor',
       message: 'Monitor cycle failed',
