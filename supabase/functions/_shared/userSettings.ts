@@ -77,6 +77,7 @@ export interface UserSettings {
   // Leverage
   default_leverage: number;
   use_alert_leverage: boolean;
+  use_max_leverage_global: boolean;
   symbol_leverage_overrides: any;
   
   // Filters
@@ -191,6 +192,7 @@ export async function getUserSettings(userId: string): Promise<UserSettings> {
     loss_limit_type: userSettings.loss_limit_type ?? 'fixed_usdt',
     default_leverage: userSettings.default_leverage ?? 10,
     use_alert_leverage: userSettings.use_alert_leverage ?? true,
+    use_max_leverage_global: userSettings.use_max_leverage_global ?? false,
     symbol_leverage_overrides: userSettings.symbol_leverage_overrides ?? {},
     filter_by_tier: userSettings.filter_by_tier ?? false,
     allowed_tiers: userSettings.allowed_tiers ?? ['Platinum', 'Premium', 'Standard', 'Quick'],
@@ -215,6 +217,7 @@ export async function getUserSettings(userId: string): Promise<UserSettings> {
     finalSettings.loss_limit_type = adminSettings.loss_limit_type ?? 'fixed_usdt';
     finalSettings.default_leverage = adminSettings.default_leverage ?? 10;
     finalSettings.use_alert_leverage = adminSettings.use_alert_leverage ?? true;
+    finalSettings.use_max_leverage_global = adminSettings.use_max_leverage_global ?? false;
     finalSettings.symbol_leverage_overrides = adminSettings.symbol_leverage_overrides ?? {};
   }
 
