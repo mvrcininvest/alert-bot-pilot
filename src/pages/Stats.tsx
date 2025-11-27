@@ -17,6 +17,10 @@ import { TimeBasedAnalysis } from "@/components/stats/TimeBasedAnalysis";
 import { ROIAnalysisCard } from "@/components/stats/ROIAnalysisCard";
 import { AdvancedMetricsCard } from "@/components/stats/AdvancedMetricsCard";
 import { MonthlyComparison } from "@/components/stats/MonthlyComparison";
+import { BTCCorrelationCard } from "@/components/stats/BTCCorrelationCard";
+import { ZoneTypeCard } from "@/components/stats/ZoneTypeCard";
+import { ModeAnalysisCard } from "@/components/stats/ModeAnalysisCard";
+import { VolatilityAnalysisCard } from "@/components/stats/VolatilityAnalysisCard";
 import { exportToCSV, exportStatsToCSV } from "@/lib/exportStats";
 import { startOfDay, subDays, isAfter, isBefore, format, getDay, startOfMonth, endOfMonth } from "date-fns";
 import { pl } from "date-fns/locale";
@@ -779,6 +783,220 @@ export default function Stats() {
       .sort((a, b) => a.month.localeCompare(b.month));
   }, [filteredPositions]);
 
+  // BTC Correlation analysis
+  const btcCorrelationStats = useMemo(() => {
+    if (!filteredPositions) return [];
+    
+    const ranges = [
+      { min: 0.8, max: 1.0, label: "Wysoka (0.8-1.0)" },
+      { min: 0.5, max: 0.8, label: "Średnia (0.5-0.8)" },
+      { min: 0.2, max: 0.5, label: "Niska (0.2-0.5)" },
+      { min: -0.2, max: 0.2, label: "Brak (-0.2-0.2)" },
+      { min: -1.0, max: -0.2, label: "Negatywna (<-0.2)" },
+    ];
+
+    const rangeMap = new Map<string, {
+      range: string;
+      trades: number;
+      wins: number;
+      totalPnL: number;
+    }>();
+
+    filteredPositions.forEach(p => {
+      const alert = Array.isArray(p.alerts) ? p.alerts[0] : p.alerts;
+      const rawData = alert?.raw_data as any;
+      const btcCorr = rawData?.smc_context?.btc_correlation || 0;
+      const pnl = Number(p.realized_pnl || 0);
+      const isWin = pnl > 0;
+
+      const matchingRange = ranges.find(r => btcCorr >= r.min && btcCorr < r.max);
+      if (!matchingRange) return;
+
+      const label = matchingRange.label;
+      if (!rangeMap.has(label)) {
+        rangeMap.set(label, {
+          range: label,
+          trades: 0,
+          wins: 0,
+          totalPnL: 0,
+        });
+      }
+
+      const stats = rangeMap.get(label)!;
+      stats.trades++;
+      stats.totalPnL += pnl;
+      if (isWin) stats.wins++;
+    });
+
+    return ranges
+      .map(r => {
+        const stats = rangeMap.get(r.label);
+        if (!stats) return null;
+        return {
+          range: stats.range,
+          trades: stats.trades,
+          wins: stats.wins,
+          winRate: (stats.wins / stats.trades) * 100,
+          avgPnL: stats.totalPnL / stats.trades,
+          totalPnL: stats.totalPnL,
+        };
+      })
+      .filter(Boolean) as any[];
+  }, [filteredPositions]);
+
+  // Zone Type analysis
+  const zoneTypeStats = useMemo(() => {
+    if (!filteredPositions) return [];
+    
+    const zoneMap = new Map<string, {
+      zoneType: string;
+      trades: number;
+      wins: number;
+      totalPnL: number;
+    }>();
+
+    filteredPositions.forEach(p => {
+      const alert = Array.isArray(p.alerts) ? p.alerts[0] : p.alerts;
+      const rawData = alert?.raw_data as any;
+      const zoneType = rawData?.zone_details?.zone_type || "Unknown";
+      const pnl = Number(p.realized_pnl || 0);
+      const isWin = pnl > 0;
+
+      if (!zoneMap.has(zoneType)) {
+        zoneMap.set(zoneType, {
+          zoneType,
+          trades: 0,
+          wins: 0,
+          totalPnL: 0,
+        });
+      }
+
+      const stats = zoneMap.get(zoneType)!;
+      stats.trades++;
+      stats.totalPnL += pnl;
+      if (isWin) stats.wins++;
+    });
+
+    return Array.from(zoneMap.values())
+      .map(z => ({
+        zoneType: z.zoneType,
+        trades: z.trades,
+        wins: z.wins,
+        winRate: (z.wins / z.trades) * 100,
+        avgPnL: z.totalPnL / z.trades,
+        totalPnL: z.totalPnL,
+      }))
+      .sort((a, b) => b.totalPnL - a.totalPnL);
+  }, [filteredPositions]);
+
+  // Mode analysis
+  const modeStats = useMemo(() => {
+    if (!filteredPositions) return [];
+    
+    const modeMap = new Map<string, {
+      mode: string;
+      trades: number;
+      wins: number;
+      totalPnL: number;
+    }>();
+
+    filteredPositions.forEach(p => {
+      const alert = Array.isArray(p.alerts) ? p.alerts[0] : p.alerts;
+      const mode = alert?.mode || "Unknown";
+      const pnl = Number(p.realized_pnl || 0);
+      const isWin = pnl > 0;
+
+      if (!modeMap.has(mode)) {
+        modeMap.set(mode, {
+          mode,
+          trades: 0,
+          wins: 0,
+          totalPnL: 0,
+        });
+      }
+
+      const stats = modeMap.get(mode)!;
+      stats.trades++;
+      stats.totalPnL += pnl;
+      if (isWin) stats.wins++;
+    });
+
+    return Array.from(modeMap.values())
+      .map(m => ({
+        mode: m.mode,
+        trades: m.trades,
+        wins: m.wins,
+        winRate: (m.wins / m.trades) * 100,
+        avgPnL: m.totalPnL / m.trades,
+        totalPnL: m.totalPnL,
+      }))
+      .sort((a, b) => b.totalPnL - a.totalPnL);
+  }, [filteredPositions]);
+
+  // Volatility (ATR) analysis
+  const volatilityStats = useMemo(() => {
+    if (!filteredPositions) return [];
+    
+    const ranges = [
+      { min: 0, max: 0.0005, label: "< 0.0005" },
+      { min: 0.0005, max: 0.001, label: "0.0005-0.001" },
+      { min: 0.001, max: 0.002, label: "0.001-0.002" },
+      { min: 0.002, max: 0.005, label: "0.002-0.005" },
+      { min: 0.005, max: Infinity, label: "> 0.005" },
+    ];
+
+    const rangeMap = new Map<string, {
+      range: string;
+      trades: number;
+      wins: number;
+      totalPnL: number;
+      totalATR: number;
+    }>();
+
+    filteredPositions.forEach(p => {
+      const alert = Array.isArray(p.alerts) ? p.alerts[0] : p.alerts;
+      const atr = alert?.atr || 0;
+      const pnl = Number(p.realized_pnl || 0);
+      const isWin = pnl > 0;
+
+      const matchingRange = ranges.find(r => atr >= r.min && atr < r.max);
+      if (!matchingRange) return;
+
+      const label = matchingRange.label;
+      if (!rangeMap.has(label)) {
+        rangeMap.set(label, {
+          range: label,
+          trades: 0,
+          wins: 0,
+          totalPnL: 0,
+          totalATR: 0,
+        });
+      }
+
+      const stats = rangeMap.get(label)!;
+      stats.trades++;
+      stats.totalPnL += pnl;
+      stats.totalATR += atr;
+      if (isWin) stats.wins++;
+    });
+
+    return ranges
+      .map(r => {
+        const stats = rangeMap.get(r.label);
+        if (!stats) return null;
+        return {
+          range: stats.range,
+          trades: stats.trades,
+          wins: stats.wins,
+          winRate: (stats.wins / stats.trades) * 100,
+          avgPnL: stats.totalPnL / stats.trades,
+          totalPnL: stats.totalPnL,
+          avgATR: stats.totalATR / stats.trades,
+        };
+      })
+      .filter(Boolean) as any[];
+  }, [filteredPositions]);
+
   // Export handlers
   const handleExportPositions = () => {
     if (!filteredPositions || filteredPositions.length === 0) {
@@ -1120,6 +1338,18 @@ export default function Stats() {
 
           {/* Monthly Comparison */}
           <MonthlyComparison monthlyData={monthlyData} />
+
+          {/* BTC Correlation */}
+          <BTCCorrelationCard correlationStats={btcCorrelationStats} />
+
+          {/* Zone Type Analysis */}
+          <ZoneTypeCard zoneStats={zoneTypeStats} />
+
+          {/* Mode Analysis */}
+          <ModeAnalysisCard modeStats={modeStats} />
+
+          {/* Volatility Analysis */}
+          <VolatilityAnalysisCard volatilityStats={volatilityStats} />
 
           {/* By Symbol */}
           <Card className="glass-card">
