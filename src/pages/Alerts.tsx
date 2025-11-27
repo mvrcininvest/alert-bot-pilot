@@ -18,6 +18,7 @@ export default function Alerts() {
   const queryClient = useQueryClient();
   const tableRef = useRef<HTMLTableElement>(null);
   const topScrollRef = useRef<HTMLDivElement>(null);
+  const bottomScrollRef = useRef<HTMLDivElement>(null);
   const [tableWidth, setTableWidth] = useState(1800);
   
   const { data: alerts, isLoading } = useQuery({
@@ -271,9 +272,8 @@ export default function Alerts() {
               ref={topScrollRef}
               className="overflow-x-auto"
               onScroll={(e) => {
-                const bottomScroll = document.getElementById('alerts-table-container');
-                if (bottomScroll) {
-                  bottomScroll.scrollLeft = e.currentTarget.scrollLeft;
+                if (bottomScrollRef.current) {
+                  bottomScrollRef.current.scrollLeft = e.currentTarget.scrollLeft;
                 }
               }}
             >
@@ -282,12 +282,11 @@ export default function Alerts() {
             
             {/* Main table with bottom scrollbar synced */}
             <div 
-              id="alerts-table-container"
+              ref={bottomScrollRef}
               className="overflow-x-auto"
               onScroll={(e) => {
-                const topScroll = topScrollRef.current;
-                if (topScroll) {
-                  topScroll.scrollLeft = e.currentTarget.scrollLeft;
+                if (topScrollRef.current) {
+                  topScrollRef.current.scrollLeft = e.currentTarget.scrollLeft;
                 }
               }}
             >

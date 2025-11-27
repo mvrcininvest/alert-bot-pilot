@@ -21,6 +21,7 @@ export default function History() {
   const [dateTo, setDateTo] = useState<Date>();
   const tableRef = useRef<HTMLTableElement>(null);
   const topScrollRef = useRef<HTMLDivElement>(null);
+  const bottomScrollRef = useRef<HTMLDivElement>(null);
   const [tableWidth, setTableWidth] = useState(1800);
 
   const { data: closedPositions, isLoading } = useQuery({
@@ -347,9 +348,8 @@ export default function History() {
               ref={topScrollRef}
               className="overflow-x-auto"
               onScroll={(e) => {
-                const bottomScroll = document.getElementById('history-table-container');
-                if (bottomScroll) {
-                  bottomScroll.scrollLeft = e.currentTarget.scrollLeft;
+                if (bottomScrollRef.current) {
+                  bottomScrollRef.current.scrollLeft = e.currentTarget.scrollLeft;
                 }
               }}
             >
@@ -358,12 +358,11 @@ export default function History() {
             
             {/* Main table with bottom scrollbar synced */}
             <div 
-              id="history-table-container"
+              ref={bottomScrollRef}
               className="overflow-x-auto"
               onScroll={(e) => {
-                const topScroll = topScrollRef.current;
-                if (topScroll) {
-                  topScroll.scrollLeft = e.currentTarget.scrollLeft;
+                if (topScrollRef.current) {
+                  topScrollRef.current.scrollLeft = e.currentTarget.scrollLeft;
                 }
               }}
             >
