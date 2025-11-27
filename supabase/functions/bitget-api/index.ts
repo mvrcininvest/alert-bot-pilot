@@ -165,6 +165,7 @@ serve(async (req) => {
         // close_long: sell + close, close_short: buy + close
         const bitgetSide = (isOpen && isLong) || (!isOpen && !isLong) ? 'buy' : 'sell';
         const tradeSide = isOpen ? 'open' : 'close';
+        const posSide = isLong ? 'long' : 'short';
         
         result = await bitgetRequest(config, 'POST', '/api/v2/mix/order/place-order', {
           symbol: params.symbol,
@@ -175,6 +176,7 @@ serve(async (req) => {
           price: '',
           side: bitgetSide,
           tradeSide: tradeSide,
+          posSide: posSide,
           orderType: 'market',
           force: 'ioc',
         });
@@ -189,6 +191,7 @@ serve(async (req) => {
         // Map side correctly for plan orders (tradeSide: "open" or "close")
         const planBitgetSide = (planIsOpen && planIsLong) || (!planIsOpen && !planIsLong) ? 'buy' : 'sell';
         const planTradeSide = planIsOpen ? 'open' : 'close';
+        const planPosSide = planIsLong ? 'long' : 'short';
         
         const planOrderBody: any = {
           symbol: params.symbol,
@@ -198,6 +201,7 @@ serve(async (req) => {
           size: params.size.toString(),
           side: planBitgetSide,
           tradeSide: planTradeSide,
+          posSide: planPosSide,
           triggerPrice: params.triggerPrice.toString(),
           triggerType: params.triggerType || 'mark_price',
           orderType: params.orderType || 'market',
@@ -283,6 +287,7 @@ serve(async (req) => {
         // Map side correctly for close orders (tradeSide: "close")
         const closeBitgetSide = (closeIsOpen && closeIsLong) || (!closeIsOpen && !closeIsLong) ? 'buy' : 'sell';
         const closeTradeSide = closeIsOpen ? 'open' : 'close';
+        const closePosSide = closeIsLong ? 'long' : 'short';
         
         result = await bitgetRequest(config, 'POST', '/api/v2/mix/order/place-order', {
           symbol: params.symbol,
@@ -293,6 +298,7 @@ serve(async (req) => {
           price: '',
           side: closeBitgetSide,
           tradeSide: closeTradeSide,
+          posSide: closePosSide,
           orderType: 'market',
           force: 'ioc',
         });
