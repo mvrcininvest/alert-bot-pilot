@@ -1210,11 +1210,32 @@ serve(async (req) => {
           }
         }
       });
-      tp1OrderId = tp1Result?.success ? tp1Result.data.orderId : null;
-      if (!tp1OrderId) {
-        console.error('Failed to place TP1 order:', tp1Result);
-      } else {
+      
+      // Enhanced logging and error handling
+      if (tp1Result?.success && tp1Result.data?.orderId) {
+        tp1OrderId = tp1Result.data.orderId;
         console.log(`✅ TP1 order placed: ${tp1OrderId} at ${effectiveTp1Price}`);
+        await log({
+          functionName: 'bitget-trader',
+          message: 'TP1 order placed successfully',
+          level: 'info',
+          alertId: alert_id,
+          metadata: { orderId: tp1OrderId, price: effectiveTp1Price, quantity: tp1Quantity }
+        });
+      } else {
+        tp1OrderId = null;
+        console.error('❌ Failed to place TP1 order:', JSON.stringify(tp1Result, null, 2));
+        await log({
+          functionName: 'bitget-trader',
+          message: 'Failed to place TP1 order',
+          level: 'error',
+          alertId: alert_id,
+          metadata: { 
+            response: tp1Result,
+            price: effectiveTp1Price,
+            quantity: tp1Quantity
+          }
+        });
       }
     }
 
@@ -1235,11 +1256,31 @@ serve(async (req) => {
           }
         }
       });
-      tp2OrderId = tp2Result?.success ? tp2Result.data.orderId : null;
-      if (!tp2OrderId) {
-        console.error('Failed to place TP2 order:', tp2Result);
-      } else {
+      
+      if (tp2Result?.success && tp2Result.data?.orderId) {
+        tp2OrderId = tp2Result.data.orderId;
         console.log(`✅ TP2 order placed: ${tp2OrderId} at ${effectiveTp2Price}`);
+        await log({
+          functionName: 'bitget-trader',
+          message: 'TP2 order placed successfully',
+          level: 'info',
+          alertId: alert_id,
+          metadata: { orderId: tp2OrderId, price: effectiveTp2Price, quantity: tp2Quantity }
+        });
+      } else {
+        tp2OrderId = null;
+        console.error('❌ Failed to place TP2 order:', JSON.stringify(tp2Result, null, 2));
+        await log({
+          functionName: 'bitget-trader',
+          message: 'Failed to place TP2 order',
+          level: 'error',
+          alertId: alert_id,
+          metadata: { 
+            response: tp2Result,
+            price: effectiveTp2Price,
+            quantity: tp2Quantity
+          }
+        });
       }
     }
 
@@ -1260,11 +1301,31 @@ serve(async (req) => {
           }
         }
       });
-      tp3OrderId = tp3Result?.success ? tp3Result.data.orderId : null;
-      if (!tp3OrderId) {
-        console.error('Failed to place TP3 order:', tp3Result);
-      } else {
+      
+      if (tp3Result?.success && tp3Result.data?.orderId) {
+        tp3OrderId = tp3Result.data.orderId;
         console.log(`✅ TP3 order placed: ${tp3OrderId} at ${effectiveTp3Price}`);
+        await log({
+          functionName: 'bitget-trader',
+          message: 'TP3 order placed successfully',
+          level: 'info',
+          alertId: alert_id,
+          metadata: { orderId: tp3OrderId, price: effectiveTp3Price, quantity: tp3Quantity }
+        });
+      } else {
+        tp3OrderId = null;
+        console.error('❌ Failed to place TP3 order:', JSON.stringify(tp3Result, null, 2));
+        await log({
+          functionName: 'bitget-trader',
+          message: 'Failed to place TP3 order',
+          level: 'error',
+          alertId: alert_id,
+          metadata: { 
+            response: tp3Result,
+            price: effectiveTp3Price,
+            quantity: tp3Quantity
+          }
+        });
       }
     }
 

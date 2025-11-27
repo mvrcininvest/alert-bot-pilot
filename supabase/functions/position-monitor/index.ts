@@ -9,8 +9,8 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
-// Helper function to get price precision from Bitget API
-async function getPricePrecision(supabase: any, symbol: string, apiCredentials: any): Promise<number> {
+// Helper function to get price and volume precision from Bitget API
+async function getSymbolPrecision(supabase: any, symbol: string, apiCredentials: any): Promise<{ pricePlace: number; volumePlace: number }> {
   const { data: symbolInfoResult } = await supabase.functions.invoke('bitget-api', {
     body: {
       action: 'get_symbol_info',
@@ -19,12 +19,15 @@ async function getPricePrecision(supabase: any, symbol: string, apiCredentials: 
     }
   });
   
-  let pricePlace = 2; // Default to 2 decimal places
+  let pricePlace = 2;  // Default to 2 decimal places
+  let volumePlace = 2; // Default to 2 decimal places
+  
   if (symbolInfoResult?.success && symbolInfoResult.data?.[0]) {
     pricePlace = parseInt(symbolInfoResult.data[0].pricePlace || '2');
+    volumePlace = parseInt(symbolInfoResult.data[0].volumePlace || '2');
   }
   
-  return pricePlace;
+  return { pricePlace, volumePlace };
 }
 
 // Helper function to round price to correct precision
@@ -302,7 +305,7 @@ function checkIfResyncNeeded(
   }
   
   const slPriceDiff = Math.abs(Number(slOrders[0].triggerPrice) - expected.sl_price) / expected.sl_price;
-  if (slPriceDiff > 0.00001) { // 0.001% tolerance
+  if (slPriceDiff > 0.001) { // 0.1% tolerance (increased from 0.001%)
     return { 
       mismatch: true, 
       reason: `SL price mismatch: expected=${expected.sl_price.toFixed(4)}, actual=${slOrders[0].triggerPrice}, diff=${(slPriceDiff * 100).toFixed(4)}%` 
@@ -330,7 +333,7 @@ function checkIfResyncNeeded(
     const matchingTP = validTPOrders.find((o: any) => {
       const priceDiff = Math.abs(Number(o.triggerPrice) - expectedPrice) / expectedPrice;
       const qtyDiff = Math.abs(Number(o.size) - expectedQty) / expectedQty;
-      return priceDiff < 0.00001 && qtyDiff < 0.001; // 0.001% price, 0.1% qty tolerance
+      return priceDiff < 0.001 && qtyDiff < 0.01; // 0.1% price, 1% qty tolerance (increased)
     });
     
     if (!matchingTP) {
@@ -843,9 +846,9 @@ async function checkPositionFullVerification(supabase: any, position: any, setti
   const issues: any[] = [];
   const actions: string[] = [];
   
-  // Get price precision for this symbol
-  const pricePlace = await getPricePrecision(supabase, position.symbol, apiCredentials);
-  console.log(`📏 Price precision for ${position.symbol}: ${pricePlace} decimals`);
+  // Get price and volume precision for this symbol
+  const { pricePlace, volumePlace } = await getSymbolPrecision(supabase, position.symbol, apiCredentials);
+  console.log(`📏 Precision for ${position.symbol}: price=${pricePlace}, volume=${volumePlace} decimals`);
 
   // 1. Get current position from Bitget with retry logic
   let positionResult: any = null;
@@ -1268,14 +1271,17 @@ async function checkPositionFullVerification(supabase: any, position: any, setti
       console.error(`❌ Failed to place SL:`, newSlResult);
     }
     
-    // Place TP orders
+    // Place TP orders with proper quantity rounding
     for (let i = 1; i <= settings.tp_levels; i++) {
       const tpPrice = expected[`tp${i}_price` as keyof ExpectedSLTP] as number | undefined;
       const tpQty = expected[`tp${i}_quantity` as keyof ExpectedSLTP] as number | undefined;
       
       if (!tpPrice || !tpQty) continue;
       
-      console.log(`🔧 Placing TP${i} order at ${tpPrice.toFixed(4)}, qty=${tpQty.toFixed(4)}...`);
+      // Round quantity to volumePlace precision
+      const roundedQty = Math.floor(tpQty * Math.pow(10, volumePlace)) / Math.pow(10, volumePlace);
+      
+      console.log(`🔧 Placing TP${i} order at ${tpPrice.toFixed(4)}, qty=${tpQty.toFixed(4)} → rounded=${roundedQty.toFixed(volumePlace)}...`);
       const roundedTpPrice = roundPrice(tpPrice, pricePlace);
       
       const { data: newTpResult } = await supabase.functions.invoke('bitget-api', {
@@ -1288,13 +1294,13 @@ async function checkPositionFullVerification(supabase: any, position: any, setti
             triggerType: 'mark_price',
             side: holdSide === 'long' ? 'sell' : 'buy',
             tradeSide: 'close',
-            size: tpQty.toString(),
+            size: roundedQty.toString(),
           },
           apiCredentials
         }
       });
       
-      if (newTpResult?.success) {
+      if (newTpResult?.success && newTpResult.data?.orderId) {
         const updateField = `tp${i}_order_id` as const;
         await supabase
           .from('positions')
@@ -1303,8 +1309,32 @@ async function checkPositionFullVerification(supabase: any, position: any, setti
           .eq('user_id', position.user_id);
         console.log(`✅ TP${i} order placed: ${newTpResult.data.orderId}`);
         actions.push(`Placed new TP${i} order after resync`);
+        
+        await log({
+          functionName: 'position-monitor',
+          message: `TP${i} order placed during resync`,
+          level: 'info',
+          positionId: position.id,
+          metadata: { 
+            orderId: newTpResult.data.orderId, 
+            price: roundedTpPrice, 
+            quantity: roundedQty 
+          }
+        });
       } else {
-        console.error(`❌ Failed to place TP${i}:`, newTpResult);
+        console.error(`❌ Failed to place TP${i}:`, JSON.stringify(newTpResult, null, 2));
+        await log({
+          functionName: 'position-monitor',
+          message: `Failed to place TP${i} during resync`,
+          level: 'error',
+          positionId: position.id,
+          metadata: { 
+            response: newTpResult,
+            price: roundedTpPrice,
+            quantity: roundedQty,
+            volumePlace
+          }
+        });
       }
     }
     
