@@ -646,13 +646,30 @@ async function checkPositionFullVerification(supabase: any, position: any, setti
   
   console.log(`📋 Expected ${expectedTPs.length} TP levels in DB`);
   
+  // Track used order IDs to prevent one order matching multiple TPs
+  const usedOrderIds = new Set<string>();
+  
   for (const expectedTP of expectedTPs) {
-    const tpExists = tpOrders.some((order: any) => {
+    console.log(`🔍 Checking TP${expectedTP.level}: expected=${expectedTP.price}, orders on exchange:`, 
+      tpOrders.map((o: any) => ({ orderId: o.orderId, price: o.triggerPrice })));
+    
+    const matchingOrder = tpOrders.find((order: any) => {
+      // Skip if this order was already matched to another TP
+      if (usedOrderIds.has(order.orderId)) {
+        console.log(`⏭️ Skipping order ${order.orderId} - already matched to another TP`);
+        return false;
+      }
+      
       const orderPrice = Number(order.triggerPrice || order.takeProfit || 0);
       const expectedPrice = Number(expectedTP.price);
       const priceDiff = Math.abs(orderPrice - expectedPrice) / expectedPrice;
-      return priceDiff < 0.01; // 1% tolerance
+      
+      console.log(`  📊 Order ${order.orderId}: price=${orderPrice}, diff=${(priceDiff * 100).toFixed(4)}%`);
+      
+      return priceDiff < 0.00001; // 0.001% tolerance - only for floating point rounding
     });
+    
+    const tpExists = !!matchingOrder;
     
     if (!tpExists) {
       issues.push({
@@ -661,7 +678,7 @@ async function checkPositionFullVerification(supabase: any, position: any, setti
         message: `TP${expectedTP.level} order not found on exchange`,
         expected: { price: expectedTP.price, quantity: expectedTP.quantity }
       });
-      console.log(`⚠️ TP${expectedTP.level} missing for ${position.symbol}`);
+      console.log(`⚠️ TP${expectedTP.level} missing for ${position.symbol} - will auto-repair`);
       
       // Auto-repair missing TP
       console.log(`🔧 Auto-repairing: Placing TP${expectedTP.level} order`);
@@ -697,6 +714,10 @@ async function checkPositionFullVerification(supabase: any, position: any, setti
       } else {
         console.error(`❌ Failed to place TP${expectedTP.level}:`, tpResult);
       }
+    } else {
+      // Mark this order as used
+      usedOrderIds.add(matchingOrder.orderId);
+      console.log(`✅ TP${expectedTP.level} exists on exchange (order: ${matchingOrder.orderId})`);
     }
   }
 
