@@ -200,19 +200,115 @@ async function checkPositionFullVerification(supabase: any, position: any, setti
   const pricePlace = await getPricePrecision(supabase, position.symbol, apiCredentials);
   console.log(`📏 Price precision for ${position.symbol}: ${pricePlace} decimals`);
 
-  // 1. Get current position from Bitget
-  const { data: positionResult } = await supabase.functions.invoke('bitget-api', {
-    body: {
-      action: 'get_position',
-      params: { symbol: position.symbol },
-      apiCredentials
+  // 1. Get current position from Bitget with retry logic
+  let positionResult: any = null;
+  let retryCount = 0;
+  const maxRetries = 3;
+  
+  while (retryCount < maxRetries) {
+    const { data } = await supabase.functions.invoke('bitget-api', {
+      body: {
+        action: 'get_position',
+        params: { symbol: position.symbol },
+        apiCredentials
+      }
+    });
+    
+    if (data?.success && data.data?.[0]) {
+      positionResult = data;
+      break;
     }
-  });
+    
+    retryCount++;
+    if (retryCount < maxRetries) {
+      console.log(`⚠️ Retry ${retryCount}/${maxRetries} for get_position: ${position.symbol}`);
+      await new Promise(r => setTimeout(r, 1000)); // Wait 1s between retries
+    }
+  }
 
+  // If still not found after retries, verify with get_positions (all positions)
   if (!positionResult?.success || !positionResult.data || !positionResult.data[0]) {
+    console.log(`⚠️ Position not found after ${maxRetries} retries, checking all positions...`);
+    
+    const { data: allPositionsResult } = await supabase.functions.invoke('bitget-api', {
+      body: {
+        action: 'get_positions',
+        apiCredentials
+      }
+    });
+    
+    // Check if position exists in all positions list
+    const foundInAll = allPositionsResult?.success && allPositionsResult.data?.some((p: any) => 
+      p.symbol === position.symbol && parseFloat(p.total || '0') > 0
+    );
+    
+    if (foundInAll) {
+      console.log(`✅ Position ${position.symbol} found in get_positions - likely API issue, skipping`);
+      await log({
+        functionName: 'position-monitor',
+        message: `Position found in get_positions but not in get_position - skipping close`,
+        level: 'warn',
+        positionId: position.id,
+        metadata: { symbol: position.symbol }
+      });
+      return;
+    }
+    
+    // Final verification: check fill history for recent closure
+    console.log(`⚠️ Position not in all positions, checking fill history...`);
+    const now = Date.now();
+    const fiveMinutesAgo = now - (5 * 60 * 1000);
+    
+    const { data: historyResult } = await supabase.functions.invoke('bitget-api', {
+      body: {
+        action: 'get_history_positions',
+        params: { 
+          symbol: position.symbol,
+          startTime: fiveMinutesAgo.toString(),
+          endTime: now.toString()
+        },
+        apiCredentials
+      }
+    });
+    
+    const recentClose = historyResult?.success && historyResult.data?.some((h: any) => 
+      h.symbol === position.symbol && 
+      h.tradeSide === 'close' &&
+      parseInt(h.cTime) > fiveMinutesAgo
+    );
+    
+    if (!recentClose) {
+      console.log(`⚠️ No recent closure found in history - API may be unreliable, NOT closing position`);
+      await log({
+        functionName: 'position-monitor',
+        message: `Position not found but no closure confirmation - skipping auto-close to prevent false closure`,
+        level: 'error',
+        positionId: position.id,
+        metadata: { 
+          symbol: position.symbol,
+          retriesAttempted: maxRetries,
+          message: 'Manual verification required'
+        }
+      });
+      
+      // Increment check errors but don't close
+      await supabase
+        .from('positions')
+        .update({
+          check_errors: (position.check_errors || 0) + 1,
+          last_error: 'Position not found on exchange but no closure confirmation',
+          last_check_at: new Date().toISOString(),
+        })
+        .eq('id', position.id)
+        .eq('user_id', position.user_id);
+      
+      return;
+    }
+    
+    // Confirmed closure - proceed with closing logic
     await log({
       functionName: 'position-monitor',
-      message: `❌ Position not found on exchange: ${position.symbol}`,
+      message: `❌ Position confirmed closed on exchange: ${position.symbol}`,
       level: 'warn',
       positionId: position.id
     });
@@ -529,6 +625,77 @@ async function checkPositionFullVerification(supabase: any, position: any, setti
           .eq('user_id', position.user_id);
         actions.push('Placed missing SL order');
         console.log(`✅ SL order placed: ${slResult.data.orderId}`);
+      }
+    }
+  }
+
+  // 6. Check TP orders exist
+  const tpOrders = planOrders.filter((order: any) => 
+    (order.planType === 'pos_profit' || order.planType === 'profit_plan' || order.planType === 'normal_plan') &&
+    order.planStatus === 'live' &&
+    order.tradeSide === 'close'
+  );
+  
+  console.log(`📊 Found ${tpOrders.length} TP orders on exchange for ${position.symbol}`);
+  
+  // Check each TP level
+  const expectedTPs = [];
+  if (position.tp1_price && position.tp1_quantity > 0) expectedTPs.push({ level: 1, price: position.tp1_price, quantity: position.tp1_quantity, orderId: position.tp1_order_id });
+  if (position.tp2_price && position.tp2_quantity > 0) expectedTPs.push({ level: 2, price: position.tp2_price, quantity: position.tp2_quantity, orderId: position.tp2_order_id });
+  if (position.tp3_price && position.tp3_quantity > 0) expectedTPs.push({ level: 3, price: position.tp3_price, quantity: position.tp3_quantity, orderId: position.tp3_order_id });
+  
+  console.log(`📋 Expected ${expectedTPs.length} TP levels in DB`);
+  
+  for (const expectedTP of expectedTPs) {
+    const tpExists = tpOrders.some((order: any) => {
+      const orderPrice = Number(order.triggerPrice || order.takeProfit || 0);
+      const expectedPrice = Number(expectedTP.price);
+      const priceDiff = Math.abs(orderPrice - expectedPrice) / expectedPrice;
+      return priceDiff < 0.01; // 1% tolerance
+    });
+    
+    if (!tpExists) {
+      issues.push({
+        type: `missing_tp${expectedTP.level}`,
+        severity: 'high',
+        message: `TP${expectedTP.level} order not found on exchange`,
+        expected: { price: expectedTP.price, quantity: expectedTP.quantity }
+      });
+      console.log(`⚠️ TP${expectedTP.level} missing for ${position.symbol}`);
+      
+      // Auto-repair missing TP
+      console.log(`🔧 Auto-repairing: Placing TP${expectedTP.level} order`);
+      const holdSide = position.side === 'BUY' ? 'long' : 'short';
+      const roundedTpPrice = roundPrice(expectedTP.price, pricePlace);
+      
+      const { data: tpResult } = await supabase.functions.invoke('bitget-api', {
+        body: {
+          action: 'place_plan_order',
+          params: {
+            symbol: position.symbol,
+            planType: 'normal_plan',
+            triggerPrice: roundedTpPrice,
+            triggerType: 'mark_price',
+            side: position.side === 'BUY' ? 'sell' : 'buy',
+            tradeSide: 'close',
+            size: expectedTP.quantity.toString(),
+            orderType: 'market',
+          },
+          apiCredentials
+        }
+      });
+      
+      if (tpResult?.success) {
+        const updateField = `tp${expectedTP.level}_order_id` as const;
+        await supabase
+          .from('positions')
+          .update({ [updateField]: tpResult.data.orderId })
+          .eq('id', position.id)
+          .eq('user_id', position.user_id);
+        actions.push(`Placed missing TP${expectedTP.level} order`);
+        console.log(`✅ TP${expectedTP.level} order placed: ${tpResult.data.orderId}`);
+      } else {
+        console.error(`❌ Failed to place TP${expectedTP.level}:`, tpResult);
       }
     }
   }
