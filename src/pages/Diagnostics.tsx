@@ -49,7 +49,7 @@ export default function Diagnostics() {
       const { data, error } = await supabase
         .from("bot_logs")
         .select("*")
-        .eq("level", "warn")
+        .in("level", ["warn", "info"])
         .not("metadata->adjustment", "is", null)
         .order("created_at", { ascending: false })
         .limit(50);

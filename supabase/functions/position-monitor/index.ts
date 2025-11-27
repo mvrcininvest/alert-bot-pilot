@@ -347,6 +347,86 @@ function checkIfResyncNeeded(
   return { mismatch: false, reason: '' };
 }
 
+// Helper function to log deviations (when they exist but are within tolerance)
+async function logDeviations(
+  supabase: any,
+  position: any,
+  expected: ExpectedSLTP,
+  slOrders: any[],
+  tpOrders: any[]
+) {
+  const deviations: any[] = [];
+  const tolerance = 0.001; // 0.1% tolerance
+  
+  // Check SL deviations
+  if (slOrders.length === 1) {
+    const actualSlPrice = Number(slOrders[0].triggerPrice);
+    const priceDiff = Math.abs(actualSlPrice - expected.sl_price) / expected.sl_price;
+    
+    if (priceDiff > 0.00001 && priceDiff <= tolerance) {
+      deviations.push({
+        type: 'SL',
+        label: 'Stop Loss',
+        planned: expected.sl_price,
+        actual: actualSlPrice,
+        deviation_percent: (priceDiff * 100).toFixed(4)
+      });
+    }
+  }
+  
+  // Check TP deviations
+  for (let i = 1; i <= 3; i++) {
+    const expectedPrice = expected[`tp${i}_price` as keyof ExpectedSLTP] as number | undefined;
+    const expectedQty = expected[`tp${i}_quantity` as keyof ExpectedSLTP] as number | undefined;
+    
+    if (!expectedPrice || !expectedQty) continue;
+    
+    const matchingTP = tpOrders.find((o: any) => {
+      const priceDiff = Math.abs(Number(o.triggerPrice) - expectedPrice) / expectedPrice;
+      return priceDiff < 0.01; // Find the matching TP order
+    });
+    
+    if (matchingTP) {
+      const actualPrice = Number(matchingTP.triggerPrice);
+      const actualQty = Number(matchingTP.size);
+      
+      const priceDiff = Math.abs(actualPrice - expectedPrice) / expectedPrice;
+      const qtyDiff = Math.abs(actualQty - expectedQty) / expectedQty;
+      
+      // Log if there's a deviation within tolerance
+      if (priceDiff > 0.00001 && priceDiff <= tolerance) {
+        deviations.push({
+          type: `TP${i}_PRICE`,
+          label: `Take Profit ${i} Price`,
+          planned: expectedPrice,
+          actual: actualPrice,
+          deviation_percent: (priceDiff * 100).toFixed(4)
+        });
+      }
+      
+      if (qtyDiff > 0.00001 && qtyDiff <= 0.01) { // 1% tolerance for quantity
+        deviations.push({
+          type: `TP${i}_QTY`,
+          label: `Take Profit ${i} Quantity`,
+          planned: expectedQty,
+          actual: actualQty,
+          deviation_percent: (qtyDiff * 100).toFixed(4)
+        });
+      }
+    }
+  }
+  
+  // Only log if we found deviations
+  if (deviations.length > 0) {
+    await supabase.from('monitoring_logs').insert({
+      check_type: 'deviations',
+      position_id: position.id,
+      status: 'detected',
+      issues: deviations
+    });
+  }
+}
+
 // Helper function to clean up orphan orders (orders without open positions)
 async function cleanupOrphanOrders(supabase: any, userId: string, apiCredentials: any, exchangePositions: any[]) {
   console.log(`🧹 Checking for orphan orders for user ${userId}`);
@@ -1170,6 +1250,9 @@ async function checkPositionFullVerification(supabase: any, position: any, setti
   // Check if resync is needed
   const resyncCheck = checkIfResyncNeeded(slOrders, tpOrders, expected, settings, position);
   
+  // Log deviations BEFORE resync (if deviations exist but within tolerance)
+  await logDeviations(supabase, position, expected, slOrders, tpOrders);
+  
   if (resyncCheck.mismatch) {
     console.log(`🔄 RESYNC NEEDED for ${position.symbol}: ${resyncCheck.reason}`);
     await log({
@@ -1344,6 +1427,41 @@ async function checkPositionFullVerification(supabase: any, position: any, setti
       level: 'info',
       positionId: position.id,
       metadata: { actions }
+    });
+    
+    // Determine intervention type based on reason
+    let checkType = 'tp_repair';
+    if (resyncCheck.reason.includes('SL')) {
+      checkType = resyncCheck.reason.includes('TP') ? 'sl_repair' : 'sl_repair';
+    } else if (resyncCheck.reason.includes('quantity')) {
+      checkType = 'emergency_close'; // Quantity mismatches are critical
+    }
+    
+    // Log intervention to monitoring_logs for Diagnostics dashboard
+    await supabase.from('monitoring_logs').insert({
+      check_type: checkType,
+      position_id: position.id,
+      status: 'success',
+      actions_taken: actions.join('; '),
+      issues: [{
+        reason: resyncCheck.reason,
+        severity: 'high'
+      }],
+      expected_data: {
+        sl_price: expected.sl_price,
+        tp1_price: expected.tp1_price,
+        tp2_price: expected.tp2_price,
+        tp3_price: expected.tp3_price,
+        tp1_quantity: expected.tp1_quantity,
+        tp2_quantity: expected.tp2_quantity,
+        tp3_quantity: expected.tp3_quantity,
+      },
+      actual_data: {
+        sl_orders_count: slOrders.length,
+        tp_orders_count: tpOrders.length,
+        sl_prices: slOrders.map((o: any) => o.triggerPrice),
+        tp_prices: tpOrders.map((o: any) => o.triggerPrice)
+      }
     });
     
     // Skip further checks - we just resynced everything
