@@ -309,10 +309,10 @@ serve(async (req) => {
 
       case 'get_plan_orders':
         // Get all plan orders (SL/TP) for a symbol - v2 API
-        // planType is REQUIRED: profit_loss gets all SL/TP orders
+        // planType can be 'profit_loss' (pos_profit/pos_loss) or 'normal_plan' (trigger orders)
         const planOrdersParams = new URLSearchParams({
           productType: 'USDT-FUTURES',
-          planType: 'profit_loss'
+          planType: params.planType || 'profit_loss'
         });
         if (params.symbol) {
           planOrdersParams.append('symbol', params.symbol);

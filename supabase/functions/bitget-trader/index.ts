@@ -311,7 +311,7 @@ serve(async (req) => {
         }
         
         // Flash close position on exchange
-        const holdSide = existingPosition.side === 'BUY' ? 'long' : 'short';
+        const closeSide = existingPosition.side === 'BUY' ? 'close_long' : 'close_short';
         try {
           await supabase.functions.invoke('bitget-api', {
             body: {
@@ -319,7 +319,8 @@ serve(async (req) => {
               apiCredentials,
               params: {
                 symbol: existingPosition.symbol,
-                holdSide
+                size: existingPosition.quantity.toString(),
+                side: closeSide,
               }
             }
           });
