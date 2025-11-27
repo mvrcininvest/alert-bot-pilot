@@ -89,6 +89,30 @@ serve(async (req) => {
     // Check each position with full verification
     for (const position of positions) {
       try {
+        // Check if position has user_id - if not, it's an orphaned position
+        if (!position.user_id) {
+          console.log(`⚠️ Position ${position.id} (${position.symbol}) has no user_id - marking as orphaned`);
+          await log({
+            functionName: 'position-monitor',
+            message: `Position without user_id - auto-closing as orphaned`,
+            level: 'warn',
+            positionId: position.id,
+            metadata: { symbol: position.symbol }
+          });
+          
+          await supabase
+            .from('positions')
+            .update({
+              status: 'closed',
+              close_reason: 'orphaned_no_user',
+              closed_at: new Date().toISOString(),
+              realized_pnl: 0
+            })
+            .eq('id', position.id);
+          
+          continue; // Skip to next position
+        }
+
         await log({
           functionName: 'position-monitor',
           message: `🔥 Checking position ${position.symbol}`,
