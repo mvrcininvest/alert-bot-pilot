@@ -154,7 +154,7 @@ serve(async (req) => {
         break;
 
       case 'place_order':
-        // Place market order - v2 API
+        // Place order (market or limit) - v2 API
         // Map internal side format to Bitget API format
         const sideParam = params.side.toLowerCase();
         const isLong = sideParam.includes('long');
@@ -167,19 +167,34 @@ serve(async (req) => {
         const tradeSide = isOpen ? 'open' : 'close';
         const posSide = isLong ? 'long' : 'short';
         
-        result = await bitgetRequest(config, 'POST', '/api/v2/mix/order/place-order', {
+        // Support both market and limit orders
+        const orderType = params.orderType || 'market';
+        const orderBody: any = {
           symbol: params.symbol,
           productType: 'USDT-FUTURES',
           marginMode: 'crossed',
           marginCoin: 'USDT',
           size: params.size.toString(),
-          price: '',
           side: bitgetSide,
           tradeSide: tradeSide,
           posSide: posSide,
-          orderType: 'market',
-          force: 'ioc',
-        });
+          orderType: orderType,
+          force: orderType === 'limit' ? 'gtc' : 'ioc',
+        };
+        
+        // Add price for limit orders
+        if (orderType === 'limit' && params.price) {
+          orderBody.price = params.price.toString();
+        } else {
+          orderBody.price = '';
+        }
+        
+        // Add reduceOnly flag for closing positions
+        if (params.reduceOnly === 'YES' || params.reduceOnly === true) {
+          orderBody.reduceOnly = 'YES';
+        }
+        
+        result = await bitgetRequest(config, 'POST', '/api/v2/mix/order/place-order', orderBody);
         break;
 
       case 'place_plan_order':
@@ -282,11 +297,9 @@ serve(async (req) => {
         console.log(`🔄 close_position: ${params.symbol}, side=${params.side}, size=${params.size}`);
         const closeSideParam = params.side.toLowerCase();
         const closeIsLong = closeSideParam.includes('long');
-        const closeIsOpen = closeSideParam.includes('open');
         
-        // Map side correctly for close orders (tradeSide: "close")
-        const closeBitgetSide = (closeIsOpen && closeIsLong) || (!closeIsOpen && !closeIsLong) ? 'buy' : 'sell';
-        const closeTradeSide = closeIsOpen ? 'open' : 'close';
+        // For closing: buy to close short, sell to close long
+        const closeBitgetSide = closeIsLong ? 'sell' : 'buy';
         const closePosSide = closeIsLong ? 'long' : 'short';
         
         result = await bitgetRequest(config, 'POST', '/api/v2/mix/order/place-order', {
@@ -295,12 +308,12 @@ serve(async (req) => {
           marginMode: 'crossed',
           marginCoin: 'USDT',
           size: params.size.toString(),
-          price: '',
           side: closeBitgetSide,
-          tradeSide: closeTradeSide,
+          tradeSide: 'close',
           posSide: closePosSide,
           orderType: 'market',
-          force: 'ioc',
+          force: 'gtc',
+          reduceOnly: 'YES',
         });
         console.log(`✅ close_position result:`, result);
         break;

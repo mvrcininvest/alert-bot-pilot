@@ -2030,23 +2030,73 @@ async function checkPositionFullVerification(supabase: any, position: any, setti
           actions.push(`Emergency close - SL already hit (price: ${currentPrice})`);
           return;
         } else {
-          // CRITICAL: Failed to close position even after 3 attempts
-          await log({
-            functionName: 'position-monitor',
-            message: `🚨 CRITICAL: Failed to execute emergency SL close after 3 attempts`,
-            level: 'error',
-            positionId: position.id,
-            metadata: { 
-              expected_sl: expected.sl_price, 
-              current_price: currentPrice,
-              position_size: exchangePosition.total,
-              last_error: lastError
+          // FALLBACK: Place LIMIT order at current market price after failed immediate close
+          console.log(`⚠️ Emergency SL close failed after 3 attempts, placing LIMIT order at current market price`);
+          
+          const ticker = tickerResult.data[0];
+          const currentMarketPrice = parseFloat(ticker.lastPr);
+          const slippageTolerance = 0.001; // 0.1% slippage
+          
+          // Apply slippage: for short position (SL is above), buy slightly above current price
+          // for long position (SL is below), sell slightly below current price
+          const limitPrice = holdSide === 'long' 
+            ? currentMarketPrice * (1 - slippageTolerance)  // Sell slightly below for long
+            : currentMarketPrice * (1 + slippageTolerance); // Buy slightly above for short
+          
+          const roundedLimitPrice = roundPrice(limitPrice, pricePlace);
+          
+          const { data: limitOrderResult } = await supabase.functions.invoke('bitget-api', {
+            body: {
+              action: 'place_order',
+              params: {
+                symbol: position.symbol,
+                side: holdSide,
+                size: exchangePosition.total,
+                price: roundedLimitPrice,
+                orderType: 'limit',
+                reduceOnly: 'YES',
+              },
+              apiCredentials
             }
           });
           
-          console.error(`🚨 CRITICAL: Emergency SL close failed after 3 attempts - position remains open!`);
-          // Do NOT place SL order - let monitor retry in next cycle
-          return;
+          if (limitOrderResult?.success) {
+            await log({
+              functionName: 'position-monitor',
+              message: `✅ Placed LIMIT order for emergency SL at market price ${roundedLimitPrice}`,
+              level: 'warn',
+              positionId: position.id,
+              metadata: { 
+                expected_sl: expected.sl_price,
+                current_price: currentMarketPrice,
+                limit_price: roundedLimitPrice,
+                order_id: limitOrderResult.data?.orderId 
+              }
+            });
+            
+            console.log(`✅ LIMIT order placed for emergency SL at ${roundedLimitPrice}`);
+            actions.push(`LIMIT order for SL at market price ${roundedLimitPrice}`);
+            return;
+          } else {
+            // CRITICAL: Even LIMIT order failed
+            await log({
+              functionName: 'position-monitor',
+              message: `🚨 CRITICAL: Failed to place LIMIT order for emergency SL`,
+              level: 'error',
+              positionId: position.id,
+              metadata: { 
+                expected_sl: expected.sl_price, 
+                current_price: currentMarketPrice,
+                limit_price: roundedLimitPrice,
+                position_size: exchangePosition.total,
+                last_error: lastError,
+                limit_result: limitOrderResult
+              }
+            });
+            
+            console.error(`🚨 CRITICAL: Emergency SL LIMIT order also failed - position remains open!`);
+            return;
+          }
         }
       }
     }
@@ -2164,23 +2214,86 @@ async function checkPositionFullVerification(supabase: any, position: any, setti
         if (closeSuccess) {
           continue; // Skip placing order - close was successful
         } else {
-          // CRITICAL: Failed to close even after 3 attempts
-          await log({
-            functionName: 'position-monitor',
-            message: `🚨 CRITICAL: Failed to execute immediate TP${i} close after 3 attempts`,
-            level: 'error',
-            positionId: position.id,
-            metadata: { 
-              current_price: currentPrice,
-              tp_price: tpPrice, 
-              quantity: roundedQty,
-              last_error: lastError
+          // FALLBACK: Place LIMIT order at current market price after failed immediate close
+          console.log(`⚠️ Immediate TP${i} close failed after 3 attempts, placing LIMIT order at current market price`);
+          
+          const ticker = tickerResult.data[0];
+          const currentMarketPrice = parseFloat(ticker.lastPr);
+          const slippageTolerance = 0.001; // 0.1% slippage
+          
+          // Apply slippage: for long position TP (sell), slightly below current price
+          // for short position TP (buy), slightly above current price
+          const limitPrice = holdSide === 'long' 
+            ? currentMarketPrice * (1 - slippageTolerance)  // Sell slightly below for long
+            : currentMarketPrice * (1 + slippageTolerance); // Buy slightly above for short
+          
+          const roundedLimitPrice = roundPrice(limitPrice, pricePlace);
+          
+          const { data: limitOrderResult } = await supabase.functions.invoke('bitget-api', {
+            body: {
+              action: 'place_order',
+              params: {
+                symbol: position.symbol,
+                side: holdSide,
+                size: roundedQty.toString(),
+                price: roundedLimitPrice,
+                orderType: 'limit',
+                reduceOnly: 'YES',
+              },
+              apiCredentials
             }
           });
           
-          console.error(`🚨 CRITICAL: Immediate TP${i} close failed after 3 attempts - NOT placing trigger order`);
-          // Do NOT place trigger order - let monitor retry in next cycle
-          continue;
+          if (limitOrderResult?.success) {
+            // Mark this TP as filled since we placed the order
+            await supabase
+              .from('positions')
+              .update({ [tpFilledKey]: true })
+              .eq('id', position.id);
+            
+            await log({
+              functionName: 'position-monitor',
+              message: `✅ Placed LIMIT order for TP${i} at market price ${roundedLimitPrice}`,
+              level: 'info',
+              positionId: position.id,
+              metadata: { 
+                current_price: currentMarketPrice,
+                tp_price: tpPrice,
+                limit_price: roundedLimitPrice,
+                quantity: roundedQty,
+                order_id: limitOrderResult.data?.orderId 
+              }
+            });
+            
+            console.log(`✅ LIMIT order placed for TP${i} at ${roundedLimitPrice}`);
+            actions.push(`LIMIT order for TP${i} at market price ${roundedLimitPrice}`);
+            
+            // Check if SL should move to breakeven after this TP
+            if (settings.sl_to_breakeven && i >= (settings.breakeven_trigger_tp || 1)) {
+              await moveSlToBreakeven(supabase, position, apiCredentials, pricePlace);
+            }
+            
+            continue;
+          } else {
+            // CRITICAL: Even LIMIT order failed
+            await log({
+              functionName: 'position-monitor',
+              message: `🚨 CRITICAL: Failed to place LIMIT order for TP${i}`,
+              level: 'error',
+              positionId: position.id,
+              metadata: { 
+                current_price: currentMarketPrice,
+                tp_price: tpPrice,
+                limit_price: roundedLimitPrice,
+                quantity: roundedQty,
+                last_error: lastError,
+                limit_result: limitOrderResult
+              }
+            });
+            
+            console.error(`🚨 CRITICAL: TP${i} LIMIT order also failed - NOT placing trigger order`);
+            continue;
+          }
         }
       }
       
