@@ -1988,29 +1988,63 @@ async function checkPositionFullVerification(supabase: any, position: any, setti
         let closeSuccess = false;
         let lastError = null;
         
+        // STEP 1: Try flash_close_position (dedicated close endpoint) - 3 attempts
+        console.log(`⚡ Attempting emergency SL close via flash_close_position...`);
         for (let attempt = 1; attempt <= 3; attempt++) {
-          const { data: closeResult, error } = await supabase.functions.invoke('bitget-api', {
+          const { data: flashResult, error } = await supabase.functions.invoke('bitget-api', {
             body: {
-              action: 'close_position',
+              action: 'flash_close_position',
               params: {
                 symbol: position.symbol,
-                side: position.side === 'BUY' ? 'long' : 'short',
+                holdSide: holdSide,
                 size: exchangePosition.total
               },
               apiCredentials
             }
           });
           
-          if (closeResult?.success) {
+          if (flashResult?.success) {
             closeSuccess = true;
+            console.log(`✅ Flash close successful on attempt ${attempt}`);
             break;
           }
           
-          lastError = error || closeResult;
-          console.error(`❌ Emergency SL close attempt ${attempt}/3 failed:`, lastError);
+          lastError = error || flashResult;
+          console.error(`❌ Flash close attempt ${attempt}/3 failed:`, lastError);
           
           if (attempt < 3) {
             await new Promise(resolve => setTimeout(resolve, 500));
+          }
+        }
+        
+        // STEP 2: Fallback to close_position (market order) - 3 attempts
+        if (!closeSuccess) {
+          console.log(`⚠️ Flash close failed, trying market close...`);
+          for (let attempt = 1; attempt <= 3; attempt++) {
+            const { data: closeResult, error } = await supabase.functions.invoke('bitget-api', {
+              body: {
+                action: 'close_position',
+                params: {
+                  symbol: position.symbol,
+                  side: position.side === 'BUY' ? 'long' : 'short',
+                  size: exchangePosition.total
+                },
+                apiCredentials
+              }
+            });
+            
+            if (closeResult?.success) {
+              closeSuccess = true;
+              console.log(`✅ Market close successful on attempt ${attempt}`);
+              break;
+            }
+            
+            lastError = error || closeResult;
+            console.error(`❌ Market close attempt ${attempt}/3 failed:`, lastError);
+            
+            if (attempt < 3) {
+              await new Promise(resolve => setTimeout(resolve, 500));
+            }
           }
         }
         
@@ -2030,8 +2064,8 @@ async function checkPositionFullVerification(supabase: any, position: any, setti
           actions.push(`Emergency close - SL already hit (price: ${currentPrice})`);
           return;
         } else {
-          // FALLBACK: Place LIMIT order at current market price after failed immediate close
-          console.log(`⚠️ Emergency SL close failed after 3 attempts, placing LIMIT order at current market price`);
+          // STEP 3: Last resort - LIMIT order at current market price
+          console.log(`⚠️ Both flash and market close failed, placing LIMIT order as last resort...`);
           
           const ticker = tickerResult.data[0];
           const currentMarketPrice = parseFloat(ticker.lastPr);
@@ -2154,25 +2188,28 @@ async function checkPositionFullVerification(supabase: any, position: any, setti
         // Round quantity to volumePlace precision
         const roundedQty = Math.floor(tpQty * Math.pow(10, volumePlace)) / Math.pow(10, volumePlace);
         
-        // Execute immediate market close with retry logic
+        // Execute immediate close with retry logic
         let closeSuccess = false;
         let lastError = null;
         
+        // STEP 1: Try flash_close_position (dedicated close endpoint) - 3 attempts
+        console.log(`⚡ Attempting immediate TP${i} close via flash_close_position...`);
         for (let attempt = 1; attempt <= 3; attempt++) {
-          const { data: closeResult, error } = await supabase.functions.invoke('bitget-api', {
+          const { data: flashResult, error } = await supabase.functions.invoke('bitget-api', {
             body: {
-              action: 'close_position',
+              action: 'flash_close_position',
               params: {
                 symbol: position.symbol,
-                side: holdSide,
+                holdSide: holdSide,
                 size: roundedQty.toString()
               },
               apiCredentials
             }
           });
           
-          if (closeResult?.success) {
+          if (flashResult?.success) {
             closeSuccess = true;
+            console.log(`✅ Flash close successful on attempt ${attempt}`);
             
             // Mark this TP as filled
             await supabase
@@ -2203,19 +2240,77 @@ async function checkPositionFullVerification(supabase: any, position: any, setti
             break;
           }
           
-          lastError = error || closeResult;
-          console.error(`❌ Immediate TP${i} close attempt ${attempt}/3 failed:`, lastError);
+          lastError = error || flashResult;
+          console.error(`❌ Flash close attempt ${attempt}/3 failed:`, lastError);
           
           if (attempt < 3) {
             await new Promise(resolve => setTimeout(resolve, 500));
           }
         }
         
+        // STEP 2: Fallback to close_position (market order) - 3 attempts
+        if (!closeSuccess) {
+          console.log(`⚠️ Flash close failed, trying market close...`);
+          for (let attempt = 1; attempt <= 3; attempt++) {
+            const { data: closeResult, error } = await supabase.functions.invoke('bitget-api', {
+              body: {
+                action: 'close_position',
+                params: {
+                  symbol: position.symbol,
+                  side: holdSide,
+                  size: roundedQty.toString()
+                },
+                apiCredentials
+              }
+            });
+            
+            if (closeResult?.success) {
+              closeSuccess = true;
+              console.log(`✅ Market close successful on attempt ${attempt}`);
+              
+              // Mark this TP as filled
+              await supabase
+                .from('positions')
+                .update({ [tpFilledKey]: true })
+                .eq('id', position.id);
+              
+              await log({
+                functionName: 'position-monitor',
+                message: `✅ Immediate TP${i} close - price already past level`,
+                level: 'info',
+                positionId: position.id,
+                metadata: { 
+                  current_price: currentPrice, 
+                  tp_price: tpPrice, 
+                  quantity: roundedQty 
+                }
+              });
+              
+              console.log(`✅ Immediate partial close executed for TP${i} (price ${currentPrice} past ${tpPrice})`);
+              actions.push(`Immediate TP${i} close (price ${currentPrice} past ${tpPrice})`);
+              
+              // Check if SL should move to breakeven after this TP
+              if (settings.sl_to_breakeven && i >= (settings.breakeven_trigger_tp || 1)) {
+                await moveSlToBreakeven(supabase, position, apiCredentials, pricePlace);
+              }
+              
+              break;
+            }
+            
+            lastError = error || closeResult;
+            console.error(`❌ Market close attempt ${attempt}/3 failed:`, lastError);
+            
+            if (attempt < 3) {
+              await new Promise(resolve => setTimeout(resolve, 500));
+            }
+          }
+        }
+        
         if (closeSuccess) {
           continue; // Skip placing order - close was successful
         } else {
-          // FALLBACK: Place LIMIT order at current market price after failed immediate close
-          console.log(`⚠️ Immediate TP${i} close failed after 3 attempts, placing LIMIT order at current market price`);
+          // STEP 3: Last resort - LIMIT order at current market price
+          console.log(`⚠️ Both flash and market close failed, placing LIMIT order as last resort...`);
           
           const ticker = tickerResult.data[0];
           const currentMarketPrice = parseFloat(ticker.lastPr);

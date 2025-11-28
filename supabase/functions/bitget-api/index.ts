@@ -292,6 +292,25 @@ serve(async (req) => {
         });
         break;
 
+      case 'flash_close_position':
+        // Flash close - dedicated endpoint for closing positions
+        console.log(`⚡ flash_close_position: ${params.symbol}, holdSide=${params.holdSide}, size=${params.size || 'full position'}`);
+        
+        const flashCloseBody: any = {
+          symbol: params.symbol,
+          productType: 'USDT-FUTURES',
+          holdSide: params.holdSide,  // 'long' or 'short'
+        };
+        
+        // If size is provided, close partial position, otherwise close entire position
+        if (params.size) {
+          flashCloseBody.size = params.size.toString();
+        }
+        
+        result = await bitgetRequest(config, 'POST', '/api/v2/mix/order/close-positions', flashCloseBody);
+        console.log(`✅ flash_close_position result:`, result);
+        break;
+
       case 'close_position':
         // Close entire position - v2 API
         console.log(`🔄 close_position: ${params.symbol}, side=${params.side}, size=${params.size}`);
@@ -312,7 +331,7 @@ serve(async (req) => {
           tradeSide: 'close',
           posSide: closePosSide,
           orderType: 'market',
-          force: 'gtc',
+          force: 'fok',  // Fill Or Kill - better for market close
           reduceOnly: 'YES',
         });
         console.log(`✅ close_position result:`, result);
