@@ -110,7 +110,7 @@ serve(async (req) => {
     
     const closeSide = position.side === 'BUY' ? 'close_long' : 'close_short';
     
-    const { data: closeResult } = await supabase.functions.invoke('bitget-api', {
+    const { data: closeResult, error: closeError } = await supabase.functions.invoke('bitget-api', {
       body: {
         action: 'close_position',
         params: {
@@ -122,14 +122,53 @@ serve(async (req) => {
       }
     });
 
-    if (!closeResult?.success) {
+    // Detailed logging for close result
+    console.log('Close result from bitget-api:', JSON.stringify(closeResult));
+    if (closeError) {
+      console.error('Close error:', closeError);
+    }
+
+    // Check if close was actually executed
+    if (!closeResult?.success || !closeResult?.data?.wasExecuted) {
       await log({
         functionName: 'close-position',
-        message: 'Failed to close position on Bitget',
-        level: 'error',
+        message: 'Market close failed or not executed, trying flash_close as fallback',
+        level: 'warn',
+        positionId: position_id,
+        metadata: { closeResult, closeError }
+      });
+      
+      // Try flash_close as fallback
+      const { data: flashResult, error: flashError } = await supabase.functions.invoke('bitget-api', {
+        body: {
+          action: 'flash_close_position',
+          params: {
+            symbol: position.symbol,
+            holdSide: position.side === 'BUY' ? 'long' : 'short',
+          },
+          apiCredentials
+        }
+      });
+      
+      console.log('Flash close result:', JSON.stringify(flashResult));
+      
+      if (!flashResult?.success || !flashResult?.data?.wasExecuted) {
+        await log({
+          functionName: 'close-position',
+          message: 'Both market close and flash_close failed',
+          level: 'error',
+          positionId: position_id,
+          metadata: { closeResult, flashResult, closeError, flashError }
+        });
+        throw new Error('Failed to close position on Bitget (both market and flash close failed)');
+      }
+      
+      await log({
+        functionName: 'close-position',
+        message: 'Position closed successfully using flash_close fallback',
+        level: 'info',
         positionId: position_id
       });
-      throw new Error('Failed to close position on Bitget');
     }
 
     // Cancel all pending orders (SL/TP)
