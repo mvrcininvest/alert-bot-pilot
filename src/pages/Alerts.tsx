@@ -11,11 +11,13 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useState, useEffect, useRef } from "react";
 import { useToast } from "@/hooks/use-toast";
+import { useAuth } from "@/hooks/useAuth";
 
 export default function Alerts() {
   const [selectedAlert, setSelectedAlert] = useState<any>(null);
   const { toast } = useToast();
   const queryClient = useQueryClient();
+  const { isAdmin } = useAuth();
   const tableRef = useRef<HTMLTableElement>(null);
   const topScrollRef = useRef<HTMLDivElement>(null);
   const bottomScrollRef = useRef<HTMLDivElement>(null);
@@ -304,20 +306,20 @@ export default function Alerts() {
                   <TableHead>Leverage</TableHead>
                   <TableHead>Latencja</TableHead>
                   <TableHead>Status</TableHead>
-                  <TableHead>Test</TableHead>
-                  <TableHead>Akcje</TableHead>
+                  {isAdmin && <TableHead>Test</TableHead>}
+                  {isAdmin && <TableHead>Akcje</TableHead>}
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {isLoading ? (
                   <TableRow>
-                    <TableCell colSpan={13} className="text-center py-8">
+                    <TableCell colSpan={isAdmin ? 13 : 11} className="text-center py-8">
                       Ładowanie...
                     </TableCell>
                   </TableRow>
                 ) : alerts && alerts.length > 0 ? (
                   alerts.map((alert) => (
-                    <TableRow key={alert.id} className={alert.is_test ? "opacity-50" : ""}>
+                    <TableRow key={alert.id} className={alert.is_test && isAdmin ? "opacity-50" : ""}>
                       <TableCell className="text-xs">
                         {format(new Date(alert.created_at), "dd.MM.yyyy HH:mm")}
                       </TableCell>
@@ -343,40 +345,42 @@ export default function Alerts() {
                           {alert.status}
                         </Badge>
                       </TableCell>
-                      <TableCell>
-                        <Button
-                          variant={alert.is_test ? "default" : "outline"}
-                          size="sm"
-                          onClick={() => toggleTestMutation.mutate({ alertId: alert.id, isTest: alert.is_test })}
-                        >
-                          <TestTube className="h-4 w-4" />
-                        </Button>
-                      </TableCell>
-                      <TableCell>
-                        <Dialog>
-                          <DialogTrigger asChild>
-                            <Button 
-                              variant="outline" 
-                              size="sm"
-                              onClick={() => setSelectedAlert(alert)}
-                            >
-                              <Info className="h-4 w-4" />
-                            </Button>
-                          </DialogTrigger>
-                          <DialogContent className="max-w-4xl max-h-[80vh]">
-                            <DialogHeader>
-                              <DialogTitle>Szczegóły Alertu - {alert.symbol}</DialogTitle>
-                            </DialogHeader>
-                            <ScrollArea className="h-[60vh]">
-                              <Tabs defaultValue="market" className="w-full">
-                                <TabsList className="grid w-full grid-cols-3">
-                                  <TabsTrigger value="market">Warunki Rynkowe</TabsTrigger>
-                                  <TabsTrigger value="raw">Raw JSON</TabsTrigger>
-                                  <TabsTrigger value="error">
-                                    Błąd
-                                    {alert.error_message && <AlertCircle className="h-3 w-3 ml-1" />}
-                                  </TabsTrigger>
-                                </TabsList>
+                      {isAdmin && (
+                        <TableCell>
+                          <Button
+                            variant={alert.is_test ? "default" : "outline"}
+                            size="sm"
+                            onClick={() => toggleTestMutation.mutate({ alertId: alert.id, isTest: alert.is_test })}
+                          >
+                            <TestTube className="h-4 w-4" />
+                          </Button>
+                        </TableCell>
+                      )}
+                      {isAdmin && (
+                        <TableCell>
+                          <Dialog>
+                            <DialogTrigger asChild>
+                              <Button 
+                                variant="outline" 
+                                size="sm"
+                                onClick={() => setSelectedAlert(alert)}
+                              >
+                                <Info className="h-4 w-4" />
+                              </Button>
+                            </DialogTrigger>
+                            <DialogContent className="max-w-4xl max-h-[80vh]">
+                              <DialogHeader>
+                                <DialogTitle>Szczegóły Alertu - {alert.symbol}</DialogTitle>
+                              </DialogHeader>
+                              <ScrollArea className="h-[60vh]">
+                                <Tabs defaultValue="market" className="w-full">
+                                  <TabsList className="grid w-full grid-cols-2">
+                                    <TabsTrigger value="market">Warunki Rynkowe</TabsTrigger>
+                                    <TabsTrigger value="error">
+                                      Błąd
+                                      {alert.error_message && <AlertCircle className="h-3 w-3 ml-1" />}
+                                    </TabsTrigger>
+                                  </TabsList>
                                 
                                 <TabsContent value="market" className="space-y-4 mt-4">
                                   {alert.raw_data && typeof alert.raw_data === 'object' && !Array.isArray(alert.raw_data) && (
@@ -493,11 +497,12 @@ export default function Alerts() {
                           </DialogContent>
                         </Dialog>
                       </TableCell>
+                      )}
                     </TableRow>
                   ))
                 ) : (
                   <TableRow>
-                    <TableCell colSpan={13} className="text-center py-8 text-muted-foreground">
+                    <TableCell colSpan={isAdmin ? 13 : 11} className="text-center py-8 text-muted-foreground">
                       Brak alertów
                     </TableCell>
                   </TableRow>

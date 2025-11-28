@@ -11,6 +11,7 @@ import History from "./pages/History";
 import Stats from "./pages/Stats";
 import Integration from "./pages/Integration";
 import Settings from "./pages/Settings";
+import UserSettings from "./pages/UserSettings";
 import Logs from "./pages/Logs";
 import Auth from "./pages/Auth";
 import ResetPassword from "./pages/ResetPassword";
@@ -41,7 +42,8 @@ const App = () => (
                 <Route path="/history" element={<History />} />
                 <Route path="/stats" element={<Stats />} />
                 <Route path="/integration" element={<Integration />} />
-                <Route path="/settings" element={<Settings />} />
+                <Route path="/settings" element={<UserSettings />} />
+                <Route path="/admin/settings" element={<Settings />} />
                 <Route path="/logs" element={<Logs />} />
                 <Route path="/admin" element={<Admin />} />
                 <Route path="/settings/api-keys" element={<ApiKeys />} />
