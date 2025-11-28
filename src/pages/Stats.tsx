@@ -25,7 +25,73 @@ import { VolatilityAnalysisCard } from "@/components/stats/VolatilityAnalysisCar
 import { exportToCSV, exportStatsToCSV } from "@/lib/exportStats";
 import { startOfDay, subDays, isAfter, isBefore, format, getDay, startOfMonth, endOfMonth } from "date-fns";
 import { pl } from "date-fns/locale";
-import { FileDown } from "lucide-react";
+import { FileDown, Wrench } from "lucide-react";
+
+// Helper function: Get raw data with fallback to metadata
+function getRawDataWithFallback(position: any): any {
+  const alert = Array.isArray(position.alerts) ? position.alerts[0] : position.alerts;
+  return alert?.raw_data || (position.metadata as any)?.alert_data || {};
+}
+
+// Helper function: Get session from UTC time
+function getSessionFromTime(dateStr: string): string {
+  const hour = new Date(dateStr).getUTCHours();
+  // Sydney: 21:00-06:00 UTC
+  if (hour >= 21 || hour < 6) return 'Sydney';
+  // Asia: 00:00-09:00 UTC (overlaps with Sydney)
+  if (hour >= 0 && hour < 9) return 'Asia';
+  // London: 07:00-16:00 UTC
+  if (hour >= 7 && hour < 16) return 'London';
+  // NY: 12:00-21:00 UTC
+  if (hour >= 12 && hour < 21) return 'NY';
+  return 'Off-Hours';
+}
+
+// Helper function: Determine close reason from prices
+function determineCloseReason(position: any): string {
+  const { close_price, entry_price, sl_price, tp1_price, tp2_price, tp3_price, 
+          side, tp1_filled, tp2_filled, tp3_filled, close_reason } = position;
+  
+  // If already valid reason
+  if (['tp1_hit', 'tp2_hit', 'tp3_hit', 'sl_hit', 'manual'].includes(close_reason)) {
+    return close_reason.includes('tp1') ? 'TP1' : 
+           close_reason.includes('tp2') ? 'TP2' : 
+           close_reason.includes('tp3') ? 'TP3' : 
+           close_reason.includes('sl') ? 'SL' : 'Manual';
+  }
+  
+  // If filled flags are set
+  if (tp3_filled) return 'TP3';
+  if (tp2_filled) return 'TP2';
+  if (tp1_filled) return 'TP1';
+  
+  // Determine from price comparison
+  const cp = Number(close_price);
+  const ep = Number(entry_price);
+  const sl = Number(sl_price);
+  const tp1 = tp1_price ? Number(tp1_price) : null;
+  const tp2 = tp2_price ? Number(tp2_price) : null;
+  const tp3 = tp3_price ? Number(tp3_price) : null;
+  const isBuy = side === 'BUY';
+  
+  const tolerance = 0.005; // 0.5% tolerance
+  
+  if (isBuy) {
+    // BUY: profit when price rises
+    if (sl && cp <= sl * (1 + tolerance)) return 'SL';
+    if (tp3 && cp >= tp3 * (1 - tolerance)) return 'TP3';
+    if (tp2 && cp >= tp2 * (1 - tolerance)) return 'TP2';
+    if (tp1 && cp >= tp1 * (1 - tolerance)) return 'TP1';
+    return cp > ep ? 'Profit' : 'SL';
+  } else {
+    // SELL: profit when price falls
+    if (sl && cp >= sl * (1 - tolerance)) return 'SL';
+    if (tp3 && cp <= tp3 * (1 + tolerance)) return 'TP3';
+    if (tp2 && cp <= tp2 * (1 + tolerance)) return 'TP2';
+    if (tp1 && cp <= tp1 * (1 + tolerance)) return 'TP1';
+    return cp < ep ? 'Profit' : 'SL';
+  }
+}
 
 export default function Stats() {
   const { toast } = useToast();
@@ -68,6 +134,29 @@ export default function Stats() {
     setIsImporting(true);
     importMutation.mutate(days);
   };
+
+  // Repair history data mutation
+  const repairMutation = useMutation({
+    mutationFn: async () => {
+      const { data, error } = await supabase.functions.invoke('repair-history-data');
+      if (error) throw error;
+      return data;
+    },
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ["all-positions-stats"] });
+      toast({
+        title: "Naprawa zakończona",
+        description: `Naprawiono ${data.updated} pozycji`,
+      });
+    },
+    onError: (error: Error) => {
+      toast({
+        title: "Błąd naprawy",
+        description: error.message,
+        variant: "destructive",
+      });
+    },
+  });
 
   const { data: allPositions } = useQuery({
     queryKey: ["all-positions-stats"],
@@ -279,14 +368,7 @@ export default function Stats() {
     const reasonMap = new Map<string, number>();
     
     filteredPositions.forEach(p => {
-      let reason = "Other";
-      
-      if (p.close_reason?.includes("tp1") || p.tp1_filled) reason = "TP1";
-      else if (p.close_reason?.includes("tp2") || p.tp2_filled) reason = "TP2";
-      else if (p.close_reason?.includes("tp3") || p.tp3_filled) reason = "TP3";
-      else if (p.close_reason?.includes("sl") || p.close_reason?.includes("stop")) reason = "SL";
-      else if (p.close_reason?.includes("manual")) reason = "Manual";
-      
+      const reason = determineCloseReason(p);
       reasonMap.set(reason, (reasonMap.get(reason) || 0) + 1);
     });
 
@@ -314,9 +396,9 @@ export default function Stats() {
     }>();
 
     filteredPositions.forEach(p => {
-      const alert = Array.isArray(p.alerts) ? p.alerts[0] : p.alerts;
-      const rawData = alert?.raw_data as any;
-      const session = rawData?.timing?.session || "Unknown";
+      const rawData = getRawDataWithFallback(p);
+      // Priority: alert data, fallback: compute from time
+      const session = rawData?.timing?.session || getSessionFromTime(p.created_at);
       const pnl = Number(p.realized_pnl || 0);
       const isWin = pnl > 0;
 
@@ -804,9 +886,12 @@ export default function Stats() {
     }>();
 
     filteredPositions.forEach(p => {
-      const alert = Array.isArray(p.alerts) ? p.alerts[0] : p.alerts;
-      const rawData = alert?.raw_data as any;
-      const btcCorr = rawData?.smc_context?.btc_correlation || 0;
+      const rawData = getRawDataWithFallback(p);
+      const btcCorr = rawData?.smc_context?.btc_correlation;
+      
+      // Only process if we have actual value (not default 0)
+      if (btcCorr === undefined || btcCorr === null) return;
+      
       const pnl = Number(p.realized_pnl || 0);
       const isWin = pnl > 0;
 
@@ -857,8 +942,7 @@ export default function Stats() {
     }>();
 
     filteredPositions.forEach(p => {
-      const alert = Array.isArray(p.alerts) ? p.alerts[0] : p.alerts;
-      const rawData = alert?.raw_data as any;
+      const rawData = getRawDataWithFallback(p);
       const zoneType = rawData?.zone_details?.zone_type || "Unknown";
       const pnl = Number(p.realized_pnl || 0);
       const isWin = pnl > 0;
@@ -1148,6 +1232,16 @@ export default function Stats() {
           >
             <FileDown className="h-4 w-4 mr-2" />
             Eksport Statystyk
+          </Button>
+          <div className="w-px h-8 bg-border" />
+          <Button
+            onClick={() => repairMutation.mutate()}
+            disabled={repairMutation.isPending}
+            variant="secondary"
+            size="sm"
+          >
+            <Wrench className="h-4 w-4 mr-2" />
+            {repairMutation.isPending ? 'Naprawiam...' : 'Napraw dane'}
           </Button>
         </div>
       </div>
