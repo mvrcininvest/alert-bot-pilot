@@ -25,7 +25,7 @@ verify_jwt = false
 verify_jwt = true
 
 [functions.sync-positions-history]
-verify_jwt = true
+verify_jwt = false
 
 [functions.repair-history-data]
 verify_jwt = false

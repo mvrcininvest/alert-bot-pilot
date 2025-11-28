@@ -1,6 +1,7 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { log } from "../_shared/logger.ts";
+import { getUserApiKeys } from "../_shared/userKeys.ts";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -53,31 +54,60 @@ serve(async (req) => {
       return symbol + 'USDT';
     };
 
-    // Get unique symbols to fetch history
-    const symbols = [...new Set(dbPositions.map(p => normalizeSymbol(p.symbol)))];
+    // Group positions by user_id
+    const positionsByUser = new Map<string, typeof dbPositions>();
+    for (const pos of dbPositions) {
+      if (!pos.user_id) continue;
+      if (!positionsByUser.has(pos.user_id)) {
+        positionsByUser.set(pos.user_id, []);
+      }
+      positionsByUser.get(pos.user_id)!.push(pos);
+    }
 
-    for (const symbol of symbols) {
-      try {
-        // Get fill history from Bitget (last 7 days)
-        const endTime = Date.now();
-        const startTime = endTime - (7 * 24 * 60 * 60 * 1000); // 7 days ago
-
-        const { data: historyResult } = await supabase.functions.invoke('bitget-api', {
-          body: {
-            action: 'get_history_positions',
-            params: {
-              symbol: symbol,
-              startTime: startTime.toString(),
-              endTime: endTime.toString(),
-              limit: '100'
-            }
-          }
+    // Process each user's positions
+    for (const [userId, userPositions] of positionsByUser) {
+      // Fetch user API keys
+      const userKeys = await getUserApiKeys(userId);
+      if (!userKeys) {
+        console.log(`No API keys for user ${userId}, skipping ${userPositions.length} positions`);
+        errors.push({
+          user_id: userId,
+          error: 'No API keys configured'
         });
+        continue;
+      }
 
-        if (!historyResult?.success || !historyResult.data?.fillList) {
-          console.log(`No history data for ${symbol}`);
-          continue;
-        }
+      const apiCredentials = {
+        apiKey: userKeys.apiKey,
+        secretKey: userKeys.secretKey,
+        passphrase: userKeys.passphrase
+      };
+
+      // Get unique symbols for this user
+      const symbols = [...new Set(userPositions.map(p => normalizeSymbol(p.symbol)))];
+
+      for (const symbol of symbols) {
+        try {
+          // Get fill history from Bitget (last 7 days)
+          const endTime = Date.now();
+          const startTime = endTime - (7 * 24 * 60 * 60 * 1000); // 7 days ago
+
+          const { data: historyResult } = await supabase.functions.invoke('bitget-api', {
+            body: {
+              action: 'get_fills',
+              params: {
+                symbol: symbol,
+                startTime: startTime.toString(),
+                endTime: endTime.toString()
+              },
+              apiCredentials
+            }
+          });
+
+          if (!historyResult?.success || !historyResult.data?.fillList) {
+            console.log(`No fill data for ${symbol}`);
+            continue;
+          }
 
         const fills = historyResult.data.fillList;
         console.log(`Got ${fills.length} fills for ${symbol}`);
@@ -92,11 +122,16 @@ serve(async (req) => {
           orderGroups.get(orderId)!.push(fill);
         }
 
+        console.log(`Found ${orderGroups.size} unique orders for ${symbol}`);
+
         // Process each order (position close)
         for (const [orderId, orderFills] of orderGroups) {
           // Skip if not a close order
           const firstFill = orderFills[0];
+          console.log(`Processing order ${orderId}: tradeSide=${firstFill.tradeSide}`);
+          
           if (firstFill.tradeSide !== 'close_long' && firstFill.tradeSide !== 'close_short') {
+            console.log(`Skipping order ${orderId} - not a close order`);
             continue;
           }
 
@@ -107,20 +142,31 @@ serve(async (req) => {
           const closeTime = Number(orderFills[0].cTime);
 
           // Try to match with database position by order ID or by symbol + time window
-          let dbPos = dbPositions.find(p => p.bitget_order_id === orderId);
+          let dbPos = userPositions.find(p => p.bitget_order_id === orderId);
+          console.log(`Match by order ID ${orderId}: ${dbPos ? 'FOUND' : 'NOT FOUND'}`);
           
-          // If no match by order ID, try to match by symbol and approximate time (within 1 hour)
+          // If no match by order ID, try to match by symbol and approximate time (within 2 hours)
           if (!dbPos) {
-            dbPos = dbPositions.find(p => {
+            dbPos = userPositions.find(p => {
               const normalizedPosSymbol = normalizeSymbol(p.symbol);
               if (normalizedPosSymbol !== symbol) return false;
               if (!p.closed_at) return false;
               
               const posCloseTime = new Date(p.closed_at).getTime();
               const timeDiff = Math.abs(posCloseTime - closeTime);
-              // Match if within 1 hour
-              return timeDiff < (60 * 60 * 1000);
+              const withinWindow = timeDiff < (2 * 60 * 60 * 1000); // 2 hours
+              
+              if (withinWindow) {
+                console.log(`Time match found for ${symbol}: DB=${new Date(posCloseTime).toISOString()}, Fill=${new Date(closeTime).toISOString()}, diff=${Math.round(timeDiff/1000)}s`);
+              }
+              
+              return withinWindow;
             });
+            if (dbPos) {
+              console.log(`✅ Matched by time: ${symbol} position ${dbPos.id}`);
+            } else {
+              console.log(`❌ No time match for order ${orderId}`);
+            }
           }
 
           if (dbPos) {
@@ -225,12 +271,14 @@ serve(async (req) => {
           }
         }
 
-      } catch (error) {
-        console.error(`Error syncing ${symbol}:`, error);
-        errors.push({
-          symbol,
-          error: error instanceof Error ? error.message : 'Unknown error'
-        });
+        } catch (error) {
+          console.error(`Error syncing ${symbol} for user ${userId}:`, error);
+          errors.push({
+            user_id: userId,
+            symbol,
+            error: error instanceof Error ? error.message : 'Unknown error'
+          });
+        }
       }
     }
 
