@@ -2,7 +2,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { TrendingUp, Activity, DollarSign, Wallet, TrendingDown, Target } from "lucide-react";
+import { TrendingUp, Activity, DollarSign, Wallet, TrendingDown, Target, AlertTriangle, Wrench } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Button } from "@/components/ui/button";
@@ -252,7 +252,7 @@ export default function Dashboard() {
     }
 
     // Calculate potential TP gains (per TP level with quantities)
-    const tpGains: { price: number; quantity: number; gain: number; rr: number; percentage: number }[] = [];
+    const tpGains: { price: number; quantity: number; gain: number; rr: number; percentage: number; hasOrder: boolean; orderId: string | null }[] = [];
     
     // Calculate SL distance for RR calculations
     const slDistance = Math.abs(entryPrice - slPrice);
@@ -267,7 +267,8 @@ export default function Dashboard() {
       const tp1Distance = Math.abs(tp1Price - entryPrice);
       const rr = slDistance > 0 ? tp1Distance / slDistance : 0;
       const percentage = quantity > 0 ? (tp1Qty / quantity) * 100 : 0;
-      tpGains.push({ price: tp1Price, quantity: tp1Qty, gain, rr, percentage });
+      const hasOrder = !!pos.tp1_order_id && realTpPrices.length >= 1;
+      tpGains.push({ price: tp1Price, quantity: tp1Qty, gain, rr, percentage, hasOrder, orderId: pos.tp1_order_id });
     }
 
     // TP2
@@ -280,7 +281,8 @@ export default function Dashboard() {
       const tp2Distance = Math.abs(tp2Price - entryPrice);
       const rr = slDistance > 0 ? tp2Distance / slDistance : 0;
       const percentage = quantity > 0 ? (tp2Qty / quantity) * 100 : 0;
-      tpGains.push({ price: tp2Price, quantity: tp2Qty, gain, rr, percentage });
+      const hasOrder = !!pos.tp2_order_id && realTpPrices.length >= 2;
+      tpGains.push({ price: tp2Price, quantity: tp2Qty, gain, rr, percentage, hasOrder, orderId: pos.tp2_order_id });
     }
 
     // TP3
@@ -293,7 +295,8 @@ export default function Dashboard() {
       const tp3Distance = Math.abs(tp3Price - entryPrice);
       const rr = slDistance > 0 ? tp3Distance / slDistance : 0;
       const percentage = quantity > 0 ? (tp3Qty / quantity) * 100 : 0;
-      tpGains.push({ price: tp3Price, quantity: tp3Qty, gain, rr, percentage });
+      const hasOrder = !!pos.tp3_order_id && realTpPrices.length >= 3;
+      tpGains.push({ price: tp3Price, quantity: tp3Qty, gain, rr, percentage, hasOrder, orderId: pos.tp3_order_id });
     }
     
     // Calculate total potential gain and effective RR
@@ -518,6 +521,16 @@ export default function Dashboard() {
                       {/* Side accent bar */}
                       <div className={`absolute left-0 top-0 bottom-0 w-1 ${pos.side === 'BUY' ? 'bg-gradient-to-b from-profit to-profit-glow' : 'bg-gradient-to-b from-loss to-loss-glow'}`} />
                       
+                      {/* Desync Warning */}
+                      {(pos.tp_gains?.some(tp => !tp.hasOrder) || !pos.has_sl_order) && (
+                        <div className="mb-3 p-2 bg-destructive/10 border border-destructive/30 rounded-md">
+                          <p className="text-xs text-destructive flex items-center gap-2">
+                            <AlertTriangle className="h-4 w-4" />
+                            <span>Pozycja ma brakujące zlecenia {!pos.has_sl_order && 'SL'}{!pos.has_sl_order && pos.tp_gains?.some(tp => !tp.hasOrder) && ' i '}{pos.tp_gains?.some(tp => !tp.hasOrder) && 'TP'} na giełdzie!</span>
+                          </p>
+                        </div>
+                      )}
+                      
                       {/* Header */}
                       <div className="flex items-center justify-between mb-4 pl-3">
                         <div className="flex items-center gap-3">
@@ -544,6 +557,44 @@ export default function Dashboard() {
                             <Badge variant="outline" className="text-xs">
                               ⚠️ NO TP
                             </Badge>
+                          )}
+                          {(pos.tp_gains?.some(tp => !tp.hasOrder) || !pos.has_sl_order) && (
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              onClick={async () => {
+                                try {
+                                  toast({ title: 'Naprawianie zleceń...', description: `Ponowne obliczanie SL/TP dla ${pos.symbol}` });
+                                  
+                                  const { data, error } = await supabase.functions.invoke('recalculate-sltp', {
+                                    body: { userId: pos.user_id }
+                                  });
+                                  
+                                  if (error) throw error;
+                                  
+                                  if (data?.success) {
+                                    await refetchPositions();
+                                    toast({ 
+                                      title: 'Zlecenia naprawione', 
+                                      description: `SL/TP dla ${pos.symbol} zostały przeliczone i złożone` 
+                                    });
+                                  } else {
+                                    throw new Error(data?.error || 'Nie udało się naprawić zleceń');
+                                  }
+                                } catch (err: any) {
+                                  console.error('Fix orders error:', err);
+                                  toast({ 
+                                    title: 'Błąd', 
+                                    description: err.message || 'Nie udało się naprawić zleceń', 
+                                    variant: 'destructive' 
+                                  });
+                                }
+                              }}
+                              className="gap-1"
+                            >
+                              <Wrench className="h-4 w-4" />
+                              Napraw zlecenia
+                            </Button>
                           )}
                           <Button
                             size="sm"
@@ -720,6 +771,11 @@ export default function Dashboard() {
                                     <span className="text-xs text-profit">
                                       ${tp.price.toFixed(4)}
                                     </span>
+                                    {!tp.hasOrder && (
+                                      <Badge variant="destructive" className="text-[10px] px-1 py-0 h-4 animate-pulse">
+                                        ⚠️ BRAK ZLECENIA
+                                      </Badge>
+                                    )}
                                   </div>
                                   <div className="flex items-center gap-2">
                                     <Badge variant="outline" className="text-[10px] px-1.5 py-0 h-4 bg-profit/10 text-profit border-profit/30">
