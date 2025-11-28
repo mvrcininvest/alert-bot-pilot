@@ -374,13 +374,14 @@ export default function Alerts() {
                               </DialogHeader>
                               <ScrollArea className="h-[60vh]">
                                 <Tabs defaultValue="market" className="w-full">
-                                  <TabsList className="grid w-full grid-cols-2">
-                                    <TabsTrigger value="market">Warunki Rynkowe</TabsTrigger>
-                                    <TabsTrigger value="error">
-                                      Błąd
-                                      {alert.error_message && <AlertCircle className="h-3 w-3 ml-1" />}
-                                    </TabsTrigger>
-                                  </TabsList>
+                <TabsList className="grid w-full grid-cols-3">
+                  <TabsTrigger value="market">Warunki Rynkowe</TabsTrigger>
+                  <TabsTrigger value="raw">Raw JSON</TabsTrigger>
+                  <TabsTrigger value="error">
+                    Błąd
+                    {alert.error_message && <AlertCircle className="h-3 w-3 ml-1" />}
+                  </TabsTrigger>
+                </TabsList>
                                 
                                 <TabsContent value="market" className="space-y-4 mt-4">
                                   {alert.raw_data && typeof alert.raw_data === 'object' && !Array.isArray(alert.raw_data) && (
