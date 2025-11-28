@@ -6,7 +6,11 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Alert, AlertDescription } from '@/components/ui/alert';
+import { CheckCircle2 } from 'lucide-react';
 import { z } from 'zod';
+import { supabase } from '@/integrations/supabase/client';
+import { useToast } from '@/hooks/use-toast';
 import logoAristoEdge from '@/assets/logo-aristoedge.png';
 
 const loginSchema = z.object({
@@ -25,8 +29,10 @@ const signupSchema = loginSchema.extend({
 export default function Auth() {
   const navigate = useNavigate();
   const { user, signIn, signUp } = useAuth();
+  const { toast } = useToast();
   const [loading, setLoading] = useState(false);
   const [errors, setErrors] = useState<Record<string, string>>({});
+  const [accountActivated, setAccountActivated] = useState(false);
 
   // Login form
   const [loginEmail, setLoginEmail] = useState('');
@@ -37,6 +43,55 @@ export default function Auth() {
   const [signupPassword, setSignupPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [displayName, setDisplayName] = useState('');
+
+  // Handle email confirmation from URL hash
+  useEffect(() => {
+    const handleEmailConfirmation = async () => {
+      const hashParams = new URLSearchParams(window.location.hash.substring(1));
+      const accessToken = hashParams.get('access_token');
+      const type = hashParams.get('type');
+      
+      if (accessToken && type === 'signup') {
+        try {
+          // Set the session with the token from URL
+          const { data, error } = await supabase.auth.setSession({
+            access_token: accessToken,
+            refresh_token: hashParams.get('refresh_token') || '',
+          });
+
+          if (error) throw error;
+
+          if (data.session) {
+            setAccountActivated(true);
+            toast({
+              title: "✅ Konto aktywowane!",
+              description: "Twoje konto zostało pomyślnie aktywowane. Możesz się teraz zalogować.",
+            });
+            
+            // Clear the hash from URL
+            window.history.replaceState(null, '', window.location.pathname);
+            
+            // Auto-navigate after 2 seconds
+            setTimeout(() => {
+              navigate('/');
+            }, 2000);
+          }
+        } catch (error) {
+          console.error('Error confirming email:', error);
+          toast({
+            title: "Błąd aktywacji",
+            description: "Nie udało się aktywować konta. Spróbuj zalogować się ponownie.",
+            variant: "destructive",
+          });
+          
+          // Clear the hash even on error
+          window.history.replaceState(null, '', window.location.pathname);
+        }
+      }
+    };
+
+    handleEmailConfirmation();
+  }, [navigate, toast]);
 
   // Redirect if already logged in
   useEffect(() => {
@@ -114,6 +169,19 @@ export default function Auth() {
           <h1 className="text-3xl font-bold text-gradient mb-2">AristoEdge Pro</h1>
           <p className="text-muted-foreground text-sm">Copy Trading Platform</p>
         </div>
+
+        {/* Account Activated Alert */}
+        {accountActivated && (
+          <Alert className="mb-4 border-profit/50 bg-profit/5 animate-fade-in">
+            <CheckCircle2 className="h-4 w-4 text-profit" />
+            <AlertDescription>
+              <p className="font-medium text-profit">Konto zostało pomyślnie aktywowane!</p>
+              <p className="text-sm text-muted-foreground mt-1">
+                Przekierowywanie do panelu...
+              </p>
+            </AlertDescription>
+          </Alert>
+        )}
 
         {/* Auth Card */}
         <Card className="backdrop-blur-lg bg-card/80 border-primary/20 shadow-2xl">
