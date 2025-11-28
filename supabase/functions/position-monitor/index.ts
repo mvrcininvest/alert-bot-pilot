@@ -131,7 +131,11 @@ async function executeVerifiedClose(
     const { data: closeResult } = await supabase.functions.invoke('bitget-api', {
       body: {
         action: 'close_position',
-        params: { symbol: position.symbol, side: holdSide, size: quantity.toString() },
+        params: { 
+          symbol: position.symbol, 
+          side: holdSide === 'long' ? 'close_long' : 'close_short',  // ✅ Explicit format
+          size: quantity.toString() 
+        },
         apiCredentials
       }
     });
@@ -171,7 +175,7 @@ async function executeVerifiedClose(
         action: 'place_order',
         params: {
           symbol: position.symbol,
-          side: holdSide,
+          side: holdSide === 'long' ? 'close_long' : 'close_short',  // ✅ Explicit format
           size: quantity.toString(),
           price: roundedLimitPrice,
           orderType: 'limit',

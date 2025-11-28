@@ -340,10 +340,14 @@ serve(async (req) => {
           tradeSide: 'close',
           posSide: closePosSide,
           orderType: 'market',
-          force: 'fok',  // Fill Or Kill - better for market close
+          force: 'ioc',  // ✅ CHANGED: Immediate or Cancel - allows partial fills, better for low liquidity
           reduceOnly: 'YES',
         });
-        console.log(`✅ close_position result:`, result);
+        
+        // Add execution flag to result
+        const closeWasExecuted = result?.orderId && result?.status !== 'cancelled';
+        console.log(`✅ close_position result: orderId=${result?.orderId}, status=${result?.status}, wasExecuted=${closeWasExecuted}`);
+        result = { ...result, wasExecuted: closeWasExecuted };
         break;
 
       case 'get_ticker':
