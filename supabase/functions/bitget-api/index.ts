@@ -308,7 +308,16 @@ serve(async (req) => {
         }
         
         result = await bitgetRequest(config, 'POST', '/api/v2/mix/order/close-positions', flashCloseBody);
-        console.log(`✅ flash_close_position result:`, result);
+        
+        // ✅ PART 1: Add wasExecuted flag to determine if close was actually successful
+        const wasExecuted = result?.result === true || 
+          (Array.isArray(result?.successList) && result.successList.length > 0 && 
+           (!result?.failureList || result.failureList.length === 0));
+        
+        console.log(`✅ flash_close_position: wasExecuted=${wasExecuted}, result=${JSON.stringify(result)}`);
+        
+        // Return enriched response with execution flag
+        result = { ...result, wasExecuted };
         break;
 
       case 'close_position':
