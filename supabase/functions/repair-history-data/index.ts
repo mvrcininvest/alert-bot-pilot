@@ -113,7 +113,25 @@ Deno.serve(async (req) => {
         needsUpdate = true;
       }
 
-      // 2. Enrich metadata with computed fields
+      // 2. Calculate and fix PnL if missing or zero
+      if (!position.realized_pnl || Number(position.realized_pnl) === 0) {
+        if (position.close_price && position.entry_price && position.quantity) {
+          const closePrice = Number(position.close_price);
+          const entryPrice = Number(position.entry_price);
+          const quantity = Number(position.quantity);
+          const isBuy = position.side === 'BUY';
+          
+          const priceDiff = isBuy 
+            ? closePrice - entryPrice 
+            : entryPrice - closePrice;
+          const calculatedPnl = priceDiff * quantity;
+          
+          positionUpdates.realized_pnl = calculatedPnl;
+          needsUpdate = true;
+        }
+      }
+
+      // 3. Enrich metadata with computed fields
       const metadata = position.metadata || {};
       const computed = metadata.computed || {};
       

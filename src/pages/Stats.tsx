@@ -169,7 +169,9 @@ export default function Stats() {
             is_test,
             tier,
             strength,
-            mode
+            mode,
+            raw_data,
+            atr
           )
         `)
         .eq("status", "closed")

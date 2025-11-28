@@ -42,6 +42,7 @@ export default function History() {
             strength,
             leverage,
             raw_data,
+            atr,
             error_message,
             created_at
           )
