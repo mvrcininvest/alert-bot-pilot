@@ -20,7 +20,7 @@ const navigation = [
   { name: "Statystyki", href: "/stats", icon: BarChart3 },
   { name: "Logi", href: "/logs", icon: FileText },
   { name: "Integracja", href: "/integration", icon: Webhook },
-  { name: "Ustawienia", href: "/settings", icon: Settings },
+  { name: "Moje Ustawienia", href: "/settings", icon: Settings },
   { name: "Profil", href: "/settings/profile", icon: User },
   { name: "Bezpieczeństwo", href: "/settings/security", icon: Shield },
   { name: "API Keys", href: "/settings/api-keys", icon: KeyRound },
@@ -28,6 +28,7 @@ const navigation = [
 
 const adminNavigation = [
   { name: "Panel Admina", href: "/admin", icon: Shield },
+  { name: "Globalne Ustawienia", href: "/admin/settings", icon: Settings },
 ];
 
 export function Layout({ children }: { children: React.ReactNode }) {
