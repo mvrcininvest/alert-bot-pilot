@@ -1984,32 +1984,70 @@ async function checkPositionFullVerification(supabase: any, position: any, setti
       );
       
       if (exchangePosition && parseFloat(exchangePosition.total) > 0) {
-        // Close entire remaining position at market
-        await supabase.functions.invoke('bitget-api', {
-          body: {
-            action: 'close_position',
-            params: {
-              symbol: position.symbol,
-              holdSide: position.side === 'BUY' ? 'long' : 'short',
-            },
-            apiCredentials
+        // Close entire remaining position at market with retry logic
+        let closeSuccess = false;
+        let lastError = null;
+        
+        for (let attempt = 1; attempt <= 3; attempt++) {
+          const { data: closeResult, error } = await supabase.functions.invoke('bitget-api', {
+            body: {
+              action: 'close_position',
+              params: {
+                symbol: position.symbol,
+                side: position.side === 'BUY' ? 'long' : 'short',
+                size: exchangePosition.total
+              },
+              apiCredentials
+            }
+          });
+          
+          if (closeResult?.success) {
+            closeSuccess = true;
+            break;
           }
-        });
+          
+          lastError = error || closeResult;
+          console.error(`❌ Emergency SL close attempt ${attempt}/3 failed:`, lastError);
+          
+          if (attempt < 3) {
+            await new Promise(resolve => setTimeout(resolve, 500));
+          }
+        }
         
-        // Mark position as closed
-        await markPositionAsClosed(supabase, position, 'sl_hit_delayed');
-        
-        await log({
-          functionName: 'position-monitor',
-          message: `🚨 Emergency close - SL already breached at ${currentPrice}`,
-          level: 'warn',
-          positionId: position.id,
-          metadata: { expected_sl: expected.sl_price, current_price: currentPrice }
-        });
-        
-        console.log(`✅ Emergency close executed - SL was already breached`);
-        actions.push(`Emergency close - SL already hit (price: ${currentPrice})`);
-        return;
+        if (closeSuccess) {
+          // Mark position as closed
+          await markPositionAsClosed(supabase, position, 'sl_hit_delayed');
+          
+          await log({
+            functionName: 'position-monitor',
+            message: `🚨 Emergency close - SL already breached at ${currentPrice}`,
+            level: 'warn',
+            positionId: position.id,
+            metadata: { expected_sl: expected.sl_price, current_price: currentPrice }
+          });
+          
+          console.log(`✅ Emergency close executed - SL was already breached`);
+          actions.push(`Emergency close - SL already hit (price: ${currentPrice})`);
+          return;
+        } else {
+          // CRITICAL: Failed to close position even after 3 attempts
+          await log({
+            functionName: 'position-monitor',
+            message: `🚨 CRITICAL: Failed to execute emergency SL close after 3 attempts`,
+            level: 'error',
+            positionId: position.id,
+            metadata: { 
+              expected_sl: expected.sl_price, 
+              current_price: currentPrice,
+              position_size: exchangePosition.total,
+              last_error: lastError
+            }
+          });
+          
+          console.error(`🚨 CRITICAL: Emergency SL close failed after 3 attempts - position remains open!`);
+          // Do NOT place SL order - let monitor retry in next cycle
+          return;
+        }
       }
     }
     
@@ -2066,50 +2104,84 @@ async function checkPositionFullVerification(supabase: any, position: any, setti
         // Round quantity to volumePlace precision
         const roundedQty = Math.floor(tpQty * Math.pow(10, volumePlace)) / Math.pow(10, volumePlace);
         
-        // Execute immediate market close for this TP quantity
-        const { data: closeResult } = await supabase.functions.invoke('bitget-api', {
-          body: {
-            action: 'close_position',
-            params: {
-              symbol: position.symbol,
-              holdSide: holdSide,
-              size: roundedQty.toString()
-            },
-            apiCredentials
-          }
-        });
+        // Execute immediate market close with retry logic
+        let closeSuccess = false;
+        let lastError = null;
         
-        if (closeResult?.success) {
-          // Mark this TP as filled
-          await supabase
-            .from('positions')
-            .update({ [tpFilledKey]: true })
-            .eq('id', position.id);
-          
-          await log({
-            functionName: 'position-monitor',
-            message: `✅ Immediate TP${i} close - price already past level`,
-            level: 'info',
-            positionId: position.id,
-            metadata: { 
-              current_price: currentPrice, 
-              tp_price: tpPrice, 
-              quantity: roundedQty 
+        for (let attempt = 1; attempt <= 3; attempt++) {
+          const { data: closeResult, error } = await supabase.functions.invoke('bitget-api', {
+            body: {
+              action: 'close_position',
+              params: {
+                symbol: position.symbol,
+                side: holdSide,
+                size: roundedQty.toString()
+              },
+              apiCredentials
             }
           });
           
-          console.log(`✅ Immediate partial close executed for TP${i} (price ${currentPrice} past ${tpPrice})`);
-          actions.push(`Immediate TP${i} close (price ${currentPrice} past ${tpPrice})`);
-          
-          // Check if SL should move to breakeven after this TP
-          if (settings.sl_to_breakeven && i >= (settings.breakeven_trigger_tp || 1)) {
-            await moveSlToBreakeven(supabase, position, apiCredentials, pricePlace);
+          if (closeResult?.success) {
+            closeSuccess = true;
+            
+            // Mark this TP as filled
+            await supabase
+              .from('positions')
+              .update({ [tpFilledKey]: true })
+              .eq('id', position.id);
+            
+            await log({
+              functionName: 'position-monitor',
+              message: `✅ Immediate TP${i} close - price already past level`,
+              level: 'info',
+              positionId: position.id,
+              metadata: { 
+                current_price: currentPrice, 
+                tp_price: tpPrice, 
+                quantity: roundedQty 
+              }
+            });
+            
+            console.log(`✅ Immediate partial close executed for TP${i} (price ${currentPrice} past ${tpPrice})`);
+            actions.push(`Immediate TP${i} close (price ${currentPrice} past ${tpPrice})`);
+            
+            // Check if SL should move to breakeven after this TP
+            if (settings.sl_to_breakeven && i >= (settings.breakeven_trigger_tp || 1)) {
+              await moveSlToBreakeven(supabase, position, apiCredentials, pricePlace);
+            }
+            
+            break;
           }
-        } else {
-          console.error(`❌ Failed immediate close for TP${i}:`, closeResult);
+          
+          lastError = error || closeResult;
+          console.error(`❌ Immediate TP${i} close attempt ${attempt}/3 failed:`, lastError);
+          
+          if (attempt < 3) {
+            await new Promise(resolve => setTimeout(resolve, 500));
+          }
         }
         
-        continue; // Skip placing the order since we closed immediately
+        if (closeSuccess) {
+          continue; // Skip placing order - close was successful
+        } else {
+          // CRITICAL: Failed to close even after 3 attempts
+          await log({
+            functionName: 'position-monitor',
+            message: `🚨 CRITICAL: Failed to execute immediate TP${i} close after 3 attempts`,
+            level: 'error',
+            positionId: position.id,
+            metadata: { 
+              current_price: currentPrice,
+              tp_price: tpPrice, 
+              quantity: roundedQty,
+              last_error: lastError
+            }
+          });
+          
+          console.error(`🚨 CRITICAL: Immediate TP${i} close failed after 3 attempts - NOT placing trigger order`);
+          // Do NOT place trigger order - let monitor retry in next cycle
+          continue;
+        }
       }
       
       // Normal TP order placement (price hasn't reached TP yet)
