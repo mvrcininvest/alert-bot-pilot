@@ -31,12 +31,10 @@ export default function ApiKeys() {
   });
 
   useEffect(() => {
-    if (!user) {
-      navigate("/auth");
-      return;
+    if (user) {
+      checkExistingKeys();
     }
-    checkExistingKeys();
-  }, [user, navigate]);
+  }, [user]);
 
   const checkExistingKeys = async () => {
     try {
