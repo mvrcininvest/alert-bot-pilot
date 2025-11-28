@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import { User, Session } from '@supabase/supabase-js';
 import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
@@ -9,6 +9,7 @@ export function useAuth() {
   const [isAdmin, setIsAdmin] = useState(false);
   const [loading, setLoading] = useState(true);
   const { toast } = useToast();
+  const isInitializing = useRef(true);
 
   useEffect(() => {
     // Set up auth state listener first
@@ -16,6 +17,13 @@ export function useAuth() {
       async (event, session) => {
         setSession(session);
         setUser(session?.user ?? null);
+        
+        // Set loading to false for auth state changes (except initial)
+        if (event === 'SIGNED_IN' || event === 'SIGNED_OUT' || event === 'TOKEN_REFRESHED') {
+          if (!isInitializing.current) {
+            setLoading(false);
+          }
+        }
         
         // Check if user is admin (deferred to avoid blocking)
         if (session?.user) {
@@ -51,9 +59,11 @@ export function useAuth() {
           .then(({ data }) => {
             setIsAdmin(!!data);
             setLoading(false);
+            isInitializing.current = false;
           });
       } else {
         setLoading(false);
+        isInitializing.current = false;
       }
     });
 

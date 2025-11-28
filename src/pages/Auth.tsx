@@ -33,6 +33,7 @@ export default function Auth() {
   const [loading, setLoading] = useState(false);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [accountActivated, setAccountActivated] = useState(false);
+  const [isRedirecting, setIsRedirecting] = useState(false);
 
   // Login form
   const [loginEmail, setLoginEmail] = useState('');
@@ -52,6 +53,7 @@ export default function Auth() {
       const type = hashParams.get('type');
       
       if (accessToken && type === 'signup') {
+        setIsRedirecting(true);
         try {
           // Set the session with the token from URL
           const { data, error } = await supabase.auth.setSession({
@@ -71,13 +73,14 @@ export default function Auth() {
             // Clear the hash from URL
             window.history.replaceState(null, '', window.location.pathname);
             
-            // Auto-navigate after 2 seconds
+            // Auto-navigate after 1.5 seconds
             setTimeout(() => {
-              navigate('/');
-            }, 2000);
+              navigate('/', { replace: true });
+            }, 1500);
           }
         } catch (error) {
           console.error('Error confirming email:', error);
+          setIsRedirecting(false);
           toast({
             title: "Błąd aktywacji",
             description: "Nie udało się aktywować konta. Spróbuj zalogować się ponownie.",
@@ -95,10 +98,11 @@ export default function Auth() {
 
   // Redirect if already logged in
   useEffect(() => {
-    if (user) {
-      navigate('/');
+    // Don't redirect if we're in the middle of another redirect or activation
+    if (user && !isRedirecting && !accountActivated) {
+      navigate('/', { replace: true });
     }
-  }, [user, navigate]);
+  }, [user, navigate, isRedirecting, accountActivated]);
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
