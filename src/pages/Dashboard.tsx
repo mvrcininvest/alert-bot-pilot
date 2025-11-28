@@ -602,50 +602,25 @@ export default function Dashboard() {
                             onClick={async () => {
                               if (!confirm(`Zamknąć pozycję ${pos.symbol}?`)) return;
                               try {
-                                // 1. Close position on exchange
-                                const closeSide = pos.side === 'BUY' ? 'close_long' : 'close_short';
-                                const { data, error } = await supabase.functions.invoke('bitget-api', {
+                                // Use dedicated close-position edge function
+                                const { data, error } = await supabase.functions.invoke('close-position', {
                                   body: {
-                                    action: 'place_order',
-                                    params: {
-                                      symbol: pos.symbol,
-                                      size: pos.quantity.toString(),
-                                      side: closeSide,
-                                    }
+                                    position_id: pos.id,
+                                    reason: 'manual_dashboard'
                                   }
                                 });
                                 
                                 if (error || !data?.success) {
-                                  throw new Error('Nie udało się zamknąć pozycji na giełdzie');
+                                  throw new Error(data?.error || 'Nie udało się zamknąć pozycji na giełdzie');
                                 }
                                 
-                                console.log('Position closed on exchange, updating database...');
+                                console.log('Position closed successfully:', data);
                                 
-                                // 2. Update database
-                                const updateResult = await supabase
-                                  .from('positions')
-                                  .update({
-                                    status: 'closed',
-                                    close_reason: 'Manual close from dashboard',
-                                    closed_at: new Date().toISOString(),
-                                    close_price: Number(pos.current_price),
-                                    realized_pnl: Number(pos.unrealized_pnl)
-                                  })
-                                  .eq('id', pos.id)
-                                  .select();
-                                
-                                if (updateResult.error) {
-                                  console.error('Database update error:', updateResult.error);
-                                  throw new Error('Nie udało się zaktualizować pozycji w bazie');
-                                }
-                                
-                                console.log('Database updated:', updateResult.data);
-                                
-                                // 3. Aggressively clear cache and refetch
+                                // Clear cache and refetch
                                 queryClient.removeQueries({ queryKey: ["open-positions"] });
                                 queryClient.removeQueries({ queryKey: ["live-data"] });
                                 
-                                // Wait a bit for database to propagate
+                                // Wait for database to propagate
                                 await new Promise(resolve => setTimeout(resolve, 500));
                                 
                                 // Force refetch
