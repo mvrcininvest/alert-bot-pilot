@@ -40,11 +40,20 @@ export function Layout({ children }: { children: React.ReactNode }) {
   const [hasApiKeys, setHasApiKeys] = useState(false);
   const hasCheckedOnce = useRef(false);
   const isCheckingRef = useRef(false);
+  const hasRedirectedToAuth = useRef(false);
 
   // Redirect to auth if not logged in
   useEffect(() => {
-    if (!loading && !user) {
-      navigate('/auth');
+    // Reset redirect flag when user appears
+    if (user) {
+      hasRedirectedToAuth.current = false;
+      return;
+    }
+    
+    // Redirect only once when user is truly not logged in
+    if (!loading && !user && !hasRedirectedToAuth.current) {
+      hasRedirectedToAuth.current = true;
+      navigate('/auth', { replace: true });
     }
   }, [loading, user, navigate]);
 
@@ -84,7 +93,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
             description: profile.ban_reason || "Twoje konto zostało zablokowane. Skontaktuj się z administratorem.",
             variant: "destructive",
           });
-          navigate('/auth');
+          navigate('/auth', { replace: true });
           return;
         }
 
@@ -134,7 +143,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
     
     if (!loading && !checkingApiKeys && user && !hasApiKeys && !allowedPaths.includes(location.pathname)) {
       // Redirect to normal API keys setup page
-      navigate('/settings/api-keys');
+      navigate('/settings/api-keys', { replace: true });
     }
   }, [user, loading, checkingApiKeys, hasApiKeys, navigate, location.pathname]);
 
@@ -165,7 +174,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
 
   const handleLogout = async () => {
     await signOut();
-    navigate('/auth');
+    navigate('/auth', { replace: true });
   };
 
   if (loading || checkingApiKeys) {
