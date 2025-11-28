@@ -1220,9 +1220,140 @@ async function recoverOrphanPosition(
   }
 }
 
+// Helper function to determine close reason from price
+function determineCloseReasonFromPrice(position: any, closePrice: number): string {
+  const ep = Number(position.entry_price);
+  const sl = Number(position.sl_price);
+  const tp1 = position.tp1_price ? Number(position.tp1_price) : null;
+  const tp2 = position.tp2_price ? Number(position.tp2_price) : null;
+  const tp3 = position.tp3_price ? Number(position.tp3_price) : null;
+  const isBuy = position.side === 'BUY';
+  const tolerance = 0.005; // 0.5%
+  
+  console.log(`🔍 Determining close reason: price=${closePrice}, EP=${ep}, SL=${sl}, TP1=${tp1}, TP2=${tp2}, TP3=${tp3}`);
+  
+  // Check filled flags first
+  if (position.tp3_filled) return 'tp3_hit';
+  if (position.tp2_filled) return 'tp2_hit';
+  if (position.tp1_filled) return 'tp1_hit';
+  
+  // Determine from price comparison
+  if (isBuy) {
+    if (sl && closePrice <= sl * (1 + tolerance)) {
+      console.log(`📉 Determined: SL hit (price ${closePrice} <= SL ${sl})`);
+      return 'sl_hit';
+    }
+    if (tp3 && closePrice >= tp3 * (1 - tolerance)) {
+      console.log(`📈 Determined: TP3 hit (price ${closePrice} >= TP3 ${tp3})`);
+      return 'tp3_hit';
+    }
+    if (tp2 && closePrice >= tp2 * (1 - tolerance)) {
+      console.log(`📈 Determined: TP2 hit (price ${closePrice} >= TP2 ${tp2})`);
+      return 'tp2_hit';
+    }
+    if (tp1 && closePrice >= tp1 * (1 - tolerance)) {
+      console.log(`📈 Determined: TP1 hit (price ${closePrice} >= TP1 ${tp1})`);
+      return 'tp1_hit';
+    }
+    return closePrice > ep ? 'manual_profit' : 'manual_loss';
+  } else {
+    if (sl && closePrice >= sl * (1 - tolerance)) {
+      console.log(`📉 Determined: SL hit (price ${closePrice} >= SL ${sl})`);
+      return 'sl_hit';
+    }
+    if (tp3 && closePrice <= tp3 * (1 + tolerance)) {
+      console.log(`📈 Determined: TP3 hit (price ${closePrice} <= TP3 ${tp3})`);
+      return 'tp3_hit';
+    }
+    if (tp2 && closePrice <= tp2 * (1 + tolerance)) {
+      console.log(`📈 Determined: TP2 hit (price ${closePrice} <= TP2 ${tp2})`);
+      return 'tp2_hit';
+    }
+    if (tp1 && closePrice <= tp1 * (1 + tolerance)) {
+      console.log(`📈 Determined: TP1 hit (price ${closePrice} <= TP1 ${tp1})`);
+      return 'tp1_hit';
+    }
+    return closePrice < ep ? 'manual_profit' : 'manual_loss';
+  }
+}
+
 // Helper function to mark position as closed in DB
 async function markPositionAsClosed(supabase: any, position: any, reason: string) {
   console.log(`⚠️ Marking position ${position.symbol} as closed in DB: ${reason}`);
+  
+  // Determine actual close reason and price if "not_found_on_exchange"
+  let actualReason = reason;
+  let actualClosePrice = position.current_price || position.entry_price;
+  let actualPnL = position.unrealized_pnl || 0;
+  
+  if (reason === 'not_found_on_exchange') {
+    const userKeys = await getUserApiKeys(position.user_id);
+    if (userKeys) {
+      const apiCredentials = {
+        apiKey: userKeys.apiKey,
+        secretKey: userKeys.secretKey,
+        passphrase: userKeys.passphrase
+      };
+      
+      try {
+        // Fetch fill history from Bitget
+        const endTime = Date.now().toString();
+        const startTime = (new Date(position.created_at).getTime()).toString();
+        
+        console.log(`📊 Fetching fill history for ${position.symbol} from ${new Date(Number(startTime)).toISOString()}`);
+        
+        const { data: fillsResult } = await supabase.functions.invoke('bitget-api', {
+          body: {
+            action: 'get_history_positions',
+            params: { 
+              symbol: position.symbol,
+              startTime,
+              endTime,
+              limit: '100'
+            },
+            apiCredentials
+          }
+        });
+        
+        if (fillsResult?.success && fillsResult.data?.length > 0) {
+          console.log(`✅ Found ${fillsResult.data.length} fills from exchange`);
+          
+          // Filter fills that happened after position was opened
+          const posOpenTime = new Date(position.created_at).getTime();
+          const recentFills = fillsResult.data.filter((f: any) => {
+            const fillTime = Number(f.cTime);
+            return fillTime > posOpenTime;
+          });
+          
+          if (recentFills.length > 0) {
+            // Calculate weighted average close price from fills
+            const totalQty = recentFills.reduce((sum: number, f: any) => sum + parseFloat(f.size || '0'), 0);
+            const totalValue = recentFills.reduce((sum: number, f: any) => 
+              sum + (parseFloat(f.size || '0') * parseFloat(f.price || '0')), 0);
+            
+            if (totalQty > 0) {
+              actualClosePrice = totalValue / totalQty;
+              console.log(`✅ Calculated close price from fills: ${actualClosePrice} (from ${recentFills.length} fills)`);
+            }
+          }
+        }
+        
+        // Determine actual close reason from price
+        actualReason = determineCloseReasonFromPrice(position, actualClosePrice);
+        
+        // Calculate actual PnL
+        const priceDiff = position.side === 'BUY'
+          ? actualClosePrice - Number(position.entry_price)
+          : Number(position.entry_price) - actualClosePrice;
+        actualPnL = priceDiff * Number(position.quantity);
+        
+        console.log(`✅ Determined: reason=${actualReason}, closePrice=${actualClosePrice}, PnL=${actualPnL}`);
+      } catch (error) {
+        console.error(`❌ Error fetching fills:`, error);
+        // Fall back to original reason if fetch fails
+      }
+    }
+  }
   
   // Get user API keys to cancel remaining orders
   const userKeys = await getUserApiKeys(position.user_id);
@@ -1277,15 +1408,15 @@ async function markPositionAsClosed(supabase: any, position: any, reason: string
     }
   }
   
-  // Then update position in DB
+  // Update position in DB with actual values
   const { error: updateError } = await supabase
     .from('positions')
     .update({
       status: 'closed',
-      close_reason: reason,
+      close_reason: actualReason,
       closed_at: new Date().toISOString(),
-      close_price: position.current_price || position.entry_price,
-      realized_pnl: position.unrealized_pnl || 0
+      close_price: actualClosePrice,
+      realized_pnl: actualPnL
     })
     .eq('id', position.id)
     .eq('user_id', position.user_id);
@@ -1299,10 +1430,10 @@ async function markPositionAsClosed(supabase: any, position: any, reason: string
   
   await log({
     functionName: 'position-monitor',
-    message: `Position marked as closed: ${reason}`,
+    message: `Position marked as closed: ${actualReason}`,
     level: 'warn',
     positionId: position.id,
-    metadata: { symbol: position.symbol, reason }
+    metadata: { symbol: position.symbol, reason: actualReason, closePrice: actualClosePrice, pnl: actualPnL }
   });
 }
 
