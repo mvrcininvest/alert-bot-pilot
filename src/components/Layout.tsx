@@ -9,7 +9,7 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/useAuth";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useLocation } from "react-router-dom";
 import { useEffect, useState, useRef } from "react";
 
 const navigation = [
@@ -35,9 +35,18 @@ export function Layout({ children }: { children: React.ReactNode }) {
   const queryClient = useQueryClient();
   const { user, loading, isAdmin, signOut } = useAuth();
   const navigate = useNavigate();
+  const location = useLocation();
   const [checkingApiKeys, setCheckingApiKeys] = useState(true);
   const [hasApiKeys, setHasApiKeys] = useState(false);
   const hasCheckedOnce = useRef(false);
+  const isCheckingRef = useRef(false);
+
+  // Redirect to auth if not logged in
+  useEffect(() => {
+    if (!loading && !user) {
+      navigate('/auth');
+    }
+  }, [loading, user, navigate]);
 
   // Check if user has API keys
   useEffect(() => {
@@ -46,11 +55,18 @@ export function Layout({ children }: { children: React.ReactNode }) {
       return;
     }
 
+    // Prevent concurrent checks
+    if (isCheckingRef.current) {
+      return;
+    }
+
     // Only check once per session
     if (hasCheckedOnce.current) {
       setCheckingApiKeys(false);
       return;
     }
+
+    isCheckingRef.current = true;
 
     const checkApiKeys = async () => {
       try {
@@ -90,11 +106,12 @@ export function Layout({ children }: { children: React.ReactNode }) {
         hasCheckedOnce.current = true;
       } finally {
         setCheckingApiKeys(false);
+        isCheckingRef.current = false;
       }
     };
 
     checkApiKeys();
-  }, [user]);
+  }, [user, navigate, signOut, toast]);
 
   // Check if user is online (seen in last 2 minutes)
   useEffect(() => {
@@ -113,14 +130,13 @@ export function Layout({ children }: { children: React.ReactNode }) {
 
   // Redirect to API keys setup if user doesn't have keys
   useEffect(() => {
-    const currentPath = window.location.pathname;
     const allowedPaths = ['/settings/api-keys', '/migrate-api-keys', '/auth'];
     
-    if (!loading && !checkingApiKeys && user && !hasApiKeys && !allowedPaths.includes(currentPath)) {
+    if (!loading && !checkingApiKeys && user && !hasApiKeys && !allowedPaths.includes(location.pathname)) {
       // Redirect to normal API keys setup page
       navigate('/settings/api-keys');
     }
-  }, [user, loading, checkingApiKeys, hasApiKeys, navigate]);
+  }, [user, loading, checkingApiKeys, hasApiKeys, navigate, location.pathname]);
 
   const emergencyShutdownMutation = useMutation({
     mutationFn: async () => {
@@ -161,8 +177,6 @@ export function Layout({ children }: { children: React.ReactNode }) {
   }
 
   if (!user) {
-    // Redirect to auth page when not logged in
-    navigate('/auth');
     return (
       <div className="min-h-screen flex items-center justify-center bg-background">
         <div className="animate-pulse text-muted-foreground">Przekierowywanie...</div>
@@ -179,7 +193,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
     .slice(0, 2);
 
   // Show simplified layout for users without API keys on setup/migration pages
-  const isOnSetupPage = ['/settings/api-keys', '/migrate-api-keys'].includes(window.location.pathname);
+  const isOnSetupPage = ['/settings/api-keys', '/migrate-api-keys'].includes(location.pathname);
   const showSimplifiedLayout = !hasApiKeys && isOnSetupPage;
 
   return (
