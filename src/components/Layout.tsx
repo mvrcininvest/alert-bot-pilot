@@ -12,7 +12,7 @@ import { useAuth } from "@/hooks/useAuth";
 import { useNavigate, useLocation } from "react-router-dom";
 import { useEffect, useState, useRef } from "react";
 
-const navigation = [
+const baseNavigation = [
   { name: "Dashboard", href: "/", icon: Home },
   { name: "Alerty", href: "/alerts", icon: AlertCircle },
   { name: "Diagnostyka", href: "/diagnostics", icon: AlertCircle },
@@ -20,7 +20,6 @@ const navigation = [
   { name: "Statystyki", href: "/stats", icon: BarChart3 },
   { name: "Logi", href: "/logs", icon: FileText },
   { name: "Integracja", href: "/integration", icon: Webhook },
-  { name: "Moje Ustawienia", href: "/settings", icon: Settings },
   { name: "Profil", href: "/settings/profile", icon: User },
   { name: "Bezpieczeństwo", href: "/settings/security", icon: Shield },
   { name: "API Keys", href: "/settings/api-keys", icon: KeyRound },
@@ -205,6 +204,13 @@ export function Layout({ children }: { children: React.ReactNode }) {
   // Show simplified layout for users without API keys on setup/migration pages
   const isOnSetupPage = ['/settings/api-keys', '/migrate-api-keys'].includes(location.pathname);
   const showSimplifiedLayout = !hasApiKeys && isOnSetupPage;
+
+  // Build navigation based on user role
+  const navigation = [
+    ...baseNavigation,
+    // Admin sees "Globalne Ustawienia" in admin section, regular users see "Moje Ustawienia"
+    ...(!isAdmin ? [{ name: "Moje Ustawienia", href: "/settings", icon: Settings }] : [])
+  ];
 
   return (
     <div className="min-h-screen">
