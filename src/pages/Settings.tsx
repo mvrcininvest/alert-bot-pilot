@@ -1040,6 +1040,9 @@ export default function Settings() {
                       tp2RrRatio={localSettings.tp2_rr_ratio ?? 2.5}
                       tp3RrRatio={localSettings.tp3_rr_ratio ?? 3.5}
                       tpLevels={localSettings.tp_levels ?? 1}
+                      tp1ClosePct={localSettings.tp1_close_percent ?? 100}
+                      tp2ClosePct={localSettings.tp2_close_percent ?? 0}
+                      tp3ClosePct={localSettings.tp3_close_percent ?? 0}
                       accountBalance={accountBalance}
                       onMarginChange={(value) => updateLocal("max_margin_per_trade", value)}
                       onLeverageChange={(value) => updateLocal("default_leverage", value)}
@@ -1047,6 +1050,10 @@ export default function Settings() {
                       onTP1RRChange={(value) => updateLocal("tp1_rr_ratio", value)}
                       onTP2RRChange={(value) => updateLocal("tp2_rr_ratio", value)}
                       onTP3RRChange={(value) => updateLocal("tp3_rr_ratio", value)}
+                      onTPLevelsChange={(value) => updateLocal("tp_levels", value)}
+                      onTP1ClosePctChange={(value) => updateLocal("tp1_close_percent", value)}
+                      onTP2ClosePctChange={(value) => updateLocal("tp2_close_percent", value)}
+                      onTP3ClosePctChange={(value) => updateLocal("tp3_close_percent", value)}
               onAccountBalanceChange={setAccountBalance}
               onFetchBalance={fetchAccountBalance}
               isFetchingBalance={isFetchingBalance}

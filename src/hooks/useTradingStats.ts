@@ -37,6 +37,30 @@ export interface TradingStats {
     avg_pnl: number;
     total_pnl: number;
   }>;
+  // R:R Analysis
+  bestTP1RR: number;
+  bestTP1RRWinRate: number;
+  rrStats: Array<{
+    tp1_rr_bucket: number;
+    count: number;
+    win_rate: number;
+    avg_pnl: number;
+    total_pnl: number;
+  }>;
+  // TP Distribution Analysis
+  optimalTPLevels: number;
+  optimalTP1ClosePct: number;
+  optimalTP2ClosePct: number;
+  tpDistributionStats: Array<{
+    close_reason: string;
+    count: number;
+    win_rate: number;
+    avg_pnl: number;
+    avg_tp1_close_pct: number;
+    tp_levels_used: number;
+  }>;
+  // Derived
+  recommendedSLPercent: number;
 }
 
 export function useTradingStats() {
@@ -60,6 +84,18 @@ export function useTradingStats() {
         .rpc('get_leverage_stats');
       
       if (leverageError) throw leverageError;
+
+      // Fetch R:R statistics
+      const { data: rrStats, error: rrError } = await supabase
+        .rpc('get_rr_stats');
+      
+      if (rrError) throw rrError;
+
+      // Fetch TP distribution statistics
+      const { data: tpDistributionStats, error: tpDistError } = await supabase
+        .rpc('get_tp_distribution_stats');
+      
+      if (tpDistError) throw tpDistError;
 
       // Calculate aggregates
       const totalTrades = marginStats?.reduce((sum: number, m: any) => sum + Number(m.count), 0) || 0;
@@ -93,6 +129,22 @@ export function useTradingStats() {
         Number(curr.win_rate) > Number(best.win_rate) ? curr : best
       , leverageStats?.[0]);
 
+      // Find best R:R
+      const bestRR = rrStats?.reduce((best: any, curr: any) => 
+        Number(curr.win_rate) > Number(best.win_rate) ? curr : best
+      , rrStats?.[0]);
+
+      // Find optimal TP levels and close percentages
+      const tpLevelAnalysis = tpDistributionStats?.find((stat: any) => stat.close_reason === 'TP1') || tpDistributionStats?.[0];
+      const optimalTPLevels = tpLevelAnalysis?.tp_levels_used || 1;
+      const optimalTP1ClosePct = optimalTPLevels === 1 ? 100 : (optimalTPLevels === 2 ? 50 : 33.33);
+      const optimalTP2ClosePct = optimalTPLevels === 2 ? 50 : (optimalTPLevels === 3 ? 33.33 : 0);
+
+      // Calculate recommended SL percent (average from data)
+      const avgSLPercent = marginStats?.reduce((sum: number, m: any) => {
+        return sum + (Number(m.avg_pnl) < 0 ? 1.0 : 0.5);
+      }, 0) / (marginStats?.length || 1) || 1.0;
+
       return {
         totalTrades,
         winRate: Number(winRate.toFixed(1)),
@@ -111,6 +163,17 @@ export function useTradingStats() {
         marginBucketStats: marginStats || [],
         tierStats: tierStats || [],
         leverageStats: leverageStats || [],
+        // R:R Analysis
+        bestTP1RR: Number(bestRR?.tp1_rr_bucket) || 1.5,
+        bestTP1RRWinRate: Number(bestRR?.win_rate) || 0,
+        rrStats: rrStats || [],
+        // TP Distribution
+        optimalTPLevels: optimalTPLevels,
+        optimalTP1ClosePct: optimalTP1ClosePct,
+        optimalTP2ClosePct: optimalTP2ClosePct,
+        tpDistributionStats: tpDistributionStats || [],
+        // Derived
+        recommendedSLPercent: Number(avgSLPercent.toFixed(2)),
       };
     },
     staleTime: 2 * 60 * 1000, // Cache for 2 minutes

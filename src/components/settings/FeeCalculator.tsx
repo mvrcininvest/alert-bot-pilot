@@ -20,6 +20,9 @@ interface FeeCalculatorProps {
   tp2RrRatio: number;
   tp3RrRatio: number;
   tpLevels: number;
+  tp1ClosePct?: number;
+  tp2ClosePct?: number;
+  tp3ClosePct?: number;
   
   // Callbacks
   onMarginChange: (value: number) => void;
@@ -28,6 +31,10 @@ interface FeeCalculatorProps {
   onTP1RRChange: (value: number) => void;
   onTP2RRChange: (value: number) => void;
   onTP3RRChange: (value: number) => void;
+  onTPLevelsChange?: (value: number) => void;
+  onTP1ClosePctChange?: (value: number) => void;
+  onTP2ClosePctChange?: (value: number) => void;
+  onTP3ClosePctChange?: (value: number) => void;
   
   // Account balance
   accountBalance: number;
@@ -91,12 +98,19 @@ export function FeeCalculator({
   tp2RrRatio,
   tp3RrRatio,
   tpLevels,
+  tp1ClosePct,
+  tp2ClosePct,
+  tp3ClosePct,
   onMarginChange,
   onLeverageChange,
   onMaxLossChange,
   onTP1RRChange,
   onTP2RRChange,
   onTP3RRChange,
+  onTPLevelsChange,
+  onTP1ClosePctChange,
+  onTP2ClosePctChange,
+  onTP3ClosePctChange,
   accountBalance,
   onAccountBalanceChange,
   onFetchBalance,
@@ -257,6 +271,13 @@ export function FeeCalculator({
           leverage: 50,
           maxLoss: Math.min(balance * 0.002, 0.2),
           tp1RR: 2.0,
+          tp2RR: 3.0,
+          tp3RR: 4.0,
+          tpLevels: 1,
+          tp1ClosePct: 100,
+          tp2ClosePct: 0,
+          tp3ClosePct: 0,
+          calculatedSLPercent: ((Math.min(balance * 0.002, 0.2) / (Math.min(balance * 0.005, 0.5) * 50)) * 100).toFixed(2),
           expectedWinRate: 50,
           reasoning: "Brak wystarczających danych - używam konserwatywnego podejścia",
         },
@@ -268,11 +289,24 @@ export function FeeCalculator({
           leverage: 100,
           maxLoss: settings?.maxLossPerTrade || 0.25,
           tp1RR: 1.0,
+          tp2RR: 1.5,
+          tp3RR: 2.0,
+          tpLevels: 1,
+          tp1ClosePct: 100,
+          tp2ClosePct: 0,
+          tp3ClosePct: 0,
+          calculatedSLPercent: (((settings?.maxLossPerTrade || 0.25) / (Math.min(balance * 0.01, 1) * 100)) * 100).toFixed(2),
           expectedWinRate: 50,
-          reasoning: "Scalping wymaga wysokiego leverage i małych SL",
+          reasoning: "Scalping - full close na TP1, R:R 1.0 dla szybkich profitów",
         },
       };
     }
+
+    // With enough data, use actual statistics
+    const bestTP1RR = stats.bestTP1RR || 1.5;
+    const optimalTPLevels = stats.optimalTPLevels || 1;
+    const optimalTP1ClosePct = stats.optimalTP1ClosePct || 100;
+    const optimalTP2ClosePct = stats.optimalTP2ClosePct || 0;
 
     return {
       dataOptimized: {
@@ -282,9 +316,16 @@ export function FeeCalculator({
         margin: 0.8, // < 1 USDT = best win rate
         leverage: stats.bestLeverage || 75,
         maxLoss: settings?.maxLossPerTrade || 0.25,
-        tp1RR: 1.5,
+        tp1RR: bestTP1RR,
+        tp2RR: bestTP1RR * 1.5,
+        tp3RR: bestTP1RR * 2,
+        tpLevels: optimalTPLevels,
+        tp1ClosePct: optimalTP1ClosePct,
+        tp2ClosePct: optimalTP2ClosePct,
+        tp3ClosePct: 100 - optimalTP1ClosePct - optimalTP2ClosePct,
+        calculatedSLPercent: (((settings?.maxLossPerTrade || 0.25) / (0.8 * (stats.bestLeverage || 75))) * 100).toFixed(2),
         expectedWinRate: stats.bestMarginWinRate,
-        reasoning: `Twoje dane pokazują, że margin ${stats.bestMarginBucket} ma ${stats.bestMarginWinRate.toFixed(1)}% win rate`,
+        reasoning: `R:R ${bestTP1RR.toFixed(1)} = ${stats.bestTP1RRWinRate.toFixed(0)}% win rate w Twoich danych. ${optimalTPLevels === 1 ? 'Full close' : `${optimalTPLevels} TP levels`} działa najlepiej.`,
       },
       conservative: {
         icon: Shield,
@@ -294,8 +335,15 @@ export function FeeCalculator({
         leverage: 50,
         maxLoss: Math.min(balance * 0.002, 0.2),
         tp1RR: 2.0,
+        tp2RR: 3.0,
+        tp3RR: 4.0,
+        tpLevels: 1,
+        tp1ClosePct: 100,
+        tp2ClosePct: 0,
+        tp3ClosePct: 0,
+        calculatedSLPercent: ((Math.min(balance * 0.002, 0.2) / (Math.min(balance * 0.005, 0.5) * 50)) * 100).toFixed(2),
         expectedWinRate: Math.min(stats.winRate * 1.1, 100),
-        reasoning: "Ultra-bezpieczny dla małych kont",
+        reasoning: "Ultra-bezpieczny dla małych kont. Wyższe R:R, full close dla pewności.",
       },
       scalping: {
         icon: Zap,
@@ -304,9 +352,16 @@ export function FeeCalculator({
         margin: Math.min(balance * 0.01, 1),
         leverage: 100,
         maxLoss: settings?.maxLossPerTrade || 0.25,
-        tp1RR: 1.0,
-        expectedWinRate: 50,
-        reasoning: "Scalping wymaga wysokiego leverage i małych SL",
+        tp1RR: bestTP1RR,
+        tp2RR: bestTP1RR * 1.3,
+        tp3RR: bestTP1RR * 1.6,
+        tpLevels: 1,
+        tp1ClosePct: 100,
+        tp2ClosePct: 0,
+        tp3ClosePct: 0,
+        calculatedSLPercent: (((settings?.maxLossPerTrade || 0.25) / (Math.min(balance * 0.01, 1) * 100)) * 100).toFixed(2),
+        expectedWinRate: stats.bestTP1RRWinRate || 50,
+        reasoning: `Scalping z R:R ${bestTP1RR.toFixed(1)} (${stats.bestTP1RRWinRate.toFixed(0)}% win rate). Full close dla maksymalnej efektywności.`,
       },
       tierOptimized: {
         icon: Target,
@@ -315,9 +370,16 @@ export function FeeCalculator({
         margin: 0.8,
         leverage: stats.bestLeverage || 75,
         maxLoss: settings?.maxLossPerTrade || 0.25,
-        tp1RR: 1.5,
+        tp1RR: bestTP1RR,
+        tp2RR: bestTP1RR * 1.5,
+        tp3RR: bestTP1RR * 2,
+        tpLevels: optimalTPLevels,
+        tp1ClosePct: optimalTP1ClosePct,
+        tp2ClosePct: optimalTP2ClosePct,
+        tp3ClosePct: 100 - optimalTP1ClosePct - optimalTP2ClosePct,
+        calculatedSLPercent: (((settings?.maxLossPerTrade || 0.25) / (0.8 * (stats.bestLeverage || 75))) * 100).toFixed(2),
         expectedWinRate: stats.bestTierWinRate,
-        reasoning: `Tier "${stats.bestTier}" generuje najlepsze wyniki (+${stats.bestTierTotalPnl.toFixed(2)} USDT total)`,
+        reasoning: `Tier "${stats.bestTier}" generuje najlepsze wyniki (+${stats.bestTierTotalPnl.toFixed(2)} USDT total). Używa ${optimalTPLevels} TP.`,
       },
     };
   };
@@ -329,6 +391,12 @@ export function FeeCalculator({
     onLeverageChange(preset.leverage);
     onMaxLossChange(preset.maxLoss);
     onTP1RRChange(preset.tp1RR);
+    if (preset.tp2RR) onTP2RRChange(preset.tp2RR);
+    if (preset.tp3RR) onTP3RRChange(preset.tp3RR);
+    if (preset.tpLevels && onTPLevelsChange) onTPLevelsChange(preset.tpLevels);
+    if (preset.tp1ClosePct !== undefined && onTP1ClosePctChange) onTP1ClosePctChange(preset.tp1ClosePct);
+    if (preset.tp2ClosePct !== undefined && onTP2ClosePctChange) onTP2ClosePctChange(preset.tp2ClosePct);
+    if (preset.tp3ClosePct !== undefined && onTP3ClosePctChange) onTP3ClosePctChange(preset.tp3ClosePct);
   };
 
   return (
@@ -482,22 +550,55 @@ export function FeeCalculator({
                     </Button>
                   </div>
                   
-                  <div className="grid grid-cols-4 gap-3 text-sm mb-2">
-                    <div>
-                      <div className="text-xs text-muted-foreground">Margin</div>
-                      <div className="font-semibold">{preset.margin.toFixed(2)} USDT</div>
+                  <div className="grid grid-cols-2 gap-3 text-sm mb-3">
+                    <div className="p-2 bg-muted/30 rounded">
+                      <div className="text-xs text-muted-foreground mb-1">💰 Money Management</div>
+                      <div className="space-y-1">
+                        <div className="flex justify-between">
+                          <span className="text-muted-foreground">Margin:</span>
+                          <span className="font-semibold">{preset.margin.toFixed(2)} USDT</span>
+                        </div>
+                        <div className="flex justify-between">
+                          <span className="text-muted-foreground">Leverage:</span>
+                          <span className="font-semibold">{preset.leverage}x</span>
+                        </div>
+                        <div className="flex justify-between">
+                          <span className="text-muted-foreground">Max Loss:</span>
+                          <span className="font-semibold">{preset.maxLoss.toFixed(2)} USDT</span>
+                        </div>
+                        <div className="flex justify-between">
+                          <span className="text-muted-foreground">% kapitału:</span>
+                          <span className="font-semibold">{capitalUsed}%</span>
+                        </div>
+                      </div>
                     </div>
-                    <div>
-                      <div className="text-xs text-muted-foreground">Leverage</div>
-                      <div className="font-semibold">{preset.leverage}x</div>
-                    </div>
-                    <div>
-                      <div className="text-xs text-muted-foreground">Max Loss</div>
-                      <div className="font-semibold">{preset.maxLoss.toFixed(2)} USDT</div>
-                    </div>
-                    <div>
-                      <div className="text-xs text-muted-foreground">% kapitału</div>
-                      <div className="font-semibold">{capitalUsed}%</div>
+                    
+                    <div className="p-2 bg-muted/30 rounded">
+                      <div className="text-xs text-muted-foreground mb-1">🎯 TP Configuration</div>
+                      <div className="space-y-1">
+                        <div className="flex justify-between">
+                          <span className="text-muted-foreground">TP Levels:</span>
+                          <span className="font-semibold">{preset.tpLevels}</span>
+                        </div>
+                        <div className="flex justify-between">
+                          <span className="text-muted-foreground">TP1 R:R:</span>
+                          <span className="font-semibold">{preset.tp1RR.toFixed(1)}:1</span>
+                        </div>
+                        {preset.tpLevels >= 2 && (
+                          <div className="flex justify-between">
+                            <span className="text-muted-foreground">TP2 R:R:</span>
+                            <span className="font-semibold">{preset.tp2RR.toFixed(1)}:1</span>
+                          </div>
+                        )}
+                        <div className="flex justify-between">
+                          <span className="text-muted-foreground">Close %:</span>
+                          <span className="font-semibold">{preset.tp1ClosePct}%{preset.tpLevels >= 2 ? ` / ${preset.tp2ClosePct}%` : ''}</span>
+                        </div>
+                        <div className="flex justify-between">
+                          <span className="text-muted-foreground">Calc. SL:</span>
+                          <span className="font-semibold">~{preset.calculatedSLPercent}%</span>
+                        </div>
+                      </div>
                     </div>
                   </div>
                   
