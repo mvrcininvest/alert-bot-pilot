@@ -296,7 +296,8 @@ export async function getUserSettings(userId: string, symbol?: string): Promise<
     const category = getSymbolCategory(symbol);
     const categorySettings = userSettings.category_settings[category];
     
-    if (categorySettings) {
+    // Only apply category overrides if enabled=true
+    if (categorySettings && categorySettings.enabled === true) {
       // Override with category-specific values
       finalSettings.default_leverage = Math.min(
         finalSettings.default_leverage,
