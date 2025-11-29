@@ -2282,10 +2282,74 @@ async function checkPositionFullVerification(supabase: any, position: any, setti
     order.planStatus === 'live'
   );
   
-  const tpOrders = planOrders.filter((order: any) => 
+  let tpOrders = planOrders.filter((order: any) => 
     (order.planType === 'pos_profit' || order.planType === 'profit_plan' || order.planType === 'normal_plan') &&
     order.planStatus === 'live'
   );
+  
+  // ✅ BUGFIX: RETRY API if TP orders are empty but we expect some
+  // This prevents false positives when API temporarily returns empty list
+  let expectedTPCount = settings.tp_levels || 1;
+  if (position.tp1_filled) expectedTPCount--;
+  if (position.tp2_filled && settings.tp_levels >= 2) expectedTPCount--;
+  if (position.tp3_filled && settings.tp_levels >= 3) expectedTPCount--;
+  
+  if (tpOrders.length === 0 && expectedTPCount > 0) {
+    console.log(`⚠️ API returned 0 TP orders but expected ${expectedTPCount} - retrying API call in 500ms...`);
+    await new Promise(r => setTimeout(r, 500));
+    
+    // Retry fetching orders
+    const { data: retryProfitLoss } = await supabase.functions.invoke('bitget-api', {
+      body: {
+        action: 'get_plan_orders',
+        params: { symbol: position.symbol, planType: 'profit_loss' },
+        apiCredentials
+      }
+    });
+    
+    const { data: retryNormalPlan } = await supabase.functions.invoke('bitget-api', {
+      body: {
+        action: 'get_plan_orders',
+        params: { symbol: position.symbol, planType: 'normal_plan' },
+        apiCredentials
+      }
+    });
+    
+    const retryProfitLossOrders = retryProfitLoss?.success && retryProfitLoss.data?.entrustedList
+      ? retryProfitLoss.data.entrustedList.filter((o: any) => 
+          o.symbol.toLowerCase() === position.symbol.toLowerCase() && o.planStatus === 'live'
+        )
+      : [];
+      
+    const retryNormalPlanOrders = retryNormalPlan?.success && retryNormalPlan.data?.entrustedList
+      ? retryNormalPlan.data.entrustedList.filter((o: any) => 
+          o.symbol.toLowerCase() === position.symbol.toLowerCase() && o.planStatus === 'live'
+        )
+      : [];
+    
+    const retryPlanOrders = [...retryProfitLossOrders, ...retryNormalPlanOrders];
+    const retryTPOrders = retryPlanOrders.filter((order: any) => 
+      (order.planType === 'pos_profit' || order.planType === 'profit_plan' || order.planType === 'normal_plan') &&
+      order.planStatus === 'live'
+    );
+    
+    if (retryTPOrders.length > 0) {
+      console.log(`✅ Retry successful - found ${retryTPOrders.length} TP orders (was 0)`);
+      tpOrders = retryTPOrders;
+      // Also update slOrders if retry found more
+      const retrySlOrders = retryPlanOrders.filter((order: any) => 
+        (order.planType === 'pos_loss' || order.planType === 'loss_plan' || 
+         (order.planType === 'profit_loss' && order.stopLossTriggerPrice)) &&
+        order.planStatus === 'live'
+      );
+      if (retrySlOrders.length > slOrders.length) {
+        slOrders.length = 0;
+        slOrders.push(...retrySlOrders);
+      }
+    } else {
+      console.log(`⚠️ Retry still returned 0 TP orders - proceeding with resync`);
+    }
+  }
   
   // Check if resync is needed
   const resyncCheck = checkIfResyncNeeded(slOrders, tpOrders, expected, settings, position);
@@ -2325,9 +2389,59 @@ async function checkPositionFullVerification(supabase: any, position: any, setti
       metadata: { expected, currentOrders: planOrders.length }
     });
     
-    // STEP 1: Cancel ALL existing SL/TP orders (with verification)
-    console.log(`🗑️ Canceling all ${planOrders.length} existing orders...`);
+    // STEP 1A: Cancel by DB order_ids FIRST (before using API order list)
+    // This prevents duplicates when API returns empty list
+    const dbOrderIds = [
+      { id: position.sl_order_id, label: 'SL' },
+      { id: position.tp1_order_id, label: 'TP1' },
+      { id: position.tp2_order_id, label: 'TP2' },
+      { id: position.tp3_order_id, label: 'TP3' }
+    ].filter(o => o.id);
+    
+    console.log(`🗑️ Step 1A: Canceling ${dbOrderIds.length} orders by DB order_ids...`);
+    
+    for (const orderInfo of dbOrderIds) {
+      let canceledSuccessfully = false;
+      
+      // Try both planType options since we don't know which type it is
+      for (const planType of ['profit_loss', 'normal_plan', 'pos_loss', 'pos_profit']) {
+        try {
+          const { data: cancelResult } = await supabase.functions.invoke('bitget-api', {
+            body: {
+              action: 'cancel_plan_order',
+              params: { 
+                symbol: position.symbol, 
+                orderId: orderInfo.id,
+                planType
+              },
+              apiCredentials
+            }
+          });
+          
+          if (cancelResult?.success) {
+            console.log(`✅ Canceled ${orderInfo.label} order ${orderInfo.id} (${planType})`);
+            canceledSuccessfully = true;
+            break;
+          }
+        } catch (e) {
+          // Try next planType
+        }
+      }
+      
+      if (!canceledSuccessfully) {
+        console.warn(`⚠️ Failed to cancel ${orderInfo.label} order ${orderInfo.id}, may already be executed`);
+      }
+    }
+    
+    // STEP 1B: Cancel remaining orders from API list (safety net)
+    console.log(`🗑️ Step 1B: Canceling ${planOrders.length} orders from API list...`);
     for (const order of planOrders) {
+      // Skip if already canceled by DB order_id
+      if (dbOrderIds.some(o => o.id === order.orderId)) {
+        console.log(`⏭️ Skipping ${order.orderId} - already canceled by DB ID`);
+        continue;
+      }
+      
       const { data: cancelResult, error: cancelError } = await supabase.functions.invoke('bitget-api', {
         body: {
           action: 'cancel_plan_order',
@@ -2342,15 +2456,81 @@ async function checkPositionFullVerification(supabase: any, position: any, setti
       
       if (cancelError || !cancelResult?.success) {
         const errorMsg = cancelError?.message || cancelResult?.error || 'Unknown cancel error';
-        console.error(`❌ Failed to cancel order ${order.orderId}:`, errorMsg);
-        throw new Error(`Failed to cancel order ${order.orderId}: ${errorMsg}`);
+        console.warn(`⚠️ Failed to cancel order ${order.orderId}: ${errorMsg}`);
+        // Don't throw - continue with other orders
+      } else {
+        console.log(`✅ Canceled order ${order.orderId} (${order.planType})`);
       }
-      
-      console.log(`✅ Canceled order ${order.orderId} (${order.planType})`);
     }
     
-    // Wait a bit for cancellations to process
-    await new Promise(r => setTimeout(r, 500));
+    // Wait for cancellations to process
+    await new Promise(r => setTimeout(r, 1000));
+    
+    // STEP 1C: Verify cancellation - check if DB orders still exist
+    console.log(`🔍 Step 1C: Verifying cancellation...`);
+    const { data: verifyProfitLoss } = await supabase.functions.invoke('bitget-api', {
+      body: {
+        action: 'get_plan_orders',
+        params: { symbol: position.symbol, planType: 'profit_loss' },
+        apiCredentials
+      }
+    });
+    
+    const { data: verifyNormalPlan } = await supabase.functions.invoke('bitget-api', {
+      body: {
+        action: 'get_plan_orders',
+        params: { symbol: position.symbol, planType: 'normal_plan' },
+        apiCredentials
+      }
+    });
+    
+    const verifyOrders = [
+      ...(verifyProfitLoss?.success && verifyProfitLoss.data?.entrustedList || []),
+      ...(verifyNormalPlan?.success && verifyNormalPlan.data?.entrustedList || [])
+    ].filter((o: any) => 
+      o.symbol.toLowerCase() === position.symbol.toLowerCase() && 
+      o.planStatus === 'live'
+    );
+    
+    const remainingDBOrders = verifyOrders.filter((o: any) => 
+      dbOrderIds.some(db => db.id === o.orderId)
+    );
+    
+    if (remainingDBOrders.length > 0) {
+      console.error(`⚠️ ${remainingDBOrders.length} DB orders still exist after cancel:`, 
+        remainingDBOrders.map((o: any) => o.orderId)
+      );
+      
+      await log({
+        functionName: 'position-monitor',
+        message: `Orders still exist after cancel attempt`,
+        level: 'warn',
+        positionId: position.id,
+        metadata: { 
+          remaining_orders: remainingDBOrders.map((o: any) => ({ id: o.orderId, type: o.planType }))
+        }
+      });
+      
+      // Retry cancel for remaining orders
+      for (const order of remainingDBOrders) {
+        console.log(`🔄 Retrying cancel for ${order.orderId}...`);
+        await supabase.functions.invoke('bitget-api', {
+          body: {
+            action: 'cancel_plan_order',
+            params: {
+              symbol: position.symbol,
+              orderId: order.orderId,
+              planType: order.planType
+            },
+            apiCredentials
+          }
+        });
+      }
+      
+      await new Promise(r => setTimeout(r, 500));
+    } else {
+      console.log(`✅ All orders successfully canceled - verified with API`);
+    }
     
     // STEP 2: Update position in DB with expected values
     const updateData: any = {
