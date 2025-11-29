@@ -98,49 +98,53 @@ Deno.serve(async (req) => {
       message: `📊 Found ${dbPositions?.length || 0} closed positions in DB`,
     });
 
-    // Fetch ALL positions from Bitget with pagination
+    // Fetch ALL positions from Bitget with cursor-based pagination
     const allBitgetPositions: BitgetHistoryPosition[] = [];
     let hasMore = true;
-    let endTime = Date.now();
+    let idLessThan: string | undefined = undefined;
     const startTime = Date.now() - 90 * 24 * 60 * 60 * 1000; // 90 days ago
+    const endTime = Date.now();
 
     await log({
       functionName: FUNCTION_NAME,
       level: "info",
-      message: "🔄 Fetching all positions from Bitget...",
+      message: "🔄 Fetching all positions from Bitget using cursor-based pagination...",
     });
 
     while (hasMore) {
-      const { data, error } = await supabase.functions.invoke("bitget-api", {
+      const response: any = await supabase.functions.invoke("bitget-api", {
         body: {
           action: "get_position_history",
           params: {
             startTime: startTime.toString(),
             endTime: endTime.toString(),
-            pageSize: "100"
+            limit: "100",
+            ...(idLessThan && { idLessThan })  // Add cursor if available
           },
           apiCredentials
         },
       });
 
-      if (error || !data?.success) {
-        throw new Error(data?.error || error?.message || "Failed to fetch history");
+      if (response.error || !response.data?.success) {
+        throw new Error(response.data?.error || response.error?.message || "Failed to fetch history");
       }
       
-      if (data.data?.list && data.data.list.length > 0) {
-        allBitgetPositions.push(...data.data.list);
+      const list = response.data.data?.list || [];
+      const cursor: string | undefined = response.data.data?.cursor || response.data.data?.endId;  // Bitget may return cursor or endId
+      
+      if (list.length > 0) {
+        allBitgetPositions.push(...list);
         await log({
           functionName: FUNCTION_NAME,
           level: "info",
-          message: `📥 Fetched ${data.data.list.length} positions (total: ${allBitgetPositions.length})`,
+          message: `📥 Fetched ${list.length} positions (total: ${allBitgetPositions.length}, cursor: ${cursor})`,
         });
         
-        if (data.data.list.length < 100) {
-          hasMore = false;
+        // Continue if there's a cursor and we got a full page
+        if (cursor && list.length >= 20) {  // 20 is Bitget's default page size
+          idLessThan = cursor;
         } else {
-          // Use time of last position as new endTime
-          const lastPosition = data.data.list[data.data.list.length - 1];
-          endTime = Number(lastPosition.ctime) - 1;
+          hasMore = false;
         }
       } else {
         hasMore = false;
