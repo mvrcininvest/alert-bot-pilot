@@ -13,6 +13,7 @@ import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
 import { useState, useEffect } from "react";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
+import { FeeCalculator } from "@/components/settings/FeeCalculator";
 
 export default function Settings() {
   const { toast } = useToast();
@@ -104,6 +105,40 @@ export default function Settings() {
 
   const handleSave = () => {
     if (localSettings) {
+      // Validation for scalping mode with fees
+      if (localSettings.position_sizing_type === "scalping_mode" && 
+          localSettings.include_fees_in_calculations) {
+        const margin = localSettings.max_margin_per_trade ?? 2;
+        const loss = localSettings.max_loss_per_trade ?? 1;
+        const leverage = localSettings.default_leverage ?? 10;
+        const takerFeeRate = (localSettings.taker_fee_rate ?? 0.06) / 100;
+        const tp1RrRatio = localSettings.tp1_rr_ratio ?? 1.5;
+        
+        // Calculate SL%
+        const slMin = (localSettings.sl_percent_min ?? 0.3) / 100;
+        const slMax = (localSettings.sl_percent_max ?? 2.0) / 100;
+        let slPercent = loss / (margin * leverage);
+        if (slPercent < slMin) slPercent = slMin;
+        else if (slPercent > slMax) slPercent = slMax;
+        
+        // Calculate fees and real R:R
+        const notional = margin * leverage;
+        const roundTripFees = notional * takerFeeRate * 2;
+        const realMaxLoss = loss + roundTripFees;
+        const tp1Percent = slPercent * tp1RrRatio;
+        const grossProfit = notional * tp1Percent;
+        const netProfit = grossProfit - roundTripFees;
+        const realRR = netProfit / realMaxLoss;
+        
+        if (realRR < 1) {
+          toast({
+            title: "⚠️ Ostrzeżenie: Niskie Real R:R",
+            description: `TP1 Real R:R = ${realRR.toFixed(2)}:1. Zysk z TP1 nie pokryje straty! Zwiększ R:R ratio lub margin.`,
+            variant: "destructive",
+          });
+        }
+      }
+      
       console.log("Zapisywanie ustawień:", localSettings);
       updateSettings.mutate(localSettings);
     }
@@ -692,6 +727,7 @@ export default function Settings() {
               </div>
 
               {localSettings.position_sizing_type === "scalping_mode" ? (
+                <>
                 <Card className="border-2 border-primary/20 bg-primary/5">
                   <CardHeader>
                     <CardTitle className="text-lg">⚡ Scalping Mode Settings</CardTitle>
@@ -931,6 +967,33 @@ export default function Settings() {
                     </div>
                   </CardContent>
                 </Card>
+
+                <Card>
+                  <CardHeader>
+                    <CardTitle>📊 Fee-Aware Trading Calculator</CardTitle>
+                    <CardDescription>
+                      Real-time impact analysis of trading fees on your scalping strategy
+                    </CardDescription>
+                  </CardHeader>
+                  <CardContent>
+                    <FeeCalculator
+                      takerFeeRate={localSettings.taker_fee_rate ?? 0.06}
+                      includeFeesInCalculations={localSettings.include_fees_in_calculations ?? true}
+                      minProfitableTpPercent={localSettings.min_profitable_tp_percent ?? 0.2}
+                      margin={localSettings.max_margin_per_trade ?? 2}
+                      leverage={localSettings.default_leverage ?? 10}
+                      maxLoss={localSettings.max_loss_per_trade ?? 1}
+                      tp1RrRatio={localSettings.tp1_rr_ratio ?? 1.5}
+                      tp2RrRatio={localSettings.tp2_rr_ratio ?? 2.5}
+                      tp3RrRatio={localSettings.tp3_rr_ratio ?? 3.5}
+                      readOnly={false}
+                      onFeeRateChange={(value) => updateLocal("taker_fee_rate", value)}
+                      onIncludeFeesChange={(value) => updateLocal("include_fees_in_calculations", value)}
+                      onMinProfitableTpChange={(value) => updateLocal("min_profitable_tp_percent", value)}
+                    />
+                  </CardContent>
+                </Card>
+                </>
               ) : (
                 <div className="space-y-2">
                   <Label>
