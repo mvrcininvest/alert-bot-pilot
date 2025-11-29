@@ -1259,16 +1259,6 @@ export default function Stats() {
             <FileDown className="h-4 w-4 mr-2" />
             Eksport Statystyk
           </Button>
-          <div className="w-px h-8 bg-border" />
-          <Button
-            onClick={() => repairMutation.mutate()}
-            disabled={repairMutation.isPending}
-            variant="secondary"
-            size="sm"
-          >
-            <Wrench className="h-4 w-4 mr-2" />
-            {repairMutation.isPending ? 'Naprawiam...' : 'Napraw dane'}
-          </Button>
         </div>
       </div>
 
@@ -1283,7 +1273,7 @@ export default function Stats() {
       {stats ? (
         <>
           {/* Overview KPIs - Enhanced */}
-          <div className="grid gap-4 md:grid-cols-4 lg:grid-cols-5">
+          <div className="grid gap-4 md:grid-cols-3 lg:grid-cols-6">
             <Card className="glass-card">
               <CardHeader className="pb-2">
                 <CardTitle className="text-sm">Całkowity PnL</CardTitle>
