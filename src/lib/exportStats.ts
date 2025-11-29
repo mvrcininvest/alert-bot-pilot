@@ -165,6 +165,15 @@ export interface StatsExport {
     winRate: number;
     pnl: number;
   }>;
+  byMoneyManagement?: Array<{
+    position_sizing_type: string;
+    margin_bucket: string;
+    symbol_category: string;
+    count: number;
+    win_rate: number;
+    avg_pnl: number;
+    total_pnl: number;
+  }>;
   monthlyData?: Array<{
     month: string;
     totalPnL: number;
@@ -313,6 +322,16 @@ export function exportStatsToCSV(stats: StatsExport, filename: string = "stats-s
     sections.push("Tier,Trade'y,Win Rate,PnL");
     stats.byTier.forEach(t => {
       sections.push(`${t.tier},${t.trades},${t.winRate.toFixed(1)}%,$${t.pnl.toFixed(2)}`);
+    });
+    sections.push("");
+  }
+
+  // By Money Management
+  if (stats.byMoneyManagement && stats.byMoneyManagement.length > 0) {
+    sections.push("=== WEDŁUG MONEY MANAGEMENT ===");
+    sections.push("Typ Position Sizing,Margin Bucket,Symbol Category,Trade'y,Win Rate,Średni PnL,Total PnL");
+    stats.byMoneyManagement.forEach(mm => {
+      sections.push(`${mm.position_sizing_type},${mm.margin_bucket || 'N/A'},${mm.symbol_category || 'N/A'},${mm.count},${mm.win_rate.toFixed(1)}%,$${mm.avg_pnl.toFixed(2)},$${mm.total_pnl.toFixed(2)}`);
     });
     sections.push("");
   }

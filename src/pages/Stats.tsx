@@ -23,6 +23,8 @@ import { ZoneTypeCard } from "@/components/stats/ZoneTypeCard";
 import { ModeAnalysisCard } from "@/components/stats/ModeAnalysisCard";
 import { VolatilityAnalysisCard } from "@/components/stats/VolatilityAnalysisCard";
 import { LatencyAnalysisCard } from "@/components/stats/LatencyAnalysisCard";
+import { MoneyManagementAnalysisCard } from "@/components/stats/MoneyManagementAnalysisCard";
+import { useTradingStats } from "@/hooks/useTradingStats";
 import { exportToCSV, exportStatsToCSV } from "@/lib/exportStats";
 import { startOfDay, subDays, isAfter, isBefore, format, getDay, startOfMonth, endOfMonth } from "date-fns";
 import { pl } from "date-fns/locale";
@@ -158,6 +160,32 @@ export default function Stats() {
       });
     },
   });
+
+  // Repair MM data mutation
+  const repairMMDataMutation = useMutation({
+    mutationFn: async () => {
+      const { data, error } = await supabase.functions.invoke('repair-mm-data');
+      if (error) throw error;
+      return data;
+    },
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ["all-positions-stats", "trading-stats"] });
+      toast({
+        title: "Naprawa MM data zakończona",
+        description: `Zaktualizowano ${data.updated} pozycji (${data.skipped} pominiętych)`,
+      });
+    },
+    onError: (error: Error) => {
+      toast({
+        title: "Błąd naprawy MM data",
+        description: error.message,
+        variant: "destructive",
+      });
+    },
+  });
+
+  // Fetch trading stats
+  const { data: tradingStats } = useTradingStats();
 
   const { data: allPositions } = useQuery({
     queryKey: ["all-positions-stats"],
@@ -1297,6 +1325,7 @@ export default function Stats() {
         winRate: t.winRate,
         pnl: t.totalPnL,
       })),
+      byMoneyManagement: tradingStats?.moneyManagementStats || [],
       monthlyData: monthlyData,
     }, `stats_${getTimeFilterLabel()}_${format(new Date(), "yyyy-MM-dd")}`);
     
@@ -1449,6 +1478,15 @@ export default function Stats() {
           >
             <Wrench className="h-4 w-4 mr-2" />
             Napraw dane
+          </Button>
+          <Button
+            onClick={() => repairMMDataMutation.mutate()}
+            disabled={repairMMDataMutation.isPending}
+            variant="outline"
+            size="sm"
+          >
+            <Wrench className="h-4 w-4 mr-2" />
+            Napraw MM data
           </Button>
         </div>
       </div>
@@ -1716,6 +1754,11 @@ export default function Stats() {
 
               {/* Mode Analysis */}
               <ModeAnalysisCard modeStats={modeStats} />
+
+              {/* Money Management Analysis */}
+              {tradingStats?.moneyManagementStats && tradingStats.moneyManagementStats.length > 0 && (
+                <MoneyManagementAnalysisCard stats={tradingStats.moneyManagementStats} />
+              )}
 
               {/* Regime Analysis */}
               <RegimeAnalysisCard regimeStats={regimeStats} />

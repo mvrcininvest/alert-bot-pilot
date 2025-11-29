@@ -59,6 +59,16 @@ export interface TradingStats {
     avg_tp1_close_pct: number;
     tp_levels_used: number;
   }>;
+  // Money Management
+  moneyManagementStats: Array<{
+    position_sizing_type: string;
+    margin_bucket: string;
+    symbol_category: string;
+    count: number;
+    win_rate: number;
+    avg_pnl: number;
+    total_pnl: number;
+  }>;
   // Derived
   recommendedSLPercent: number;
 }
@@ -96,6 +106,12 @@ export function useTradingStats() {
         .rpc('get_tp_distribution_stats');
       
       if (tpDistError) throw tpDistError;
+
+      // Fetch Money Management statistics
+      const { data: mmStats, error: mmError } = await supabase
+        .rpc('get_money_management_stats');
+      
+      if (mmError) throw mmError;
 
       // Calculate aggregates
       const totalTrades = marginStats?.reduce((sum: number, m: any) => sum + Number(m.count), 0) || 0;
@@ -172,6 +188,8 @@ export function useTradingStats() {
         optimalTP1ClosePct: optimalTP1ClosePct,
         optimalTP2ClosePct: optimalTP2ClosePct,
         tpDistributionStats: tpDistributionStats || [],
+        // Money Management
+        moneyManagementStats: mmStats || [],
         // Derived
         recommendedSLPercent: Number(avgSLPercent.toFixed(2)),
       };
