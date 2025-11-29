@@ -159,9 +159,11 @@ Deno.serve(async (req) => {
 
     // Now match each Bitget position with DB positions
     const verifiedIds = new Set<string>();
+    const matchedBitgetIndices = new Set<number>();
     let updatedCount = 0;
 
-    for (const bitgetPos of allBitgetPositions) {
+    for (let i = 0; i < allBitgetPositions.length; i++) {
+      const bitgetPos = allBitgetPositions[i];
       const bitgetCloseTime = Number(bitgetPos.utime);
       const bitgetSide = bitgetPos.holdSide === 'long' ? 'BUY' : 'SELL';
 
@@ -189,6 +191,7 @@ Deno.serve(async (req) => {
 
       if (bestMatch) {
         verifiedIds.add(bestMatch.id);
+        matchedBitgetIndices.add(i);  // Track matched Bitget position
         
         // Update position with accurate Bitget data
         const { error: updateError } = await supabase
@@ -220,6 +223,72 @@ Deno.serve(async (req) => {
       level: "info",
       message: `✅ Verified and updated ${verifiedIds.size} positions`,
     });
+
+    // Create new positions for unmatched Bitget positions
+    const unmatchedBitgetPositions = allBitgetPositions.filter((_, i) => !matchedBitgetIndices.has(i));
+    let createdCount = 0;
+
+    if (unmatchedBitgetPositions.length > 0) {
+      await log({
+        functionName: FUNCTION_NAME,
+        level: "info",
+        message: `📝 Creating ${unmatchedBitgetPositions.length} missing positions from Bitget history`,
+      });
+
+      // Create position objects
+      const newPositions = unmatchedBitgetPositions.map(bitgetPos => ({
+        user_id: user.id,
+        symbol: bitgetPos.symbol,
+        side: bitgetPos.holdSide === 'long' ? 'BUY' : 'SELL',
+        entry_price: Number(bitgetPos.openAvgPrice),
+        close_price: Number(bitgetPos.closeAvgPrice),
+        quantity: Number(bitgetPos.total),
+        leverage: Number(bitgetPos.leverage),
+        realized_pnl: Number(bitgetPos.netProfit),
+        sl_price: 0,  // Placeholder - no SL info in history
+        status: 'closed',
+        closed_at: new Date(Number(bitgetPos.utime)).toISOString(),
+        created_at: new Date(Number(bitgetPos.ctime)).toISOString(),
+        close_reason: 'imported_from_bitget',
+        metadata: {
+          imported_from_bitget: true,
+          import_time: new Date().toISOString(),
+          bitget_close_time: bitgetPos.utime,
+          bitget_create_time: bitgetPos.ctime
+        }
+      }));
+
+      // Batch insert 10 at a time to avoid timeout
+      for (let i = 0; i < newPositions.length; i += 10) {
+        const batch = newPositions.slice(i, i + 10);
+        const { error: insertError, data: insertedData } = await supabase
+          .from("positions")
+          .insert(batch)
+          .select();
+
+        if (!insertError && insertedData) {
+          createdCount += insertedData.length;
+          await log({
+            functionName: FUNCTION_NAME,
+            level: "info",
+            message: `✅ Created batch of ${insertedData.length} positions (${createdCount}/${newPositions.length})`,
+          });
+        } else if (insertError) {
+          await log({
+            functionName: FUNCTION_NAME,
+            level: "error",
+            message: `Failed to create batch of positions`,
+            metadata: { error: insertError.message, batchSize: batch.length },
+          });
+        }
+      }
+
+      await log({
+        functionName: FUNCTION_NAME,
+        level: "info",
+        message: `✅ Created ${createdCount} new positions from Bitget history`,
+      });
+    }
 
     // Delete all unverified positions (duplicates/orphans)
     const toDelete = (dbPositions || []).filter(p => !verifiedIds.has(p.id));
@@ -264,8 +333,9 @@ Deno.serve(async (req) => {
       dbPositionsBefore: dbPositions?.length || 0,
       verified: verifiedIds.size,
       updated: updatedCount,
+      created: createdCount,
       deleted: toDelete.length,
-      dbPositionsAfter: verifiedIds.size,
+      dbPositionsAfter: verifiedIds.size + createdCount,
     };
 
     await log({
