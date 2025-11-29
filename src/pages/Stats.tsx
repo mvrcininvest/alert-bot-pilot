@@ -286,6 +286,25 @@ export default function Stats() {
       }
     });
 
+    // Calculate closing transactions (like Bitget counts)
+    const closingTransactions = filteredPositions.reduce((sum, p) => {
+      let count = 1; // base: final close
+      if (p.tp1_filled) count++;
+      if (p.tp2_filled) count++;
+      if (p.tp3_filled) count++;
+      return sum + count;
+    }, 0);
+
+    // Winning transactions (each TP fill + profitable final closes)
+    const winningTransactions = filteredPositions.reduce((sum, p) => {
+      let wins = 0;
+      if (p.tp1_filled) wins++;
+      if (p.tp2_filled) wins++;
+      if (p.tp3_filled) wins++;
+      if (Number(p.realized_pnl || 0) > 0) wins++; // final close was profitable
+      return sum + wins;
+    }, 0);
+
     return {
       totalPnL,
       totalTrades: filteredPositions.length,
@@ -302,6 +321,11 @@ export default function Stats() {
       maxDrawdown,
       bestWinStreak,
       worstLossStreak,
+      closingTransactions,
+      winningTransactions,
+      transactionWinRate: closingTransactions > 0 
+        ? (winningTransactions / closingTransactions) * 100 
+        : 0,
     };
   }, [filteredPositions]);
 
@@ -1308,6 +1332,18 @@ export default function Stats() {
                 <div className="text-3xl font-bold">{stats.totalTrades}</div>
               </CardContent>
             </Card>
+            <Card className="glass-card">
+              <CardHeader className="pb-2">
+                <CardTitle className="text-sm">Transakcje Zamknięcia</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="text-3xl font-bold">{stats.closingTransactions}</div>
+                <p className="text-xs text-muted-foreground mt-1">
+                  {stats.winningTransactions}W / {stats.closingTransactions - stats.winningTransactions}L
+                  ({stats.transactionWinRate.toFixed(1)}%)
+                </p>
+              </CardContent>
+            </Card>
           </div>
 
           {/* Additional KPIs */}
@@ -1318,9 +1354,7 @@ export default function Stats() {
               </CardHeader>
               <CardContent>
                 <div className="text-2xl font-bold">
-                  {stats.avgDurationMinutes < 60 
-                    ? `${stats.avgDurationMinutes.toFixed(0)}m`
-                    : `${(stats.avgDurationMinutes / 60).toFixed(1)}h`}
+                  {stats.avgDurationMinutes.toFixed(0)} min
                 </div>
               </CardContent>
             </Card>
