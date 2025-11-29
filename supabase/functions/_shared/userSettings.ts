@@ -95,6 +95,7 @@ export interface UserSettings {
   taker_fee_rate: number;
   include_fees_in_calculations: boolean;
   min_profitable_tp_percent: number;
+  fee_aware_breakeven: boolean;
   
   // Modes (not needed for runtime, just for tracking)
   money_mode?: string;
@@ -209,6 +210,7 @@ export async function getUserSettings(userId: string): Promise<UserSettings> {
     taker_fee_rate: userSettings.taker_fee_rate ?? 0.06,
     include_fees_in_calculations: userSettings.include_fees_in_calculations ?? true,
     min_profitable_tp_percent: userSettings.min_profitable_tp_percent ?? 0.2,
+    fee_aware_breakeven: userSettings.fee_aware_breakeven ?? true,
   };
 
   // Money Management settings (copy_admin mode)

@@ -669,25 +669,43 @@ async function moveSlToBreakeven(
   supabase: any, 
   position: any, 
   apiCredentials: any,
-  pricePlace: number
+  pricePlace: number,
+  settings: any
 ): Promise<boolean> {
   const entryPrice = Number(position.entry_price);
   const currentSlPrice = Number(position.sl_price);
   const isBuy = position.side === 'BUY';
   
-  // Check if SL already at BE or better
-  const slAlreadyAtBE = isBuy 
-    ? currentSlPrice >= entryPrice 
-    : currentSlPrice <= entryPrice;
+  // Determine if fee-aware breakeven is enabled
+  const feeAwareBE = settings?.fee_aware_breakeven !== false; // default true
+  
+  let newSlPrice: number;
+  
+  if (feeAwareBE) {
+    // Fee-aware breakeven: account for 0.12% round-trip fees (0.06% entry + 0.06% exit)
+    const feePercent = 0.0012; // 0.12%
+    newSlPrice = isBuy 
+      ? entryPrice * (1 + feePercent)  // LONG: SL above entry to cover fees
+      : entryPrice * (1 - feePercent); // SHORT: SL below entry to cover fees
     
-  if (slAlreadyAtBE) {
-    console.log(`✅ SL already at breakeven or better for ${position.symbol} (current: ${currentSlPrice}, entry: ${entryPrice})`);
-    return true;
+    console.log(`🎯 Fee-Aware BE: ${position.symbol} entry=${entryPrice} → BE=${newSlPrice} (${feePercent * 100}% fee buffer)`);
+  } else {
+    // Standard breakeven with small buffer (legacy behavior)
+    const beBuffer = entryPrice * 0.0001; // 0.01%
+    newSlPrice = isBuy ? entryPrice + beBuffer : entryPrice - beBuffer;
+    
+    console.log(`⚠️ Standard BE: ${position.symbol} entry=${entryPrice} → BE=${newSlPrice} (0.01% buffer, IGNORES FEES)`);
   }
   
-  // Add small buffer (0.01%) to avoid closing exactly at entry
-  const beBuffer = entryPrice * 0.0001;
-  const newSlPrice = isBuy ? entryPrice + beBuffer : entryPrice - beBuffer;
+  // Check if SL already at target BE or better
+  const slAlreadyAtBE = isBuy 
+    ? currentSlPrice >= newSlPrice * 0.9999  // Allow small tolerance
+    : currentSlPrice <= newSlPrice * 1.0001;
+    
+  if (slAlreadyAtBE) {
+    console.log(`✅ SL already at breakeven or better for ${position.symbol} (current: ${currentSlPrice}, target: ${newSlPrice})`);
+    return true;
+  }
   
   console.log(`🔄 Moving SL to breakeven: ${position.symbol} ${currentSlPrice} → ${newSlPrice}`);
   
@@ -2213,7 +2231,7 @@ async function checkPositionFullVerification(supabase: any, position: any, setti
       
       if (shouldMoveBE) {
         console.log(`🔄 TP${triggerTP} filled - moving SL to breakeven`);
-        await moveSlToBreakeven(supabase, position, apiCredentials, pricePlace);
+        await moveSlToBreakeven(supabase, position, apiCredentials, pricePlace, settings);
       }
     }
   } else if (Math.abs(bitgetQuantity - dbQuantity) > 0.0001) {
@@ -2643,7 +2661,7 @@ async function checkPositionFullVerification(supabase: any, position: any, setti
           
           // Check if SL should move to breakeven after this TP
           if (settings.sl_to_breakeven && i >= (settings.breakeven_trigger_tp || 1)) {
-            await moveSlToBreakeven(supabase, position, apiCredentials, pricePlace);
+            await moveSlToBreakeven(supabase, position, apiCredentials, pricePlace, settings);
           }
           
           closeSuccess = true;
@@ -2695,7 +2713,7 @@ async function checkPositionFullVerification(supabase: any, position: any, setti
               
               // Check if SL should move to breakeven after this TP
               if (settings.sl_to_breakeven && i >= (settings.breakeven_trigger_tp || 1)) {
-                await moveSlToBreakeven(supabase, position, apiCredentials, pricePlace);
+                await moveSlToBreakeven(supabase, position, apiCredentials, pricePlace, settings);
               }
               
               break;
@@ -2769,7 +2787,7 @@ async function checkPositionFullVerification(supabase: any, position: any, setti
             
             // Check if SL should move to breakeven after this TP
             if (settings.sl_to_breakeven && i >= (settings.breakeven_trigger_tp || 1)) {
-              await moveSlToBreakeven(supabase, position, apiCredentials, pricePlace);
+              await moveSlToBreakeven(supabase, position, apiCredentials, pricePlace, settings);
             }
             
             continue;
