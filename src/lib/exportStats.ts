@@ -75,7 +75,7 @@ export function exportToCSV(positions: Position[], filename: string = "trading-s
   document.body.removeChild(link);
 }
 
-interface StatsExport {
+export interface StatsExport {
   summary: {
     totalTrades: number;
     winRate: number;
@@ -97,6 +97,15 @@ interface StatsExport {
     calmarRatio: number;
     recoveryFactor: number;
     payoffRatio: number;
+  };
+  latencyAnalysis?: {
+    count: number;
+    min: number;
+    max: number;
+    avg: number;
+    median: number;
+    p95: number;
+    p99: number;
   };
   bySession?: Array<{
     session: string;
@@ -202,6 +211,19 @@ export function exportStatsToCSV(stats: StatsExport, filename: string = "stats-s
     sections.push(`Calmar Ratio,${stats.advancedMetrics.calmarRatio.toFixed(2)}`);
     sections.push(`Recovery Factor,${stats.advancedMetrics.recoveryFactor.toFixed(2)}`);
     sections.push(`Payoff Ratio,${stats.advancedMetrics.payoffRatio.toFixed(2)}`);
+    sections.push("");
+  }
+
+  // Latency Analysis
+  if (stats.latencyAnalysis) {
+    sections.push("=== ANALIZA LATENCJI (TV → EXCHANGE) ===");
+    sections.push(`Liczba pozycji z latencją,${stats.latencyAnalysis.count}`);
+    sections.push(`Średnia (ms),${stats.latencyAnalysis.avg.toFixed(0)}`);
+    sections.push(`Mediana (ms),${stats.latencyAnalysis.median.toFixed(0)}`);
+    sections.push(`Min (ms),${stats.latencyAnalysis.min.toFixed(0)}`);
+    sections.push(`Max (ms),${stats.latencyAnalysis.max.toFixed(0)}`);
+    sections.push(`95 percentyl (ms),${stats.latencyAnalysis.p95.toFixed(0)}`);
+    sections.push(`99 percentyl (ms),${stats.latencyAnalysis.p99.toFixed(0)}`);
     sections.push("");
   }
 

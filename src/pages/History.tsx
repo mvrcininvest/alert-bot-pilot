@@ -55,7 +55,10 @@ export default function History() {
             raw_data,
             atr,
             error_message,
-            created_at
+            created_at,
+            latency_webhook_ms,
+            latency_execution_ms,
+            latency_ms
           )
         `)
         .eq("status", "closed")
@@ -136,6 +139,7 @@ export default function History() {
       "Bitget Order ID", "SL Order ID", "TP1 Order ID", "TP2 Order ID", "TP3 Order ID",
       "Alert ID", "Alert Tier", "Alert Strength", "Alert Mode", "Alert ATR",
       "Alert Entry Price", "Alert SL", "Alert TP",
+      "Alert TV→Webhook (ms)", "Alert Processing (ms)", "Alert Total Latency (ms)",
       "Session", "Regime", "Zone Type", "BTC Correlation"
     ];
 
@@ -195,6 +199,9 @@ export default function History() {
         alert?.entry_price || "-",
         alert?.sl || "-",
         alert?.main_tp || "-",
+        alert?.latency_webhook_ms || "-",
+        alert?.latency_execution_ms || "-",
+        alert?.latency_ms || "-",
         metadata?.session || "-",
         metadata?.regime || "-",
         metadata?.zone_type || "-",
@@ -301,6 +308,11 @@ export default function History() {
           leverage: alert.leverage,
           created_at: alert.created_at,
           raw_data: alert.raw_data,
+          latency: {
+            tv_to_webhook_ms: alert.latency_webhook_ms,
+            processing_ms: alert.latency_execution_ms,
+            total_ms: alert.latency_ms,
+          }
         } : null,
       };
     });
