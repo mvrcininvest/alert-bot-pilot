@@ -109,6 +109,11 @@ serve(async (req) => {
 
         const bitgetPositions = historyResult.data.list;
         console.log(`Got ${bitgetPositions.length} positions from Bitget for user ${userId}`);
+        
+        // Debug: Log sample Bitget position structure
+        if (bitgetPositions.length > 0) {
+          console.log(`Sample Bitget position: ${JSON.stringify(bitgetPositions[0])}`);
+        }
 
         // Process each DB position and find matching Bitget data
         for (const dbPos of userPositions) {
@@ -122,8 +127,8 @@ serve(async (req) => {
             const bpSymbol = normalizeSymbol(bp.symbol);
             if (bpSymbol !== symbol) return false;
             
-            // Use uTime (update time) as close time, fallback to cTime if needed
-            const bitgetCloseTime = Number(bp.uTime || bp.cTime);
+            // Use utime (update time) as close time, fallback to ctime if needed - LOWERCASE!
+            const bitgetCloseTime = Number(bp.utime || bp.ctime);
             if (isNaN(bitgetCloseTime)) return false;
             
             const timeDiff = Math.abs(dbCloseTime - bitgetCloseTime);
