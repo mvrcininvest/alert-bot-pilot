@@ -568,6 +568,7 @@ export type Database = {
           default_leverage: number | null
           duplicate_alert_handling: boolean | null
           excluded_tiers: string[] | null
+          fee_aware_breakeven: boolean | null
           filter_by_tier: boolean | null
           id: string
           loss_limit_type: string | null
@@ -636,6 +637,7 @@ export type Database = {
           default_leverage?: number | null
           duplicate_alert_handling?: boolean | null
           excluded_tiers?: string[] | null
+          fee_aware_breakeven?: boolean | null
           filter_by_tier?: boolean | null
           id?: string
           loss_limit_type?: string | null
@@ -704,6 +706,7 @@ export type Database = {
           default_leverage?: number | null
           duplicate_alert_handling?: boolean | null
           excluded_tiers?: string[] | null
+          fee_aware_breakeven?: boolean | null
           filter_by_tier?: boolean | null
           id?: string
           loss_limit_type?: string | null
@@ -831,6 +834,7 @@ export type Database = {
           default_leverage: number | null
           duplicate_alert_handling: boolean | null
           excluded_tiers: string[] | null
+          fee_aware_breakeven: boolean | null
           filter_by_tier: boolean | null
           id: string
           include_fees_in_calculations: boolean | null
@@ -905,6 +909,7 @@ export type Database = {
           default_leverage?: number | null
           duplicate_alert_handling?: boolean | null
           excluded_tiers?: string[] | null
+          fee_aware_breakeven?: boolean | null
           filter_by_tier?: boolean | null
           id?: string
           include_fees_in_calculations?: boolean | null
@@ -979,6 +984,7 @@ export type Database = {
           default_leverage?: number | null
           duplicate_alert_handling?: boolean | null
           excluded_tiers?: string[] | null
+          fee_aware_breakeven?: boolean | null
           filter_by_tier?: boolean | null
           id?: string
           include_fees_in_calculations?: boolean | null

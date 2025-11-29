@@ -4,9 +4,10 @@ import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Alert, AlertDescription } from "@/components/ui/alert";
-import { Calculator, AlertTriangle, TrendingUp, Zap } from "lucide-react";
+import { Calculator, AlertTriangle, TrendingUp, Zap, CheckCircle2 } from "lucide-react";
 import { useState, useEffect } from "react";
 import { Badge } from "@/components/ui/badge";
+import { Switch } from "@/components/ui/switch";
 
 interface FeeCalculatorProps {
   // Editable parameters for simulation
@@ -16,6 +17,8 @@ interface FeeCalculatorProps {
   tp1RrRatio: number;
   tp2RrRatio: number;
   tp3RrRatio: number;
+  tpLevels: number;
+  feeAwareBreakeven?: boolean;
   
   // Callbacks for changes
   onMarginChange?: (value: number) => void;
@@ -24,6 +27,8 @@ interface FeeCalculatorProps {
   onTP1RRChange?: (value: number) => void;
   onTP2RRChange?: (value: number) => void;
   onTP3RRChange?: (value: number) => void;
+  onTPLevelsChange?: (value: number) => void;
+  onFeeAwareBreakevenChange?: (value: boolean) => void;
 }
 
 interface Calculations {
@@ -53,6 +58,14 @@ interface Recommendation {
   action: () => void;
 }
 
+interface BreakevenComparison {
+  entryPrice: number;
+  standardBE: number;
+  feeAwareBE: number;
+  standardLoss: number;
+  feeAwareLoss: number;
+}
+
 const BITGET_TAKER_FEE = 0.06; // 0.06% per side
 
 export function FeeCalculator({
@@ -62,12 +75,16 @@ export function FeeCalculator({
   tp1RrRatio,
   tp2RrRatio,
   tp3RrRatio,
+  tpLevels,
+  feeAwareBreakeven = true,
   onMarginChange,
   onLeverageChange,
   onMaxLossChange,
   onTP1RRChange,
   onTP2RRChange,
   onTP3RRChange,
+  onTPLevelsChange,
+  onFeeAwareBreakevenChange,
 }: FeeCalculatorProps) {
   const [calculations, setCalculations] = useState<Calculations>({
     notional: 0,
@@ -80,23 +97,19 @@ export function FeeCalculator({
 
   const [rrSimulation, setRrSimulation] = useState<RRSimulation[]>([]);
   const [recommendations, setRecommendations] = useState<Recommendation[]>([]);
+  const [beComparison, setBeComparison] = useState<BreakevenComparison>({
+    entryPrice: 100000,
+    standardBE: 100000,
+    feeAwareBE: 100120,
+    standardLoss: 0.18,
+    feeAwareLoss: 0,
+  });
 
   // Calculate minimum margin needed for target Real R:R
   const calculateMinMarginForTargetRR = (targetRealRR: number, currentMaxLoss: number, currentLeverage: number, tpRatio: number): number => {
     const feeRate = BITGET_TAKER_FEE / 100;
-    
-    // Real R:R = (grossProfit - fees) / (maxLoss + fees)
-    // Real R:R = (maxLoss * tpRatio - notional * feeRate * 2) / (maxLoss + notional * feeRate * 2)
-    // where notional = margin * leverage
-    
-    // Solving for margin:
-    // targetRR * (maxLoss + margin * leverage * feeRate * 2) = maxLoss * tpRatio - margin * leverage * feeRate * 2
-    // targetRR * maxLoss + targetRR * margin * leverage * feeRate * 2 = maxLoss * tpRatio - margin * leverage * feeRate * 2
-    // margin * leverage * feeRate * 2 * (targetRR + 1) = maxLoss * tpRatio - targetRR * maxLoss
-    // margin = (maxLoss * (tpRatio - targetRR)) / (leverage * feeRate * 2 * (targetRR + 1))
-    
     const minMargin = (currentMaxLoss * (tpRatio - targetRealRR)) / (currentLeverage * feeRate * 2 * (targetRealRR + 1));
-    return Math.max(minMargin, 0.5); // Minimum 0.5 USDT
+    return Math.max(minMargin, 0.5);
   };
 
   // Calculate minimum R:R ratio for target Real R:R
@@ -105,26 +118,15 @@ export function FeeCalculator({
     const notional = currentMargin * currentLeverage;
     const roundTripFees = notional * feeRate * 2;
     const realMaxLoss = currentMaxLoss + roundTripFees;
-    
-    // Real R:R = (maxLoss * tpRatio - fees) / (maxLoss + fees)
-    // targetRR = (maxLoss * tpRatio - fees) / realMaxLoss
-    // targetRR * realMaxLoss = maxLoss * tpRatio - fees
-    // maxLoss * tpRatio = targetRR * realMaxLoss + fees
-    // tpRatio = (targetRR * realMaxLoss + fees) / maxLoss
-    
     const minRR = (targetRealRR * realMaxLoss + roundTripFees) / currentMaxLoss;
     return Math.max(minRR, 1.0);
   };
 
-  // Calculate optimal leverage where fees are manageable
+  // Calculate optimal leverage
   const calculateOptimalLeverage = (currentMargin: number, currentMaxLoss: number, targetFeeImpact: number): number => {
-    // Fee impact = roundTripFees / maxLoss * 100
-    // targetFeeImpact = (margin * leverage * feeRate * 2) / maxLoss * 100
-    // leverage = (targetFeeImpact * maxLoss) / (margin * feeRate * 2 * 100)
-    
     const feeRate = BITGET_TAKER_FEE / 100;
     const optimalLev = (targetFeeImpact * currentMaxLoss) / (currentMargin * feeRate * 2 * 100);
-    return Math.max(Math.round(optimalLev / 5) * 5, 10); // Round to nearest 5x, minimum 10x
+    return Math.max(Math.round(optimalLev / 5) * 5, 10);
   };
 
   useEffect(() => {
@@ -135,8 +137,6 @@ export function FeeCalculator({
     const realMaxLoss = maxLoss + roundTripFees;
     const breakEvenPercent = BITGET_TAKER_FEE * 2; // 0.12%
     const feeImpactPercent = maxLoss > 0 ? (roundTripFees / maxLoss) * 100 : 0;
-    
-    // Min profitable TP = break-even + small buffer (e.g., 0.05%)
     const minProfitableTpPercent = breakEvenPercent + 0.05;
 
     setCalculations({
@@ -148,15 +148,30 @@ export function FeeCalculator({
       minProfitableTpPercent,
     });
 
-    // Calculate SL percentage (simplified - actual calculation should match backend)
+    // Calculate break-even comparison for BTC example
+    const exampleEntry = 100000;
+    const standardBE = exampleEntry; // Standard BE = entry price
+    const feeAwareBE = exampleEntry * (1 + 0.0012); // +0.12% for fees
+    const standardLoss = notional * 0.0012; // Loss when SL at entry
+    const feeAwareLoss = 0; // True break-even
+
+    setBeComparison({
+      entryPrice: exampleEntry,
+      standardBE,
+      feeAwareBE,
+      standardLoss,
+      feeAwareLoss,
+    });
+
+    // Calculate SL percentage
     const slPercent = maxLoss / notional;
 
-    // Simulate R:R for TP1, TP2, TP3
+    // Simulate R:R for configured number of TPs
     const tpRatios = [
       { tp: "TP1", ratio: tp1RrRatio },
       { tp: "TP2", ratio: tp2RrRatio },
       { tp: "TP3", ratio: tp3RrRatio },
-    ];
+    ].slice(0, tpLevels); // Only show configured number of TPs
 
     const simulation: RRSimulation[] = tpRatios.map(({ tp, ratio }) => {
       const tpPercent = slPercent * ratio;
@@ -182,8 +197,6 @@ export function FeeCalculator({
     const tp1RealRR = simulation[0]?.realRR || 0;
 
     if (tp1RealRR < 1.5) {
-      // Problem: Low Real R:R
-      
       // Solution 1: Increase margin
       const targetRealRR = 1.5;
       const minMargin = calculateMinMarginForTargetRR(targetRealRR, maxLoss, leverage, tp1RrRatio);
@@ -211,7 +224,7 @@ export function FeeCalculator({
 
       // Solution 3: Decrease leverage if fee impact is high
       if (feeImpactPercent > 25) {
-        const optimalLev = calculateOptimalLeverage(margin, maxLoss, 20); // Target 20% fee impact
+        const optimalLev = calculateOptimalLeverage(margin, maxLoss, 20);
         if (optimalLev < leverage) {
           newRecommendations.push({
             type: 'leverage',
@@ -226,7 +239,6 @@ export function FeeCalculator({
 
     // Optimal presets
     if (tp1RealRR < 2.0) {
-      // Conservative preset
       newRecommendations.push({
         type: 'preset',
         title: '✅ OPTYMALNE USTAWIENIA',
@@ -241,7 +253,7 @@ export function FeeCalculator({
     }
 
     setRecommendations(newRecommendations);
-  }, [margin, leverage, maxLoss, tp1RrRatio, tp2RrRatio, tp3RrRatio, onMarginChange, onLeverageChange, onMaxLossChange, onTP1RRChange]);
+  }, [margin, leverage, maxLoss, tp1RrRatio, tp2RrRatio, tp3RrRatio, tpLevels, onMarginChange, onLeverageChange, onTP1RRChange]);
 
   const hasLowRR = rrSimulation.some((sim) => sim.realRR < 1);
   const hasHighFeeImpact = calculations.feeImpactPercent > 50;
@@ -285,6 +297,54 @@ export function FeeCalculator({
           </div>
         </div>
 
+        {/* Break-Even Analysis Section */}
+        <div className="space-y-3 p-4 bg-gradient-to-br from-primary/5 to-primary/10 rounded-lg border border-primary/30">
+          <h3 className="font-semibold text-sm flex items-center gap-2">
+            🎯 BREAK-EVEN ANALYSIS
+          </h3>
+          
+          <div className="space-y-3 text-sm">
+            <Alert variant="destructive" className="border-destructive/50">
+              <AlertTriangle className="h-4 w-4" />
+              <AlertDescription className="ml-2">
+                <strong>⚠️ Standardowy BE (entry price): STRATA {calculations.breakEvenPercent.toFixed(2)}% (fees)</strong>
+              </AlertDescription>
+            </Alert>
+
+            <div className="grid grid-cols-2 gap-3">
+              <div className="p-3 bg-destructive/10 rounded border border-destructive/30">
+                <Label className="text-xs text-muted-foreground">Standardowy BE dla LONG</Label>
+                <p className="font-mono font-bold">${beComparison.standardBE.toLocaleString()}</p>
+                <p className="text-xs text-destructive mt-1">Strata: {beComparison.standardLoss.toFixed(2)} USDT</p>
+              </div>
+              <div className="p-3 bg-primary/10 rounded border border-primary/30">
+                <Label className="text-xs text-muted-foreground">Fee-Aware BE dla LONG</Label>
+                <p className="font-mono font-bold text-primary">${beComparison.feeAwareBE.toLocaleString()}</p>
+                <p className="text-xs text-primary mt-1">Zysk: {beComparison.feeAwareLoss.toFixed(2)} USDT ✅</p>
+              </div>
+            </div>
+
+            <div className="p-3 bg-background/50 rounded text-xs space-y-1">
+              <p className="font-semibold">Po TP1 hit, SL zostanie ustawiony na:</p>
+              <p className="text-destructive">• Standardowy BE: ${beComparison.standardBE.toLocaleString()} → STRATA {beComparison.standardLoss.toFixed(2)} USDT (fees)</p>
+              <p className="text-primary">• Fee-Aware BE: ${beComparison.feeAwareBE.toLocaleString()} → ZYSK {beComparison.feeAwareLoss.toFixed(2)} USDT (true BE) ✅</p>
+            </div>
+
+            <div className="flex items-center justify-between p-3 bg-background/80 rounded border border-primary/20">
+              <div className="flex items-center gap-2">
+                <Switch
+                  checked={feeAwareBreakeven}
+                  onCheckedChange={onFeeAwareBreakevenChange}
+                />
+                <Label className="font-semibold cursor-pointer" onClick={() => onFeeAwareBreakevenChange?.(!feeAwareBreakeven)}>
+                  Włącz Fee-Aware Break-Even
+                </Label>
+              </div>
+              {feeAwareBreakeven && <CheckCircle2 className="h-5 w-5 text-primary" />}
+            </div>
+          </div>
+        </div>
+
         {/* Editable simulation parameters */}
         <div className="space-y-4 p-4 bg-primary/5 rounded-lg border border-primary/20">
           <h3 className="font-semibold text-sm flex items-center gap-2">
@@ -292,7 +352,7 @@ export function FeeCalculator({
             <Badge variant="secondary" className="text-xs">Edytuj żeby zobaczyć wpływ</Badge>
           </h3>
           
-          <div className="grid grid-cols-3 gap-4">
+          <div className="grid grid-cols-4 gap-4">
             <div className="space-y-2">
               <Label>Margin (USDT)</Label>
               <Input
@@ -327,51 +387,68 @@ export function FeeCalculator({
                 className="font-mono"
               />
             </div>
+            <div className="space-y-2">
+              <Label>TP Levels</Label>
+              <Input
+                type="number"
+                min="1"
+                max="3"
+                value={tpLevels}
+                onChange={(e) => onTPLevelsChange?.(parseInt(e.target.value) || 1)}
+                className="font-mono"
+              />
+            </div>
           </div>
 
           <div className="grid grid-cols-3 gap-4 pt-2 border-t">
-            <div className="space-y-2">
-              <Label>TP1 R:R</Label>
-              <div className="flex items-center gap-2">
-                <Input
-                  type="number"
-                  step="0.1"
-                  min="0.5"
-                  value={tp1RrRatio}
-                  onChange={(e) => onTP1RRChange?.(parseFloat(e.target.value) || 1.0)}
-                  className="font-mono"
-                />
-                <span className="text-sm text-muted-foreground">:1</span>
+            {tpLevels >= 1 && (
+              <div className="space-y-2">
+                <Label>TP1 R:R</Label>
+                <div className="flex items-center gap-2">
+                  <Input
+                    type="number"
+                    step="0.1"
+                    min="0.5"
+                    value={tp1RrRatio}
+                    onChange={(e) => onTP1RRChange?.(parseFloat(e.target.value) || 1.0)}
+                    className="font-mono"
+                  />
+                  <span className="text-sm text-muted-foreground">:1</span>
+                </div>
               </div>
-            </div>
-            <div className="space-y-2">
-              <Label>TP2 R:R</Label>
-              <div className="flex items-center gap-2">
-                <Input
-                  type="number"
-                  step="0.1"
-                  min="0.5"
-                  value={tp2RrRatio}
-                  onChange={(e) => onTP2RRChange?.(parseFloat(e.target.value) || 1.0)}
-                  className="font-mono"
-                />
-                <span className="text-sm text-muted-foreground">:1</span>
+            )}
+            {tpLevels >= 2 && (
+              <div className="space-y-2">
+                <Label>TP2 R:R</Label>
+                <div className="flex items-center gap-2">
+                  <Input
+                    type="number"
+                    step="0.1"
+                    min="0.5"
+                    value={tp2RrRatio}
+                    onChange={(e) => onTP2RRChange?.(parseFloat(e.target.value) || 1.0)}
+                    className="font-mono"
+                  />
+                  <span className="text-sm text-muted-foreground">:1</span>
+                </div>
               </div>
-            </div>
-            <div className="space-y-2">
-              <Label>TP3 R:R</Label>
-              <div className="flex items-center gap-2">
-                <Input
-                  type="number"
-                  step="0.1"
-                  min="0.5"
-                  value={tp3RrRatio}
-                  onChange={(e) => onTP3RRChange?.(parseFloat(e.target.value) || 1.0)}
-                  className="font-mono"
-                />
-                <span className="text-sm text-muted-foreground">:1</span>
+            )}
+            {tpLevels >= 3 && (
+              <div className="space-y-2">
+                <Label>TP3 R:R</Label>
+                <div className="flex items-center gap-2">
+                  <Input
+                    type="number"
+                    step="0.1"
+                    min="0.5"
+                    value={tp3RrRatio}
+                    onChange={(e) => onTP3RRChange?.(parseFloat(e.target.value) || 1.0)}
+                    className="font-mono"
+                  />
+                  <span className="text-sm text-muted-foreground">:1</span>
+                </div>
               </div>
-            </div>
+            )}
           </div>
         </div>
 
@@ -458,49 +535,54 @@ export function FeeCalculator({
           </div>
         </div>
 
+        {/* Warnings */}
+        {hasLowRR && (
+          <Alert variant="destructive">
+            <AlertTriangle className="h-4 w-4" />
+            <AlertDescription>
+              <strong>Real R:R &lt; 1.0</strong> - Twoje TP nie pokrywają fees! Nawet jak trafisz TP, stracisz pieniądze.
+            </AlertDescription>
+          </Alert>
+        )}
+
+        {hasHighFeeImpact && (
+          <Alert>
+            <TrendingUp className="h-4 w-4" />
+            <AlertDescription>
+              <strong>Fee Impact &gt; 50%</strong> - Fees pochłaniają więcej niż połowę twojego max loss. Rozważ zwiększenie margin lub zmniejszenie leverage.
+            </AlertDescription>
+          </Alert>
+        )}
+
         {/* Recommendations */}
         {recommendations.length > 0 && (
-          <div className="space-y-3 p-4 bg-primary/10 rounded-lg border border-primary/30">
+          <div className="space-y-3">
             <h3 className="font-semibold text-sm flex items-center gap-2">
-              <TrendingUp className="h-4 w-4" />
-              🎯 REKOMENDACJE OPTYMALIZACYJNE
+              💡 REKOMENDACJE OPTYMALIZACYJNE
             </h3>
-
-            {hasLowRR && (
-              <Alert variant="destructive" className="mb-3">
-                <AlertTriangle className="h-4 w-4" />
-                <AlertDescription>
-                  <strong>⚠️ Problem:</strong> Przy obecnych ustawieniach TP1 Real R:R = {rrSimulation[0]?.realRR.toFixed(2)}:1
-                  {rrSimulation[0]?.realRR < 1 && " - to oznacza stratę!"}
-                </AlertDescription>
-              </Alert>
-            )}
-
-            <div className="space-y-3">
+            <div className="space-y-2">
               {recommendations.map((rec, idx) => (
-                <div key={idx} className="p-3 bg-background rounded border">
-                  <div className="flex items-start justify-between gap-3">
-                    <div className="flex-1">
-                      <h4 className="font-semibold text-sm mb-1">{rec.title}</h4>
-                      <p className="text-sm text-muted-foreground">{rec.description}</p>
-                    </div>
-                    <Button 
-                      size="sm" 
-                      onClick={rec.action}
-                      className="shrink-0"
-                    >
-                      <Zap className="h-3 w-3 mr-1" />
-                      Zastosuj
-                    </Button>
+                <div key={idx} className="flex items-center justify-between p-3 bg-primary/5 rounded-lg border border-primary/20">
+                  <div className="flex-1">
+                    <p className="font-semibold text-sm">{rec.title}</p>
+                    <p className="text-xs text-muted-foreground">{rec.description}</p>
                   </div>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={rec.action}
+                    className="ml-4"
+                  >
+                    Zastosuj
+                  </Button>
                 </div>
               ))}
             </div>
 
-            {/* Quick Presets */}
-            <div className="pt-3 border-t">
-              <Label className="text-xs text-muted-foreground mb-2 block">📊 Quick Presets:</Label>
-              <div className="flex flex-wrap gap-2">
+            {/* Quick presets */}
+            <div className="pt-2 border-t">
+              <h4 className="text-xs font-semibold text-muted-foreground mb-2">Quick Presets:</h4>
+              <div className="flex gap-2">
                 <Button
                   size="sm"
                   variant="outline"
@@ -510,7 +592,8 @@ export function FeeCalculator({
                     onTP1RRChange?.(2.0);
                   }}
                 >
-                  Conservative (3 USDT / 50x)
+                  <Zap className="h-3 w-3 mr-1" />
+                  Conservative
                 </Button>
                 <Button
                   size="sm"
@@ -518,10 +601,11 @@ export function FeeCalculator({
                   onClick={() => {
                     onMarginChange?.(2);
                     onLeverageChange?.(75);
-                    onTP1RRChange?.(1.8);
+                    onTP1RRChange?.(2.5);
                   }}
                 >
-                  Balanced (2 USDT / 75x)
+                  <TrendingUp className="h-3 w-3 mr-1" />
+                  Balanced
                 </Button>
                 <Button
                   size="sm"
@@ -529,26 +613,15 @@ export function FeeCalculator({
                   onClick={() => {
                     onMarginChange?.(1.5);
                     onLeverageChange?.(100);
-                    onTP1RRChange?.(2.5);
+                    onTP1RRChange?.(3.0);
                   }}
                 >
-                  Aggressive (1.5 USDT / 100x)
+                  <AlertTriangle className="h-3 w-3 mr-1" />
+                  Aggressive
                 </Button>
               </div>
             </div>
           </div>
-        )}
-
-        {/* Additional warnings */}
-        {hasHighFeeImpact && !hasLowRR && (
-          <Alert>
-            <AlertTriangle className="h-4 w-4" />
-            <AlertDescription>
-              <strong>⚠️ Wysokie opłaty:</strong> Fees stanowią {calculations.feeImpactPercent.toFixed(1)}% Twojej maksymalnej straty!
-              <br />
-              <strong>Zalecenie:</strong> Zwiększ margin lub zmniejsz leverage żeby zredukować wpływ fees.
-            </AlertDescription>
-          </Alert>
         )}
       </CardContent>
     </Card>
