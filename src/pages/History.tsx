@@ -18,8 +18,10 @@ import { useToast } from "@/hooks/use-toast";
 // Helper function to format prices with appropriate precision
 const formatPrice = (price: number) => {
   if (price >= 1000) return price.toFixed(2);
-  if (price >= 1) return price.toFixed(4);
-  return price.toFixed(6); // for small prices like DOGE
+  if (price >= 100) return price.toFixed(3);
+  if (price >= 1) return price.toFixed(5);
+  // For small prices - max 6 decimal places, remove trailing zeros
+  return parseFloat(price.toFixed(6)).toString();
 };
 
 export default function History() {
@@ -56,7 +58,7 @@ export default function History() {
         `)
         .eq("status", "closed")
         .order("closed_at", { ascending: false })
-        .limit(100);
+        .limit(200);
       
       if (error) throw error;
       return data || [];
@@ -151,8 +153,8 @@ export default function History() {
         pnl.toFixed(4),
         roi.toFixed(2),
         position.close_reason || "Unknown",
-        format(new Date(position.created_at), "dd.MM.yyyy HH:mm"),
-        position.closed_at ? format(new Date(position.closed_at), "dd.MM.yyyy HH:mm") : "-",
+        format(new Date(position.created_at), "dd.MM.yyyy HH:mm:ss"),
+        position.closed_at ? format(new Date(position.closed_at), "dd.MM.yyyy HH:mm:ss") : "-",
         duration,
         alert?.id || "-",
         alert?.tier || "-",
@@ -437,7 +439,7 @@ export default function History() {
                         </TableCell>
                         <TableCell>${formatPrice(Number(position.entry_price))}</TableCell>
                         <TableCell>${formatPrice(Number(position.close_price))}</TableCell>
-                        <TableCell>{Number(position.quantity).toFixed(4)}</TableCell>
+                        <TableCell>{parseFloat(Number(position.quantity).toFixed(6)).toString()}</TableCell>
                         <TableCell className="font-medium">{position.leverage}x</TableCell>
                         <TableCell className="font-medium">${notionalValue.toFixed(2)}</TableCell>
                         <TableCell className="text-muted-foreground">${marginUsed.toFixed(2)}</TableCell>
@@ -453,10 +455,10 @@ export default function History() {
                           </Badge>
                         </TableCell>
                         <TableCell className="text-xs">
-                          {format(new Date(position.created_at), "dd.MM.yyyy HH:mm")}
+                          {format(new Date(position.created_at), "dd.MM.yyyy HH:mm:ss")}
                         </TableCell>
                         <TableCell className="text-xs">
-                          {position.closed_at ? format(new Date(position.closed_at), "dd.MM.yyyy HH:mm") : "-"}
+                          {position.closed_at ? format(new Date(position.closed_at), "dd.MM.yyyy HH:mm:ss") : "-"}
                         </TableCell>
                         <TableCell className="text-xs">{duration}min</TableCell>
                         <TableCell>
