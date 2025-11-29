@@ -986,6 +986,7 @@ async function cleanupOrphanOrders(supabase: any, userId: string, apiCredentials
 }
 
 // Helper function to recover orphan position from exchange
+// NOTE: Orphan positions don't have snapshots, so we MUST use current settings
 async function recoverOrphanPosition(
   supabase: any, 
   exchangePosition: any, 
@@ -1000,6 +1001,8 @@ async function recoverOrphanPosition(
   const leverage = parseInt(exchangePosition.leverage || '20');
   
   console.log(`🔄 RECOVERING orphan position: ${symbol} ${side}, qty=${quantity}, entry=${entryPrice}`);
+  console.log(`⚠️ Orphan recovery uses CURRENT settings (no snapshot available)`);
+  
   
   try {
     // 1. Get symbol precision
@@ -1563,8 +1566,8 @@ serve(async (req) => {
           passphrase: userKeys.passphrase
         };
 
-        // Get user settings
-        const userSettings = await getUserSettings(user_id);
+        // Get user settings (these are CURRENT settings, may differ from position opening)
+        const currentUserSettings = await getUserSettings(user_id);
 
         // STEP 1: Get ALL positions from EXCHANGE
         const { data: exchangePositionsResult, error: exchangeError } = await supabase.functions.invoke('bitget-api', {
@@ -1618,12 +1621,16 @@ serve(async (req) => {
             if (!dbMatch) {
               // ORPHAN on exchange - RECOVER it!
               console.log(`🔄 ORPHAN position on exchange - RECOVERING: ${exchPos.symbol} ${exchPos.holdSide}`);
-              await recoverOrphanPosition(supabase, exchPos, apiCredentials, user_id, userSettings);
+              await recoverOrphanPosition(supabase, exchPos, apiCredentials, user_id, currentUserSettings);
               totalPositionsChecked++;
             } else {
               // Position exists in both - check SL/TP orders
               console.log(`✅ Matched position: ${dbMatch.symbol} ${dbMatch.side}`);
-              await checkPositionFullVerification(supabase, dbMatch, userSettings);
+              // Use settings_snapshot from position if available, otherwise current settings
+              const positionSettings = dbMatch.metadata?.settings_snapshot || currentUserSettings;
+              const usingSnapshot = !!dbMatch.metadata?.settings_snapshot;
+              console.log(`${usingSnapshot ? '📸' : '⚠️'} Using ${usingSnapshot ? 'SNAPSHOT' : 'CURRENT (fallback)'} settings for position ${dbMatch.id}`);
+              await checkPositionFullVerification(supabase, dbMatch, positionSettings);
               totalPositionsChecked++;
             }
           } catch (error) {
@@ -1719,6 +1726,7 @@ serve(async (req) => {
         }
 
         // STEP 5: Clean up orphan orders (orders without open positions)
+        console.log(`🧹 Checking for orphan orders for user ${user_id}`);
         await cleanupOrphanOrders(supabase, user_id, apiCredentials, exchangePositions);
 
       } catch (error) {
@@ -1793,6 +1801,15 @@ serve(async (req) => {
 
 async function checkPositionFullVerification(supabase: any, position: any, settings: any) {
   console.log(`🔥 Full verification for ${position.id} - ${position.symbol}`);
+  
+  // ✅ FIX: Settings are now from position snapshot (passed from caller)
+  // Log which settings we're using
+  const usingSnapshot = !!position.metadata?.settings_snapshot;
+  if (usingSnapshot) {
+    console.log(`📸 Using SNAPSHOT settings from position opened at ${position.created_at}`);
+  } else {
+    console.log(`⚠️ No snapshot found - using CURRENT settings (fallback for old positions)`);
+  }
 
   // Get user API keys
   const userKeys = await getUserApiKeys(position.user_id);
