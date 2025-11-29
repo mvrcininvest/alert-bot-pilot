@@ -22,6 +22,7 @@ import { BTCCorrelationCard } from "@/components/stats/BTCCorrelationCard";
 import { ZoneTypeCard } from "@/components/stats/ZoneTypeCard";
 import { ModeAnalysisCard } from "@/components/stats/ModeAnalysisCard";
 import { VolatilityAnalysisCard } from "@/components/stats/VolatilityAnalysisCard";
+import { LatencyAnalysisCard } from "@/components/stats/LatencyAnalysisCard";
 import { exportToCSV, exportStatsToCSV } from "@/lib/exportStats";
 import { startOfDay, subDays, isAfter, isBefore, format, getDay, startOfMonth, endOfMonth } from "date-fns";
 import { pl } from "date-fns/locale";
@@ -171,7 +172,8 @@ export default function Stats() {
             strength,
             mode,
             raw_data,
-            atr
+            atr,
+            latency_ms
           )
         `)
         .eq("status", "closed")
@@ -892,6 +894,35 @@ export default function Stats() {
       .sort((a, b) => a.month.localeCompare(b.month));
   }, [filteredPositions]);
 
+  // Latency Analysis
+  const latencyAnalysis = useMemo(() => {
+    if (!filteredPositions) return null;
+    
+    const validPositions = filteredPositions.filter(p => {
+      const alert = Array.isArray(p.alerts) ? p.alerts[0] : p.alerts;
+      return alert?.latency_ms && alert.latency_ms > 0;
+    });
+    
+    if (validPositions.length === 0) return null;
+    
+    const latencies = validPositions.map(p => {
+      const alert = Array.isArray(p.alerts) ? p.alerts[0] : p.alerts;
+      return alert.latency_ms;
+    });
+    
+    const sorted = [...latencies].sort((a, b) => a - b);
+    
+    return {
+      count: latencies.length,
+      min: Math.min(...latencies),
+      max: Math.max(...latencies),
+      avg: latencies.reduce((a, b) => a + b, 0) / latencies.length,
+      median: sorted[Math.floor(sorted.length / 2)],
+      p95: sorted[Math.floor(sorted.length * 0.95)],
+      p99: sorted[Math.floor(sorted.length * 0.99)],
+    };
+  }, [filteredPositions]);
+
   // BTC Correlation analysis
   const btcCorrelationStats = useMemo(() => {
     if (!filteredPositions) return [];
@@ -1159,6 +1190,7 @@ export default function Stats() {
         recoveryFactor: advancedMetrics.recoveryFactor,
         payoffRatio: advancedMetrics.payoffRatio,
       },
+      latencyAnalysis: latencyAnalysis || undefined,
       bySession: sessionStats,
       byCloseReason: closeReasonStats,
       bySignalStrength: strengthStats,
@@ -1468,6 +1500,9 @@ export default function Stats() {
 
               {/* Monthly Comparison */}
               <MonthlyComparison monthlyData={monthlyData} />
+
+              {/* Latency Analysis */}
+              <LatencyAnalysisCard positions={filteredPositions} />
 
               {/* By Symbol */}
               <Card className="glass-card">

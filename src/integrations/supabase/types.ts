@@ -20,10 +20,13 @@ export type Database = {
           created_at: string
           entry_price: number
           error_message: string | null
+          exchange_executed_at: number | null
           executed_at: string | null
           id: string
           is_test: boolean | null
+          latency_execution_ms: number | null
           latency_ms: number | null
+          latency_webhook_ms: number | null
           leverage: number
           main_tp: number
           mode: string | null
@@ -38,17 +41,22 @@ export type Database = {
           tp1: number | null
           tp2: number | null
           tp3: number | null
+          tv_timestamp: number | null
           user_id: string | null
+          webhook_received_at: string | null
         }
         Insert: {
           atr?: number | null
           created_at?: string
           entry_price: number
           error_message?: string | null
+          exchange_executed_at?: number | null
           executed_at?: string | null
           id?: string
           is_test?: boolean | null
+          latency_execution_ms?: number | null
           latency_ms?: number | null
+          latency_webhook_ms?: number | null
           leverage: number
           main_tp: number
           mode?: string | null
@@ -63,17 +71,22 @@ export type Database = {
           tp1?: number | null
           tp2?: number | null
           tp3?: number | null
+          tv_timestamp?: number | null
           user_id?: string | null
+          webhook_received_at?: string | null
         }
         Update: {
           atr?: number | null
           created_at?: string
           entry_price?: number
           error_message?: string | null
+          exchange_executed_at?: number | null
           executed_at?: string | null
           id?: string
           is_test?: boolean | null
+          latency_execution_ms?: number | null
           latency_ms?: number | null
+          latency_webhook_ms?: number | null
           leverage?: number
           main_tp?: number
           mode?: string | null
@@ -88,7 +101,9 @@ export type Database = {
           tp1?: number | null
           tp2?: number | null
           tp3?: number | null
+          tv_timestamp?: number | null
           user_id?: string | null
+          webhook_received_at?: string | null
         }
         Relationships: []
       }

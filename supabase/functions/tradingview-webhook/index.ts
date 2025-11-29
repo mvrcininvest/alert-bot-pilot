@@ -29,6 +29,9 @@ serve(async (req) => {
       Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
     );
 
+    // Capture webhook received timestamp
+    const webhookReceivedAt = Date.now();
+
     const bodyText = await req.text();
     console.log('Request body:', bodyText);
     
@@ -71,6 +74,18 @@ serve(async (req) => {
       console.log(`\n=== Processing for user: ${userId} ===`);
 
       try {
+        // Extract TradingView timestamp and calculate latency
+        const tvTimestamp = alertData.tv_ts ? Number(alertData.tv_ts) : null;
+        let latencyWebhook = null;
+        
+        if (tvTimestamp && tvTimestamp > 0) {
+          latencyWebhook = webhookReceivedAt - tvTimestamp;
+          // Validation: should be 0-60000ms (max 1 minute, otherwise invalid timestamp)
+          if (latencyWebhook < 0 || latencyWebhook > 60000) {
+            latencyWebhook = null;
+          }
+        }
+
         // Save alert for this user
         const { data: alert, error: alertError } = await supabase
           .from('alerts')
@@ -91,6 +106,9 @@ serve(async (req) => {
             mode: alertData.mode,
             status: 'pending',
             raw_data: alertData,
+            tv_timestamp: tvTimestamp,
+            webhook_received_at: new Date(webhookReceivedAt).toISOString(),
+            latency_webhook_ms: latencyWebhook,
           })
           .select()
           .single();
@@ -168,7 +186,13 @@ serve(async (req) => {
         });
 
         const { data: tradeResult, error: tradeError } = await supabase.functions.invoke('bitget-trader', {
-          body: { alert_id: alert.id, alert_data: alertData, user_id: userId },
+          body: { 
+            alert_id: alert.id, 
+            alert_data: alertData, 
+            user_id: userId,
+            webhook_received_at: webhookReceivedAt,
+            tv_timestamp: tvTimestamp
+          },
         });
 
         if (tradeError) {

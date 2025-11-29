@@ -12,6 +12,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useState, useEffect, useRef } from "react";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/useAuth";
+import { cn } from "@/lib/utils";
 
 export default function Alerts() {
   const [selectedAlert, setSelectedAlert] = useState<any>(null);
@@ -117,7 +118,10 @@ export default function Alerts() {
 
     const headers = [
       "Data", "Symbol", "Side", "Entry Price", "SL", "TP", "Tier", 
-      "Strength", "Leverage", "Latencja (ms)", "Status", "Testowy"
+      "Strength", "Leverage", 
+      "TV Timestamp", "Webhook Received", "Exchange Executed",
+      "Latencja TV→Webhook (ms)", "Latencja Processing (ms)", "Latencja Total (ms)",
+      "Status", "Testowy"
     ];
 
     const rows = alerts.map((alert) => [
@@ -130,6 +134,11 @@ export default function Alerts() {
       alert.tier || "-",
       Number(alert.strength || 0).toFixed(2),
       alert.leverage,
+      alert.tv_timestamp || "-",
+      alert.webhook_received_at ? format(new Date(alert.webhook_received_at), "dd.MM.yyyy HH:mm:ss") : "-",
+      alert.exchange_executed_at || "-",
+      alert.latency_webhook_ms || "-",
+      alert.latency_execution_ms || "-",
       alert.latency_ms || "-",
       alert.status,
       alert.is_test ? "Tak" : "Nie"
@@ -166,7 +175,20 @@ export default function Alerts() {
       return;
     }
 
-    const jsonContent = JSON.stringify(alerts, null, 2);
+    // Enhance alerts with latency breakdown
+    const enhancedAlerts = alerts.map(alert => ({
+      ...alert,
+      latency: {
+        tv_timestamp: alert.tv_timestamp,
+        webhook_received_at: alert.webhook_received_at,
+        exchange_executed_at: alert.exchange_executed_at,
+        tv_to_webhook_ms: alert.latency_webhook_ms,
+        processing_ms: alert.latency_execution_ms,
+        total_ms: alert.latency_ms,
+      }
+    }));
+
+    const jsonContent = JSON.stringify(enhancedAlerts, null, 2);
     const blob = new Blob([jsonContent], { type: "application/json;charset=utf-8;" });
     const link = document.createElement("a");
     const url = URL.createObjectURL(blob);
@@ -304,7 +326,7 @@ export default function Alerts() {
                   <TableHead>Tier</TableHead>
                   <TableHead>Strength</TableHead>
                   <TableHead>Leverage</TableHead>
-                  <TableHead>Latencja</TableHead>
+                  <TableHead>Latencja (TV→Bot)</TableHead>
                   <TableHead>Status</TableHead>
                   {isAdmin && <TableHead>Test</TableHead>}
                   {isAdmin && <TableHead>Akcje</TableHead>}
@@ -337,8 +359,14 @@ export default function Alerts() {
                       </TableCell>
                       <TableCell>{Number(alert.strength || 0).toFixed(2)}</TableCell>
                       <TableCell>{alert.leverage}x</TableCell>
-                      <TableCell className="text-xs">
-                        {alert.latency_ms ? `${alert.latency_ms}ms` : "-"}
+                      <TableCell className={cn("text-xs", {
+                        "text-profit": alert.latency_webhook_ms && alert.latency_webhook_ms < 2000,
+                        "text-warning": alert.latency_webhook_ms && alert.latency_webhook_ms >= 2000 && alert.latency_webhook_ms < 5000,
+                        "text-loss": alert.latency_webhook_ms && alert.latency_webhook_ms >= 5000
+                      })}>
+                        {alert.latency_webhook_ms 
+                          ? `${(alert.latency_webhook_ms / 1000).toFixed(1)}s` 
+                          : "-"}
                       </TableCell>
                       <TableCell>
                         <Badge variant={getStatusColor(alert.status)}>

@@ -24,7 +24,7 @@ serve(async (req) => {
       Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
     );
 
-    const { alert_id, alert_data, user_id } = await req.json();
+    const { alert_id, alert_data, user_id, webhook_received_at, tv_timestamp } = await req.json();
     
     if (!user_id) {
       throw new Error('user_id is required');
@@ -1462,15 +1462,26 @@ serve(async (req) => {
     console.log('TP1 Order ID:', tp1OrderId);
     console.log('============================');
 
-    // Update alert status with latency
-    const latencyMs = Date.now() - startTime;
+    // Extract exchange execution timestamp from Bitget API response
+    // orderResult contains the initial order response
+    const exchangeTimestamp = orderResult?.data?.cTime 
+      ? Number(orderResult.data.cTime) 
+      : Date.now();
+
+    // Calculate latencies
+    const latencyExecution = Date.now() - (webhook_received_at || startTime); // Processing time
+    const latencyTotal = tv_timestamp ? (exchangeTimestamp - tv_timestamp) : null; // End-to-end
+
+    // Update alert status with latency tracking
     await supabase
       .from('alerts')
       .update({ 
         status: 'executed', 
         executed_at: new Date().toISOString(),
         position_id: position.id,
-        latency_ms: latencyMs
+        exchange_executed_at: exchangeTimestamp,
+        latency_execution_ms: latencyExecution,
+        latency_ms: latencyTotal // Total: TV → Exchange
       })
       .eq('id', alert_id);
 
@@ -1482,7 +1493,8 @@ serve(async (req) => {
       positionId: position.id,
       metadata: { 
         positionId: position.id,
-        latencyMs,
+        latency_execution_ms: latencyExecution,
+        latency_total_ms: latencyTotal,
         orderId,
         symbol: alert_data.symbol,
         side: alert_data.side,
