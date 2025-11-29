@@ -113,8 +113,8 @@ serve(async (req) => {
         // Process each Bitget position
         for (const bitgetPos of bitgetPositions) {
           const symbol = normalizeSymbol(bitgetPos.symbol);
-          const openTime = Number(bitgetPos.cTime);
-          const closeTime = Number(bitgetPos.uTime);
+          const openTime = Number(bitgetPos.createdTime);
+          const closeTime = Number(bitgetPos.updatedTime);
 
           console.log(`Processing Bitget position: ${symbol}, open=${new Date(openTime).toISOString()}, close=${new Date(closeTime).toISOString()}`);
 
@@ -145,7 +145,7 @@ serve(async (req) => {
           const bitgetEntryPrice = Number(bitgetPos.openPriceAvg);
           const bitgetClosePrice = Number(bitgetPos.closePriceAvg);
           const bitgetRealizedPnl = Number(bitgetPos.netProfit); // netProfit includes fees
-          const bitgetSide = bitgetPos.holdSide === 'long' ? 'BUY' : 'SELL';
+          const bitgetSide = bitgetPos.posSide === 'long' ? 'BUY' : 'SELL';
 
           // Determine close reason
           let closeReason = 'manual_close';
@@ -188,7 +188,6 @@ serve(async (req) => {
             Math.abs(Number(dbPos.entry_price) - bitgetEntryPrice) > 0.01 ||
             Math.abs(Number(dbPos.close_price || 0) - bitgetClosePrice) > 0.01 ||
             Math.abs(Number(dbPos.realized_pnl || 0) - bitgetRealizedPnl) > 0.01 ||
-            dbPos.close_reason !== closeReason ||
             !dbPos.close_price ||
             !dbPos.realized_pnl;
 
@@ -205,7 +204,6 @@ serve(async (req) => {
                 entry_price: bitgetEntryPrice,
                 close_price: bitgetClosePrice,
                 realized_pnl: bitgetRealizedPnl,
-                close_reason: closeReason,
                 closed_at: new Date(closeTime).toISOString(),
                 metadata: {
                   ...dbPos.metadata,
