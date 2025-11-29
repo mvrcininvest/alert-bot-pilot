@@ -216,7 +216,7 @@ Deno.serve(async (req) => {
         break;
       }
 
-      const list = response.data.data?.orderList || response.data.data?.list || [];
+      const list = response.data.data?.entrustedList || response.data.data?.orderList || response.data.data?.list || [];
       const cursor = response.data.data?.endId;
 
       if (list.length > 0) {
