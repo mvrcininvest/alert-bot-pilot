@@ -17,14 +17,24 @@ serve(async (req) => {
   }
 
   const startTime = Date.now();
+  
+  // Latency tracking
+  const latencyMarkers: Record<string, number> = {
+    start: startTime
+  };
 
   try {
     const supabase = createClient(
       Deno.env.get('SUPABASE_URL') ?? '',
       Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
     );
+    
+    // Cache for API calls to avoid duplicates
+    let cachedAccountData: any = null;
+    let cachedSymbolInfo: any = null;
 
     const { alert_id, alert_data, user_id, webhook_received_at, tv_timestamp } = await req.json();
+    latencyMarkers.request_parsed = Date.now();
     
     if (!user_id) {
       throw new Error('user_id is required');
@@ -372,6 +382,7 @@ serve(async (req) => {
     }
 
     // Check daily loss limit FOR THIS USER
+    latencyMarkers.daily_loss_check_start = Date.now();
     const today = new Date().toISOString().split('T')[0];
     const { data: todayPositions } = await supabase
       .from('positions')
@@ -394,10 +405,13 @@ serve(async (req) => {
 
     // Check loss limit based on type - only check actual losses (negative PnL)
     if (settings.loss_limit_type === 'percent_drawdown') {
-      // Get account balance using user's API credentials
+      // Get account balance using user's API credentials (CACHE THIS)
+      const t1 = Date.now();
       const { data: accountData } = await supabase.functions.invoke('bitget-api', {
         body: { action: 'get_account', apiCredentials }
       });
+      cachedAccountData = accountData; // Cache for later reuse
+      console.log(`⏱️ get_account (percent_drawdown): ${Date.now() - t1}ms`);
       
       const accountBalance = accountData?.success && accountData.data?.[0]?.available 
         ? Number(accountData.data[0].available)
@@ -468,17 +482,29 @@ serve(async (req) => {
       }
     }
 
-    // Get account balance from Bitget
+    // Get account balance from Bitget (RE-USE CACHED if available)
+    latencyMarkers.account_balance_start = Date.now();
     await log({
       functionName: 'bitget-trader',
       message: 'Fetching account balance from Bitget',
       level: 'info',
       alertId: alert_id
     });
-    console.log('Fetching account balance from Bitget API...');
-    const { data: accountData } = await supabase.functions.invoke('bitget-api', {
-      body: { action: 'get_account', apiCredentials }
-    });
+    
+    let accountData;
+    if (cachedAccountData) {
+      console.log('✓ Using cached account data (saved ~200-400ms)');
+      accountData = cachedAccountData;
+    } else {
+      const t1 = Date.now();
+      console.log('Fetching account balance from Bitget API...');
+      const result = await supabase.functions.invoke('bitget-api', {
+        body: { action: 'get_account', apiCredentials }
+      });
+      accountData = result.data;
+      console.log(`⏱️ get_account (fresh): ${Date.now() - t1}ms`);
+    }
+    latencyMarkers.account_balance_end = Date.now();
     
     let accountBalance = 10000; // fallback if API fails
     if (accountData?.success && accountData.data?.[0]) {
@@ -532,10 +558,12 @@ serve(async (req) => {
         leverageSource = 'symbol_override';
         console.log(`Using symbol-specific leverage for ${alert_data.symbol}: ${effectiveLeverage}x`);
       } else if (settings.use_max_leverage_global) {
-        // Global MAX enabled - fetch max leverage from API
+        // Global MAX enabled - fetch max leverage from API (CACHE THIS)
+        latencyMarkers.leverage_check_start = Date.now();
         console.log(`Global MAX leverage enabled, fetching from API for ${alert_data.symbol}...`);
         
         try {
+          const t1 = Date.now();
           const { data: symbolInfoResult } = await supabase.functions.invoke('bitget-api', {
             body: {
               action: 'get_symbol_info',
@@ -543,6 +571,9 @@ serve(async (req) => {
               params: { symbol: alert_data.symbol }
             }
           });
+          cachedSymbolInfo = symbolInfoResult; // Cache for later reuse
+          console.log(`⏱️ get_symbol_info (leverage): ${Date.now() - t1}ms`);
+          latencyMarkers.leverage_check_end = Date.now();
           
           if (symbolInfoResult?.success && symbolInfoResult.data?.[0]?.maxLever) {
             effectiveLeverage = parseInt(symbolInfoResult.data[0].maxLever);
@@ -670,17 +701,29 @@ serve(async (req) => {
     });
     console.log('Initial calculated quantity:', quantity);
     
-    // Get REAL minimum requirements from Bitget API before placing order
-    console.log(`🔍 Fetching minimum requirements for ${alert_data.symbol} from Bitget API...`);
-    const { data: symbolInfoResult } = await supabase.functions.invoke('bitget-api', {
-      body: {
-        action: 'get_symbol_info',
-        apiCredentials,
-        params: {
-          symbol: alert_data.symbol
+    // Get REAL minimum requirements from Bitget API before placing order (RE-USE CACHED if available)
+    latencyMarkers.minimums_check_start = Date.now();
+    let symbolInfoResult;
+    if (cachedSymbolInfo) {
+      console.log('✓ Using cached symbol info for minimums (saved ~200-400ms)');
+      symbolInfoResult = cachedSymbolInfo;
+    } else {
+      const t1 = Date.now();
+      console.log(`🔍 Fetching minimum requirements for ${alert_data.symbol} from Bitget API...`);
+      const result = await supabase.functions.invoke('bitget-api', {
+        body: {
+          action: 'get_symbol_info',
+          apiCredentials,
+          params: {
+            symbol: alert_data.symbol
+          }
         }
-      }
-    });
+      });
+      symbolInfoResult = result.data;
+      cachedSymbolInfo = symbolInfoResult; // Cache for later reuse
+      console.log(`⏱️ get_symbol_info (minimums): ${Date.now() - t1}ms`);
+    }
+    latencyMarkers.minimums_check_end = Date.now();
     
     let minQuantity = 0.001; // Default fallback
     let minNotionalValue = 5; // Default fallback
@@ -951,15 +994,27 @@ serve(async (req) => {
       metadata: { orderId, symbol: alert_data.symbol }
     });
     console.log('Order placed:', orderId);
+    latencyMarkers.order_placed = Date.now();
 
-    // Get symbol info to determine price precision
-    const { data: priceInfoResult } = await supabase.functions.invoke('bitget-api', {
-      body: {
-        action: 'get_symbol_info',
-        apiCredentials,
-        params: { symbol: alert_data.symbol }
-      }
-    });
+    // Get symbol info to determine price precision (RE-USE CACHED)
+    latencyMarkers.precision_check_start = Date.now();
+    let priceInfoResult;
+    if (cachedSymbolInfo) {
+      console.log('✓ Using cached symbol info for precision (saved ~200-400ms)');
+      priceInfoResult = cachedSymbolInfo;
+    } else {
+      const t1 = Date.now();
+      const result = await supabase.functions.invoke('bitget-api', {
+        body: {
+          action: 'get_symbol_info',
+          apiCredentials,
+          params: { symbol: alert_data.symbol }
+        }
+      });
+      priceInfoResult = result.data;
+      console.log(`⏱️ get_symbol_info (precision): ${Date.now() - t1}ms`);
+    }
+    latencyMarkers.precision_check_end = Date.now();
     
     let pricePlace = 2; // Default to 2 decimal places
     if (priceInfoResult?.success && priceInfoResult.data?.[0]) {
@@ -1235,144 +1290,143 @@ serve(async (req) => {
       effectiveTp3Price = null;
     }
 
-    // Place TP orders using place_plan_order for multiple independent TPs
+    // Place TP orders using place_plan_order for multiple independent TPs (PARALLEL with Promise.allSettled)
+    latencyMarkers.tp_orders_start = Date.now();
     let tp1OrderId, tp2OrderId, tp3OrderId;
-
+    
+    // Build array of TP orders to place in parallel
+    const tpOrderPromises: Array<{ label: string; promise: Promise<any>; price: string; quantity: number }> = [];
+    
     if (effectiveTp1Price && tp1Quantity > 0) {
-      const { data: tp1Result } = await supabase.functions.invoke('bitget-api', {
-        body: {
-          action: 'place_plan_order',
-          apiCredentials,
-          params: {
-            symbol: alert_data.symbol,
-            planType: 'normal_plan',
-            triggerPrice: effectiveTp1Price,
-            triggerType: 'mark_price',
-            side: holdSide === 'long' ? 'sell' : 'buy',
-            tradeSide: 'close',
-            size: tp1Quantity.toString(),
-            orderType: 'market',
+      tpOrderPromises.push({
+        label: 'TP1',
+        price: effectiveTp1Price,
+        quantity: tp1Quantity,
+        promise: supabase.functions.invoke('bitget-api', {
+          body: {
+            action: 'place_plan_order',
+            apiCredentials,
+            params: {
+              symbol: alert_data.symbol,
+              planType: 'normal_plan',
+              triggerPrice: effectiveTp1Price,
+              triggerType: 'mark_price',
+              side: holdSide === 'long' ? 'sell' : 'buy',
+              tradeSide: 'close',
+              size: tp1Quantity.toString(),
+              orderType: 'market',
+            }
           }
-        }
+        })
       });
-      
-      // Enhanced logging and error handling
-      if (tp1Result?.success && tp1Result.data?.orderId) {
-        tp1OrderId = tp1Result.data.orderId;
-        console.log(`✅ TP1 order placed: ${tp1OrderId} at ${effectiveTp1Price}`);
-        await log({
-          functionName: 'bitget-trader',
-          message: 'TP1 order placed successfully',
-          level: 'info',
-          alertId: alert_id,
-          metadata: { orderId: tp1OrderId, price: effectiveTp1Price, quantity: tp1Quantity }
-        });
-      } else {
-        tp1OrderId = null;
-        console.error('❌ Failed to place TP1 order:', JSON.stringify(tp1Result, null, 2));
-        await log({
-          functionName: 'bitget-trader',
-          message: 'Failed to place TP1 order',
-          level: 'error',
-          alertId: alert_id,
-          metadata: { 
-            response: tp1Result,
-            price: effectiveTp1Price,
-            quantity: tp1Quantity
-          }
-        });
-      }
     }
-
+    
     if (effectiveTp2Price && tp2Quantity > 0) {
-      const { data: tp2Result } = await supabase.functions.invoke('bitget-api', {
-        body: {
-          action: 'place_plan_order',
-          apiCredentials,
-          params: {
-            symbol: alert_data.symbol,
-            planType: 'normal_plan',
-            triggerPrice: effectiveTp2Price,
-            triggerType: 'mark_price',
-            side: holdSide === 'long' ? 'sell' : 'buy',
-            tradeSide: 'close',
-            size: tp2Quantity.toString(),
-            orderType: 'market',
+      tpOrderPromises.push({
+        label: 'TP2',
+        price: effectiveTp2Price,
+        quantity: tp2Quantity,
+        promise: supabase.functions.invoke('bitget-api', {
+          body: {
+            action: 'place_plan_order',
+            apiCredentials,
+            params: {
+              symbol: alert_data.symbol,
+              planType: 'normal_plan',
+              triggerPrice: effectiveTp2Price,
+              triggerType: 'mark_price',
+              side: holdSide === 'long' ? 'sell' : 'buy',
+              tradeSide: 'close',
+              size: tp2Quantity.toString(),
+              orderType: 'market',
+            }
           }
-        }
+        })
       });
-      
-      if (tp2Result?.success && tp2Result.data?.orderId) {
-        tp2OrderId = tp2Result.data.orderId;
-        console.log(`✅ TP2 order placed: ${tp2OrderId} at ${effectiveTp2Price}`);
-        await log({
-          functionName: 'bitget-trader',
-          message: 'TP2 order placed successfully',
-          level: 'info',
-          alertId: alert_id,
-          metadata: { orderId: tp2OrderId, price: effectiveTp2Price, quantity: tp2Quantity }
-        });
-      } else {
-        tp2OrderId = null;
-        console.error('❌ Failed to place TP2 order:', JSON.stringify(tp2Result, null, 2));
-        await log({
-          functionName: 'bitget-trader',
-          message: 'Failed to place TP2 order',
-          level: 'error',
-          alertId: alert_id,
-          metadata: { 
-            response: tp2Result,
-            price: effectiveTp2Price,
-            quantity: tp2Quantity
-          }
-        });
-      }
     }
-
+    
     if (effectiveTp3Price && tp3Quantity > 0) {
-      const { data: tp3Result } = await supabase.functions.invoke('bitget-api', {
-        body: {
-          action: 'place_plan_order',
-          apiCredentials,
-          params: {
-            symbol: alert_data.symbol,
-            planType: 'normal_plan',
-            triggerPrice: effectiveTp3Price,
-            triggerType: 'mark_price',
-            side: holdSide === 'long' ? 'sell' : 'buy',
-            tradeSide: 'close',
-            size: tp3Quantity.toString(),
-            orderType: 'market',
+      tpOrderPromises.push({
+        label: 'TP3',
+        price: effectiveTp3Price,
+        quantity: tp3Quantity,
+        promise: supabase.functions.invoke('bitget-api', {
+          body: {
+            action: 'place_plan_order',
+            apiCredentials,
+            params: {
+              symbol: alert_data.symbol,
+              planType: 'normal_plan',
+              triggerPrice: effectiveTp3Price,
+              triggerType: 'mark_price',
+              side: holdSide === 'long' ? 'sell' : 'buy',
+              tradeSide: 'close',
+              size: tp3Quantity.toString(),
+              orderType: 'market',
+            }
           }
-        }
+        })
       });
+    }
+    
+    // Execute all TP orders in parallel with Promise.allSettled (failure of one doesn't block others)
+    const tpStartTime = Date.now();
+    console.log(`🚀 Placing ${tpOrderPromises.length} TP orders in parallel...`);
+    const tpResults = await Promise.allSettled(tpOrderPromises.map(tp => tp.promise));
+    const tpElapsed = Date.now() - tpStartTime;
+    console.log(`⏱️ All TP orders completed in ${tpElapsed}ms (parallel execution)`);
+    latencyMarkers.tp_orders_end = Date.now();
+    
+    // Process results individually - failure of one doesn't block others
+    tpResults.forEach((result, index) => {
+      const tpOrder = tpOrderPromises[index];
       
-      if (tp3Result?.success && tp3Result.data?.orderId) {
-        tp3OrderId = tp3Result.data.orderId;
-        console.log(`✅ TP3 order placed: ${tp3OrderId} at ${effectiveTp3Price}`);
-        await log({
-          functionName: 'bitget-trader',
-          message: 'TP3 order placed successfully',
-          level: 'info',
-          alertId: alert_id,
-          metadata: { orderId: tp3OrderId, price: effectiveTp3Price, quantity: tp3Quantity }
-        });
+      if (result.status === 'fulfilled') {
+        const tpResult = result.value?.data;
+        if (tpResult?.success && tpResult.data?.orderId) {
+          const orderId = tpResult.data.orderId;
+          
+          if (tpOrder.label === 'TP1') tp1OrderId = orderId;
+          else if (tpOrder.label === 'TP2') tp2OrderId = orderId;
+          else if (tpOrder.label === 'TP3') tp3OrderId = orderId;
+          
+          console.log(`✅ ${tpOrder.label} order placed: ${orderId} at ${tpOrder.price}`);
+          log({
+            functionName: 'bitget-trader',
+            message: `${tpOrder.label} order placed successfully`,
+            level: 'info',
+            alertId: alert_id,
+            metadata: { orderId, price: tpOrder.price, quantity: tpOrder.quantity }
+          });
+        } else {
+          console.error(`❌ Failed to place ${tpOrder.label} order:`, JSON.stringify(tpResult, null, 2));
+          log({
+            functionName: 'bitget-trader',
+            message: `Failed to place ${tpOrder.label} order`,
+            level: 'error',
+            alertId: alert_id,
+            metadata: { 
+              response: tpResult,
+              price: tpOrder.price,
+              quantity: tpOrder.quantity
+            }
+          });
+        }
       } else {
-        tp3OrderId = null;
-        console.error('❌ Failed to place TP3 order:', JSON.stringify(tp3Result, null, 2));
-        await log({
+        console.error(`❌ ${tpOrder.label} order promise rejected:`, result.reason);
+        log({
           functionName: 'bitget-trader',
-          message: 'Failed to place TP3 order',
+          message: `${tpOrder.label} order promise rejected`,
           level: 'error',
           alertId: alert_id,
           metadata: { 
-            response: tp3Result,
-            price: effectiveTp3Price,
-            quantity: tp3Quantity
+            error: result.reason,
+            price: tpOrder.price,
+            quantity: tpOrder.quantity
           }
         });
       }
-    }
+    });
 
     // Save position to database
     await log({
@@ -1484,6 +1538,20 @@ serve(async (req) => {
         latency_ms: latencyTotal // Total: TV → Exchange
       })
       .eq('id', alert_id);
+    
+    // Calculate detailed latency breakdown
+    latencyMarkers.end = Date.now();
+    const latencyBreakdown = {
+      total_execution: latencyExecution,
+      request_parse: latencyMarkers.request_parsed ? latencyMarkers.request_parsed - latencyMarkers.start : 0,
+      daily_loss_check: latencyMarkers.daily_loss_check_start && latencyMarkers.account_balance_start ? latencyMarkers.account_balance_start - latencyMarkers.daily_loss_check_start : 0,
+      account_balance: latencyMarkers.account_balance_end && latencyMarkers.account_balance_start ? latencyMarkers.account_balance_end - latencyMarkers.account_balance_start : 0,
+      leverage_check: latencyMarkers.leverage_check_end && latencyMarkers.leverage_check_start ? latencyMarkers.leverage_check_end - latencyMarkers.leverage_check_start : 0,
+      minimums_check: latencyMarkers.minimums_check_end && latencyMarkers.minimums_check_start ? latencyMarkers.minimums_check_end - latencyMarkers.minimums_check_start : 0,
+      order_placement: latencyMarkers.order_placed && latencyMarkers.minimums_check_end ? latencyMarkers.order_placed - latencyMarkers.minimums_check_end : 0,
+      precision_check: latencyMarkers.precision_check_end && latencyMarkers.precision_check_start ? latencyMarkers.precision_check_end - latencyMarkers.precision_check_start : 0,
+      tp_orders: latencyMarkers.tp_orders_end && latencyMarkers.tp_orders_start ? latencyMarkers.tp_orders_end - latencyMarkers.tp_orders_start : 0
+    };
 
     await log({
       functionName: 'bitget-trader',
@@ -1495,6 +1563,7 @@ serve(async (req) => {
         positionId: position.id,
         latency_execution_ms: latencyExecution,
         latency_total_ms: latencyTotal,
+        latency_breakdown: latencyBreakdown,
         orderId,
         symbol: alert_data.symbol,
         side: alert_data.side,
@@ -1503,6 +1572,19 @@ serve(async (req) => {
         entryPrice: alert_data.price
       }
     });
+    
+    // Log detailed breakdown to console
+    console.log('\n📊 LATENCY BREAKDOWN:');
+    console.log(`   Total execution: ${latencyExecution}ms`);
+    console.log(`   - Request parse: ${latencyBreakdown.request_parse}ms`);
+    console.log(`   - Daily loss check: ${latencyBreakdown.daily_loss_check}ms`);
+    console.log(`   - Account balance: ${latencyBreakdown.account_balance}ms`);
+    console.log(`   - Leverage check: ${latencyBreakdown.leverage_check}ms`);
+    console.log(`   - Minimums check: ${latencyBreakdown.minimums_check}ms`);
+    console.log(`   - Order placement: ${latencyBreakdown.order_placement}ms`);
+    console.log(`   - Precision check: ${latencyBreakdown.precision_check}ms`);
+    console.log(`   - TP orders (parallel): ${latencyBreakdown.tp_orders}ms`);
+    
     console.log('Position opened successfully:', position.id);
 
     return new Response(JSON.stringify({ 
