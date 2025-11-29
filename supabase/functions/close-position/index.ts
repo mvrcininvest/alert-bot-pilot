@@ -394,6 +394,76 @@ serve(async (req) => {
     });
     console.log('Position closed successfully:', position_id, 'PnL:', realizedPnl);
 
+    // Wait for Bitget to process the position into history
+    await new Promise(resolve => setTimeout(resolve, 3000));
+
+    // Fetch accurate data from Bitget history
+    await log({
+      functionName: 'close-position',
+      message: 'Syncing with Bitget position history',
+      level: 'info',
+      positionId: position_id
+    });
+
+    try {
+      const { data: historyResult } = await supabase.functions.invoke('bitget-api', {
+        body: {
+          action: 'get_position_history',
+          params: { 
+            startTime: (Date.now() - 120000).toString(), // Last 2 minutes
+            endTime: Date.now().toString(),
+            pageSize: '20'
+          },
+          apiCredentials
+        }
+      });
+
+      if (historyResult?.success && historyResult.data?.list?.length > 0) {
+        // Find the matching position
+        const bitgetPosition = historyResult.data.list.find((p: any) => 
+          p.symbol === position.symbol && 
+          p.holdSide === (position.side === 'BUY' ? 'long' : 'short') &&
+          Math.abs(Number(p.utime) - Date.now()) < 120000 // Within last 2 minutes
+        );
+        
+        if (bitgetPosition) {
+          // Update with accurate Bitget data
+          await supabase.from('positions').update({
+            entry_price: Number(bitgetPosition.openAvgPrice),
+            close_price: Number(bitgetPosition.closeAvgPrice),
+            quantity: Number(bitgetPosition.total),
+            realized_pnl: Number(bitgetPosition.netProfit),
+            closed_at: new Date(Number(bitgetPosition.utime)).toISOString(),
+            metadata: {
+              ...position.metadata,
+              synced_from_bitget: true,
+              sync_time: new Date().toISOString()
+            }
+          }).eq('id', position_id);
+
+          await log({
+            functionName: 'close-position',
+            message: 'Position synced with Bitget history',
+            level: 'info',
+            positionId: position_id,
+            metadata: { 
+              bitgetEntryPrice: bitgetPosition.openAvgPrice,
+              bitgetClosePrice: bitgetPosition.closeAvgPrice,
+              bitgetPnl: bitgetPosition.netProfit
+            }
+          });
+        }
+      }
+    } catch (syncError) {
+      await log({
+        functionName: 'close-position',
+        message: 'Failed to sync with Bitget history (non-critical)',
+        level: 'warn',
+        positionId: position_id,
+        metadata: { error: syncError instanceof Error ? syncError.message : 'Unknown' }
+      });
+    }
+
     return new Response(JSON.stringify({ 
       success: true, 
       realized_pnl: realizedPnl,
