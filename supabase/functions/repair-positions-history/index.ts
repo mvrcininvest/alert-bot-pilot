@@ -221,43 +221,37 @@ Deno.serve(async (req) => {
     const toDelete = (dbPositions || []).filter(p => !verifiedIds.has(p.id));
     
     if (toDelete.length > 0) {
-      // Log deletions
+      await log({
+        functionName: FUNCTION_NAME,
+        level: "warn",
+        message: `🗑️ Starting deletion of ${toDelete.length} duplicate/orphan positions`,
+      });
+
+      // Delete one by one to avoid timeout
+      let deletedCount = 0;
       for (const pos of toDelete) {
-        await log({
-          functionName: FUNCTION_NAME,
-          level: "warn",
-          message: `🗑️ Deleting duplicate/orphan position: ${pos.symbol} ${pos.side}`,
-          metadata: {
+        const { error: deleteError } = await supabase
+          .from("positions")
+          .delete()
+          .eq("id", pos.id);
+
+        if (!deleteError) {
+          deletedCount++;
+        } else {
+          await log({
+            functionName: FUNCTION_NAME,
+            level: "error",
+            message: `Failed to delete position ${pos.id}`,
+            metadata: { error: deleteError.message, symbol: pos.symbol, side: pos.side },
             positionId: pos.id,
-            symbol: pos.symbol,
-            side: pos.side,
-            closedAt: pos.closed_at,
-            realizedPnl: pos.realized_pnl,
-            closeReason: pos.close_reason,
-          },
-          positionId: pos.id,
-        });
-      }
-
-      const { error: deleteError } = await supabase
-        .from("positions")
-        .delete()
-        .in("id", toDelete.map(p => p.id));
-
-      if (deleteError) {
-        await log({
-          functionName: FUNCTION_NAME,
-          level: "error",
-          message: "Failed to delete positions",
-          metadata: { error: deleteError.message },
-        });
-        throw deleteError;
+          });
+        }
       }
 
       await log({
         functionName: FUNCTION_NAME,
         level: "info",
-        message: `🗑️ Deleted ${toDelete.length} duplicate/orphan positions`,
+        message: `🗑️ Deleted ${deletedCount} of ${toDelete.length} duplicate/orphan positions`,
       });
     }
 
