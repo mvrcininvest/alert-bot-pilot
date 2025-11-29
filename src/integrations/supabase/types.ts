@@ -777,10 +777,12 @@ export type Database = {
           excluded_tiers: string[] | null
           filter_by_tier: boolean | null
           id: string
+          include_fees_in_calculations: boolean | null
           loss_limit_type: string | null
           max_loss_per_trade: number | null
           max_margin_per_trade: number | null
           max_open_positions: number | null
+          min_profitable_tp_percent: number | null
           momentum_based_tp: boolean | null
           momentum_moderate_multiplier: number | null
           momentum_strong_multiplier: number | null
@@ -803,6 +805,7 @@ export type Database = {
           sl_to_breakeven: boolean | null
           sltp_mode: Database["public"]["Enums"]["settings_mode"] | null
           symbol_leverage_overrides: Json | null
+          taker_fee_rate: number | null
           tier_mode: Database["public"]["Enums"]["settings_mode"] | null
           tp_levels: number | null
           tp_strategy: Database["public"]["Enums"]["tp_strategy"] | null
@@ -848,10 +851,12 @@ export type Database = {
           excluded_tiers?: string[] | null
           filter_by_tier?: boolean | null
           id?: string
+          include_fees_in_calculations?: boolean | null
           loss_limit_type?: string | null
           max_loss_per_trade?: number | null
           max_margin_per_trade?: number | null
           max_open_positions?: number | null
+          min_profitable_tp_percent?: number | null
           momentum_based_tp?: boolean | null
           momentum_moderate_multiplier?: number | null
           momentum_strong_multiplier?: number | null
@@ -874,6 +879,7 @@ export type Database = {
           sl_to_breakeven?: boolean | null
           sltp_mode?: Database["public"]["Enums"]["settings_mode"] | null
           symbol_leverage_overrides?: Json | null
+          taker_fee_rate?: number | null
           tier_mode?: Database["public"]["Enums"]["settings_mode"] | null
           tp_levels?: number | null
           tp_strategy?: Database["public"]["Enums"]["tp_strategy"] | null
@@ -919,10 +925,12 @@ export type Database = {
           excluded_tiers?: string[] | null
           filter_by_tier?: boolean | null
           id?: string
+          include_fees_in_calculations?: boolean | null
           loss_limit_type?: string | null
           max_loss_per_trade?: number | null
           max_margin_per_trade?: number | null
           max_open_positions?: number | null
+          min_profitable_tp_percent?: number | null
           momentum_based_tp?: boolean | null
           momentum_moderate_multiplier?: number | null
           momentum_strong_multiplier?: number | null
@@ -945,6 +953,7 @@ export type Database = {
           sl_to_breakeven?: boolean | null
           sltp_mode?: Database["public"]["Enums"]["settings_mode"] | null
           symbol_leverage_overrides?: Json | null
+          taker_fee_rate?: number | null
           tier_mode?: Database["public"]["Enums"]["settings_mode"] | null
           tp_levels?: number | null
           tp_strategy?: Database["public"]["Enums"]["tp_strategy"] | null
