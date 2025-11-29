@@ -98,6 +98,7 @@ interface RRSimulation {
   grossProfit: number;
   netProfit: number;
   realRR: number;
+  closePct: number;
 }
 
 interface Recommendation {
@@ -170,9 +171,9 @@ export function FeeCalculator({
   const totalTrades = seriesWins + seriesLosses;
   const winRate = totalTrades > 0 ? (seriesWins / totalTrades) * 100 : 0;
   
-  // Calculate expected PnL from trade series
-  const avgWinProfit = rrSimulation[0]?.netProfit || 0;
-  const totalPnL = (seriesWins * avgWinProfit) - (seriesLosses * calculations.realMaxLoss);
+  // Calculate expected PnL from trade series - sum all TP levels
+  const totalWinProfit = rrSimulation.reduce((sum, sim) => sum + sim.netProfit, 0);
+  const totalPnL = (seriesWins * totalWinProfit) - (seriesLosses * calculations.realMaxLoss);
   const expectedPerTrade = totalTrades > 0 ? totalPnL / totalTrades : 0;
   const maxDrawdown = seriesLosses * calculations.realMaxLoss;
 
@@ -261,18 +262,27 @@ export function FeeCalculator({
     // Calculate SL percentage
     const slPercent = maxLoss / notional;
 
-    // Simulate R:R for configured number of TPs
+    // Simulate R:R for configured number of TPs with closePct
     const tpRatios = [
-      { tp: "TP1", ratio: tp1RrRatio },
-      { tp: "TP2", ratio: tp2RrRatio },
-      { tp: "TP3", ratio: tp3RrRatio },
+      { tp: "TP1", ratio: tp1RrRatio, closePct: tp1ClosePct ?? (tpLevels === 1 ? 100 : 50) },
+      { tp: "TP2", ratio: tp2RrRatio, closePct: tp2ClosePct ?? (tpLevels === 2 ? 50 : 30) },
+      { tp: "TP3", ratio: tp3RrRatio, closePct: tp3ClosePct ?? 20 },
     ].slice(0, tpLevels); // Only show configured number of TPs
 
-    const simulation: RRSimulation[] = tpRatios.map(({ tp, ratio }) => {
+    const simulation: RRSimulation[] = tpRatios.map(({ tp, ratio, closePct }) => {
       const tpPercent = slPercent * ratio;
-      const grossProfit = notional * tpPercent;
-      const netProfit = grossProfit - roundTripFees;
-      const realRR = netProfit / realMaxLoss;
+      const positionPart = closePct / 100;
+      
+      // Gross profit proportional to closed position part
+      const grossProfit = notional * tpPercent * positionPart;
+      
+      // Fees proportional to closed position part
+      const exitFee = notional * positionPart * feeRate;
+      const entryFeeForPart = notional * positionPart * feeRate;
+      const feesForPart = entryFeeForPart + exitFee;
+      
+      const netProfit = grossProfit - feesForPart;
+      const realRR = netProfit / (maxLoss * positionPart + feesForPart);
 
       return {
         tp,
@@ -282,6 +292,7 @@ export function FeeCalculator({
         grossProfit,
         netProfit,
         realRR,
+        closePct,
       };
     });
 
@@ -333,7 +344,7 @@ export function FeeCalculator({
     }
 
     setRecommendations(newRecommendations);
-  }, [margin, leverage, maxLoss, tp1RrRatio, tp2RrRatio, tp3RrRatio, tpLevels, takerFeeRate, onMarginChange, onLeverageChange, onTP1RRChange]);
+  }, [margin, leverage, maxLoss, tp1RrRatio, tp2RrRatio, tp3RrRatio, tpLevels, tp1ClosePct, tp2ClosePct, tp3ClosePct, slPercent, entryPrice, takerFeeRate, onMarginChange, onLeverageChange, onTP1RRChange]);
 
   const hasLowRR = rrSimulation.some((sim) => sim.realRR < 1);
   const hasHighFeeImpact = calculations.feeImpactPercent > 50;
@@ -1123,6 +1134,7 @@ export function FeeCalculator({
             <TableHeader>
               <TableRow>
                 <TableHead>TP</TableHead>
+                <TableHead>Close %</TableHead>
                 <TableHead>Math R:R</TableHead>
                 <TableHead>Gross PnL</TableHead>
                 <TableHead>Net PnL</TableHead>
@@ -1133,6 +1145,7 @@ export function FeeCalculator({
               {rrSimulation.map((sim) => (
                 <TableRow key={sim.tp}>
                   <TableCell className="font-medium">{sim.tp}</TableCell>
+                  <TableCell>{sim.closePct}%</TableCell>
                   <TableCell>{sim.mathRR}</TableCell>
                   <TableCell>+{sim.grossProfit.toFixed(2)}</TableCell>
                   <TableCell className={sim.netProfit >= 0 ? "text-green-600" : "text-red-600"}>
@@ -1143,8 +1156,44 @@ export function FeeCalculator({
                   </TableCell>
                 </TableRow>
               ))}
+              {tpLevels > 1 && (() => {
+                const totalGrossProfit = rrSimulation.reduce((sum, sim) => sum + sim.grossProfit, 0);
+                const totalNetProfit = rrSimulation.reduce((sum, sim) => sum + sim.netProfit, 0);
+                const totalClosePct = rrSimulation.reduce((sum, sim) => sum + sim.closePct, 0);
+                const combinedRealRR = totalNetProfit / calculations.realMaxLoss;
+                
+                return (
+                  <TableRow className="font-semibold bg-muted/30 border-t-2">
+                    <TableCell>SUMA</TableCell>
+                    <TableCell className={totalClosePct !== 100 ? "text-destructive" : ""}>
+                      {totalClosePct}%
+                    </TableCell>
+                    <TableCell>-</TableCell>
+                    <TableCell>+{totalGrossProfit.toFixed(2)}</TableCell>
+                    <TableCell className={totalNetProfit >= 0 ? "text-green-600" : "text-red-600"}>
+                      {totalNetProfit >= 0 ? '+' : ''}{totalNetProfit.toFixed(2)}
+                    </TableCell>
+                    <TableCell className={combinedRealRR >= 1 ? "" : "text-red-600"}>
+                      {combinedRealRR.toFixed(2)}:1
+                    </TableCell>
+                  </TableRow>
+                );
+              })()}
             </TableBody>
           </Table>
+
+          {/* Close % validation warning */}
+          {tpLevels > 1 && (() => {
+            const totalClosePct = rrSimulation.reduce((sum, sim) => sum + sim.closePct, 0);
+            return totalClosePct !== 100 && (
+              <Alert variant="destructive">
+                <AlertTriangle className="h-4 w-4" />
+                <AlertDescription>
+                  <strong>Błąd Close %!</strong> Suma Close % = {totalClosePct}%. Powinno być dokładnie 100%!
+                </AlertDescription>
+              </Alert>
+            );
+          })()}
 
           {/* Warnings */}
           {hasLowRR && (
