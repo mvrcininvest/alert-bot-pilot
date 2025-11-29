@@ -16,6 +16,28 @@ interface Position {
   tp1_filled: boolean | null;
   tp2_filled: boolean | null;
   tp3_filled: boolean | null;
+  alert?: {
+    id?: string;
+    tier?: string;
+    mode?: string;
+    strength?: number;
+    atr?: number;
+    tp1?: number;
+    tp2?: number;
+    tp3?: number;
+  };
+  metadata?: {
+    settings_snapshot?: {
+      position_sizing_type?: string;
+      max_margin_per_trade?: number;
+      max_loss_per_trade?: number;
+    };
+    mm_data?: {
+      position_sizing_type?: string;
+      margin_bucket?: string;
+      symbol_category?: string;
+    };
+  };
 }
 
 export function exportToCSV(positions: Position[], filename: string = "trading-stats") {
@@ -33,6 +55,16 @@ export function exportToCSV(positions: Position[], filename: string = "trading-s
     "TP2",
     "TP3",
     "Czas trwania (min)",
+    "Alert ID",
+    "Alert Tier",
+    "Alert Mode",
+    "Alert Strength",
+    "Alert ATR",
+    "Alert TP1",
+    "Alert TP2",
+    "Alert TP3",
+    "MM Position Sizing Type",
+    "MM Margin Used",
   ];
 
   const rows = positions.map(p => {
@@ -40,6 +72,9 @@ export function exportToCSV(positions: Position[], filename: string = "trading-s
       ? ((new Date(p.closed_at).getTime() - new Date(p.created_at).getTime()) / (1000 * 60)).toFixed(0)
       : "N/A";
 
+    const marginUsed = p.metadata?.settings_snapshot?.max_margin_per_trade 
+      || (p.entry_price * p.quantity / p.leverage);
+    
     return [
       p.closed_at ? format(new Date(p.closed_at), "yyyy-MM-dd HH:mm:ss", { locale: pl }) : "N/A",
       p.symbol,
@@ -54,6 +89,16 @@ export function exportToCSV(positions: Position[], filename: string = "trading-s
       p.tp2_filled ? "TAK" : "NIE",
       p.tp3_filled ? "TAK" : "NIE",
       duration,
+      p.alert?.id || "N/A",
+      p.alert?.tier || "N/A",
+      p.alert?.mode || "N/A",
+      p.alert?.strength?.toFixed(2) || "N/A",
+      p.alert?.atr?.toFixed(4) || "N/A",
+      p.alert?.tp1?.toFixed(8) || "N/A",
+      p.alert?.tp2?.toFixed(8) || "N/A",
+      p.alert?.tp3?.toFixed(8) || "N/A",
+      p.metadata?.settings_snapshot?.position_sizing_type || p.metadata?.mm_data?.position_sizing_type || "N/A",
+      marginUsed.toFixed(2),
     ];
   });
 
