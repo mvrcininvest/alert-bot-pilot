@@ -514,13 +514,14 @@ export default function History() {
                   <TableHead>Otwarcie</TableHead>
                   <TableHead>Zamknięcie</TableHead>
                   <TableHead>Czas</TableHead>
+                  <TableHead>Latencja Total</TableHead>
                   <TableHead>Alert</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {isLoading ? (
                   <TableRow>
-                    <TableCell colSpan={15} className="text-center py-8">
+                    <TableCell colSpan={19} className="text-center py-8">
                       Ładowanie...
                     </TableCell>
                   </TableRow>
@@ -609,6 +610,15 @@ export default function History() {
                           {position.closed_at ? format(new Date(position.closed_at), "dd.MM.yyyy HH:mm:ss") : "-"}
                         </TableCell>
                         <TableCell className="text-xs">{duration}min</TableCell>
+                        <TableCell className={cn("text-xs", {
+                          "text-profit": alert?.latency_ms && alert.latency_ms < 10000,
+                          "text-warning": alert?.latency_ms && alert.latency_ms >= 10000 && alert.latency_ms < 20000,
+                          "text-loss": alert?.latency_ms && alert.latency_ms >= 20000
+                        })}>
+                          {alert?.latency_ms 
+                            ? `${(alert.latency_ms / 1000).toFixed(1)}s` 
+                            : "-"}
+                        </TableCell>
                         <TableCell>
                           {alert ? (
                             <Dialog>
