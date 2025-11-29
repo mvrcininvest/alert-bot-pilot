@@ -167,9 +167,10 @@ export default function Settings() {
       
       if (error) throw error;
       
-      if (data && Array.isArray(data)) {
+      // FIXED: Check data.success and data.data instead of Array.isArray(data)
+      if (data?.success && Array.isArray(data.data)) {
         // Find USDT account
-        const usdtAccount = data.find((acc: any) => acc.marginCoin === 'USDT');
+        const usdtAccount = data.data.find((acc: any) => acc.marginCoin === 'USDT');
         if (usdtAccount && usdtAccount.available) {
           const balance = parseFloat(usdtAccount.available);
           setAccountBalance(balance);
@@ -184,6 +185,8 @@ export default function Settings() {
             variant: "destructive",
           });
         }
+      } else if (!data?.success) {
+        throw new Error(data?.error || 'API returned unsuccessful response');
       }
     } catch (error: any) {
       toast({
@@ -194,6 +197,11 @@ export default function Settings() {
     } finally {
       setIsFetchingBalance(false);
     }
+  };
+
+  // Refresh trading statistics
+  const refreshTradingStats = async () => {
+    await queryClient.invalidateQueries({ queryKey: ['trading-stats'] });
   };
 
   if (isLoading) {
@@ -1039,11 +1047,13 @@ export default function Settings() {
                       onTP1RRChange={(value) => updateLocal("tp1_rr_ratio", value)}
                       onTP2RRChange={(value) => updateLocal("tp2_rr_ratio", value)}
                       onTP3RRChange={(value) => updateLocal("tp3_rr_ratio", value)}
-                      onAccountBalanceChange={setAccountBalance}
-                      onFetchBalance={fetchAccountBalance}
-                      isFetchingBalance={isFetchingBalance}
-                      tradingStats={tradingStats}
-                      currentSettings={{
+              onAccountBalanceChange={setAccountBalance}
+              onFetchBalance={fetchAccountBalance}
+              isFetchingBalance={isFetchingBalance}
+              tradingStats={tradingStats}
+              onRefreshStats={refreshTradingStats}
+              isRefreshingStats={statsLoading}
+              currentSettings={{
                         positionSizingType: localSettings.position_sizing_type,
                         tpLevels: localSettings.tp_levels,
                         slMethod: localSettings.sl_method,

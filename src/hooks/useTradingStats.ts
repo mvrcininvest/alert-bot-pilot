@@ -113,6 +113,6 @@ export function useTradingStats() {
         leverageStats: leverageStats || [],
       };
     },
-    staleTime: 5 * 60 * 1000, // Cache for 5 minutes
+    staleTime: 2 * 60 * 1000, // Cache for 2 minutes
   });
 }

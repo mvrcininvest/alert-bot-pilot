@@ -299,6 +299,8 @@ export default function UserSettings() {
         onTP3RRChange={localSettings.money_mode !== 'copy_admin' ? (value) => updateLocal("tp3_rr_ratio", value) : () => {}}
         onAccountBalanceChange={() => {}}
         tradingStats={undefined}
+        onRefreshStats={undefined}
+        isRefreshingStats={false}
         currentSettings={{
           positionSizingType: 'scalping_mode',
           tpLevels: localSettings.tp_levels || 1,

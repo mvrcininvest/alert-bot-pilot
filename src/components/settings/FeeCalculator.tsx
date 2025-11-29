@@ -9,6 +9,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { AlertTriangle, TrendingUp, TrendingDown, RefreshCw, BarChart3, Target, Shield, Zap, Calculator } from "lucide-react";
 import { TradingStats } from "@/hooks/useTradingStats";
+import { cn } from "@/lib/utils";
 
 interface FeeCalculatorProps {
   // Editable parameters
@@ -36,6 +37,8 @@ interface FeeCalculatorProps {
   
   // Trading statistics
   tradingStats?: TradingStats;
+  onRefreshStats?: () => void;
+  isRefreshingStats?: boolean;
   
   // Current bot settings
   currentSettings?: {
@@ -99,6 +102,8 @@ export function FeeCalculator({
   onFetchBalance,
   isFetchingBalance = false,
   tradingStats,
+  onRefreshStats,
+  isRefreshingStats = false,
   currentSettings,
 }: FeeCalculatorProps) {
   const [calculations, setCalculations] = useState<Calculations>({
@@ -391,9 +396,22 @@ export function FeeCalculator({
           {/* Trading Statistics */}
           {tradingStats && tradingStats.totalTrades > 0 && (
             <div className="p-4 bg-primary/5 border border-primary/20 rounded-lg space-y-3">
-              <div className="flex items-center gap-2 mb-3">
-                <BarChart3 className="w-5 h-5 text-primary" />
-                <h4 className="font-semibold">📊 TWOJE STATYSTYKI TRADINGU ({tradingStats.totalTrades} tradeów)</h4>
+              <div className="flex items-center justify-between mb-3">
+                <div className="flex items-center gap-2">
+                  <BarChart3 className="w-5 h-5 text-primary" />
+                  <h4 className="font-semibold">📊 TWOJE STATYSTYKI TRADINGU ({tradingStats.totalTrades} tradeów)</h4>
+                </div>
+                {onRefreshStats && (
+                  <Button 
+                    variant="outline" 
+                    size="sm"
+                    onClick={onRefreshStats}
+                    disabled={isRefreshingStats}
+                  >
+                    <RefreshCw className={`w-4 h-4 mr-2 ${isRefreshingStats ? 'animate-spin' : ''}`} />
+                    Odśwież
+                  </Button>
+                )}
               </div>
               
               <div className="space-y-2">
