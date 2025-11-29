@@ -1389,7 +1389,9 @@ serve(async (req) => {
           alert_data: alert_data,
           effective_leverage: effectiveLeverage,
           leverage_source: settings.use_alert_leverage !== false && alert_data.leverage ? 'alert' : 
-                          ((settings.symbol_leverage_overrides || {})[alert_data.symbol] ? 'custom' : 'default')
+                          ((settings.symbol_leverage_overrides || {})[alert_data.symbol] ? 'custom' : 'default'),
+          original_quantity: quantity,  // Preserve original calculated quantity
+          original_margin: (quantity * alert_data.price) / effectiveLeverage,  // Preserve original margin
         }
       })
       .select()
