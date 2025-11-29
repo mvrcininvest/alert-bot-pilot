@@ -985,6 +985,7 @@ export default function Settings() {
                       tp3RrRatio={localSettings.tp3_rr_ratio ?? 3.5}
                       tpLevels={localSettings.tp_levels ?? 1}
                       feeAwareBreakeven={localSettings.fee_aware_breakeven ?? true}
+                      accountBalance={100}
                       onMarginChange={(value) => updateLocal("max_margin_per_trade", value)}
                       onLeverageChange={(value) => updateLocal("default_leverage", value)}
                       onMaxLossChange={(value) => updateLocal("max_loss_per_trade", value)}
@@ -993,6 +994,7 @@ export default function Settings() {
                       onTP3RRChange={(value) => updateLocal("tp3_rr_ratio", value)}
                       onTPLevelsChange={(value) => updateLocal("tp_levels", value)}
                       onFeeAwareBreakevenChange={(value) => updateLocal("fee_aware_breakeven", value)}
+                      onAccountBalanceChange={() => {}}
                     />
                   </CardContent>
                 </Card>
