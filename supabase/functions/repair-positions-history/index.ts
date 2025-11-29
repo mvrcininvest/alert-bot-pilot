@@ -1,45 +1,39 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { corsHeaders } from "../_shared/cors.ts";
 import { log } from "../_shared/logger.ts";
+import { getUserApiKeys } from "../_shared/userKeys.ts";
 
 const FUNCTION_NAME = "repair-positions-history";
 
 interface BitgetHistoryPosition {
   symbol: string;
-  closeProfit: string;
-  openPriceAvg: string;
+  netProfit: string;
+  openAvgPrice: string;
   closeAvgPrice: string;
-  cTime: string;
-  uTime: string;
-  side: string;
-  size: string;
+  ctime: string;
+  utime: string;
+  holdSide: string;
+  total: string;
   leverage: string;
 }
 
 async function getBitgetHistory(
-  apiKey: string,
-  secretKey: string,
-  passphrase: string,
+  apiCredentials: { apiKey: string; secretKey: string; passphrase: string },
+  supabase: any,
   startTime: number,
   endTime: number
 ): Promise<{ list: BitgetHistoryPosition[] }> {
-  const supabaseUrl = Deno.env.get("SUPABASE_URL");
-  const supabaseAnonKey = Deno.env.get("SUPABASE_ANON_KEY");
-  
-  const { data, error } = await createClient(supabaseUrl!, supabaseAnonKey!)
-    .functions.invoke("bitget-api", {
-      body: {
-        action: "get_history",
-        params: {
-          productType: "USDT-FUTURES",
-          startTime: startTime.toString(),
-          endTime: endTime.toString(),
-        },
-        apiKey,
-        secretKey,
-        passphrase,
+  const { data, error } = await supabase.functions.invoke("bitget-api", {
+    body: {
+      action: "get_position_history",
+      params: {
+        startTime: startTime.toString(),
+        endTime: endTime.toString(),
+        pageSize: "100"
       },
-    });
+      apiCredentials
+    },
+  });
 
   if (error) throw error;
   if (!data.success) throw new Error(data.error || "Failed to fetch history");
@@ -76,25 +70,17 @@ Deno.serve(async (req) => {
       throw new Error("Unauthorized");
     }
 
-    // Get user's API keys
-    const { data: apiKeyData, error: apiKeyError } = await supabase
-      .from("user_api_keys")
-      .select("*")
-      .eq("user_id", user.id)
-      .eq("is_active", true)
-      .single();
-
-    if (apiKeyError || !apiKeyData) {
+    // Get user's API keys (decrypted)
+    const userKeys = await getUserApiKeys(user.id);
+    if (!userKeys) {
       throw new Error("No active API keys found");
     }
 
-    const encryptionKey = Deno.env.get("ENCRYPTION_KEY");
-    if (!encryptionKey) throw new Error("Encryption key not configured");
-
-    // Decrypt API keys (simplified - in production use proper decryption)
-    const apiKey = apiKeyData.api_key_encrypted;
-    const secretKey = apiKeyData.secret_key_encrypted;
-    const passphrase = apiKeyData.passphrase_encrypted;
+    const apiCredentials = {
+      apiKey: userKeys.apiKey,
+      secretKey: userKeys.secretKey,
+      passphrase: userKeys.passphrase
+    };
 
     // Fetch all closed positions from DB for this user
     const { data: dbPositions, error: dbError } = await supabase
@@ -125,22 +111,36 @@ Deno.serve(async (req) => {
     });
 
     while (hasMore) {
-      const result = await getBitgetHistory(apiKey, secretKey, passphrase, startTime, endTime);
+      const { data, error } = await supabase.functions.invoke("bitget-api", {
+        body: {
+          action: "get_position_history",
+          params: {
+            startTime: startTime.toString(),
+            endTime: endTime.toString(),
+            pageSize: "100"
+          },
+          apiCredentials
+        },
+      });
+
+      if (error || !data?.success) {
+        throw new Error(data?.error || error?.message || "Failed to fetch history");
+      }
       
-      if (result.list && result.list.length > 0) {
-        allBitgetPositions.push(...result.list);
+      if (data.data?.list && data.data.list.length > 0) {
+        allBitgetPositions.push(...data.data.list);
         await log({
           functionName: FUNCTION_NAME,
           level: "info",
-          message: `📥 Fetched ${result.list.length} positions (total: ${allBitgetPositions.length})`,
+          message: `📥 Fetched ${data.data.list.length} positions (total: ${allBitgetPositions.length})`,
         });
         
-        if (result.list.length < 100) {
+        if (data.data.list.length < 100) {
           hasMore = false;
         } else {
           // Use time of last position as new endTime
-          const lastPosition = result.list[result.list.length - 1];
-          endTime = parseInt(lastPosition.cTime) - 1;
+          const lastPosition = data.data.list[data.data.list.length - 1];
+          endTime = Number(lastPosition.ctime) - 1;
         }
       } else {
         hasMore = false;
@@ -158,8 +158,8 @@ Deno.serve(async (req) => {
     let updatedCount = 0;
 
     for (const bitgetPos of allBitgetPositions) {
-      const bitgetCloseTime = parseInt(bitgetPos.uTime);
-      const bitgetSide = bitgetPos.side.toUpperCase() === "BUY_SINGLE" ? "BUY" : "SELL";
+      const bitgetCloseTime = Number(bitgetPos.utime);
+      const bitgetSide = bitgetPos.holdSide === 'long' ? 'BUY' : 'SELL';
 
       // Find all potential matches in DB
       const candidates = (dbPositions || []).filter(db => {
@@ -190,12 +190,18 @@ Deno.serve(async (req) => {
         const { error: updateError } = await supabase
           .from("positions")
           .update({
-            entry_price: parseFloat(bitgetPos.openPriceAvg),
-            close_price: parseFloat(bitgetPos.closeAvgPrice),
-            realized_pnl: parseFloat(bitgetPos.closeProfit),
-            quantity: parseFloat(bitgetPos.size),
-            leverage: parseInt(bitgetPos.leverage),
+            entry_price: Number(bitgetPos.openAvgPrice),
+            close_price: Number(bitgetPos.closeAvgPrice),
+            realized_pnl: Number(bitgetPos.netProfit),
+            quantity: Number(bitgetPos.total),
+            leverage: Number(bitgetPos.leverage),
+            closed_at: new Date(bitgetCloseTime).toISOString(),
             updated_at: new Date().toISOString(),
+            metadata: {
+              ...bestMatch.metadata,
+              synced_from_bitget: true,
+              sync_time: new Date().toISOString()
+            }
           })
           .eq("id", bestMatch.id);
 
