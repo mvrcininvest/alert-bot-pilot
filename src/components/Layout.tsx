@@ -216,25 +216,25 @@ export function Layout({ children }: { children: React.ReactNode }) {
     <div className="min-h-screen">
       {/* Top Navigation Bar */}
       <header className="fixed top-0 left-0 right-0 z-50 glass-card border-b">
-        <div className="flex h-16 items-center justify-between px-6">
+        <div className="flex h-16 items-center justify-between px-4">
           {/* Logo */}
-          <div className="flex items-center gap-8">
-            <img src={logoAristoEdge} alt="AristoEdge" className="h-12 w-auto object-contain" />
+          <div className="flex items-center gap-3">
+            <img src={logoAristoEdge} alt="AristoEdge" className="h-10 w-auto object-contain" />
 
             {/* Navigation - only show if user has API keys */}
             {!showSimplifiedLayout && (
               <TooltipProvider delayDuration={300}>
-                <nav className="hidden lg:flex items-center gap-1">
+                <nav className="hidden lg:flex items-center gap-0.5">
                   {navigation.map((item) => (
                     <Tooltip key={item.name}>
                       <TooltipTrigger asChild>
                         <NavLink
                           to={item.href}
-                          className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium text-muted-foreground transition-all hover:text-foreground hover:bg-secondary/50"
+                          className="flex items-center gap-1.5 px-2.5 py-2 rounded-lg text-xs font-medium text-muted-foreground transition-all hover:text-foreground hover:bg-secondary/50"
                           activeClassName="text-primary bg-primary/10 hover:bg-primary/15"
                         >
-                          <item.icon className="h-4 w-4" />
-                          <span className="hidden xl:inline">{item.name}</span>
+                          <item.icon className="h-3.5 w-3.5" />
+                          <span className="hidden xl:inline whitespace-nowrap">{item.name}</span>
                         </NavLink>
                       </TooltipTrigger>
                       <TooltipContent>
@@ -249,11 +249,11 @@ export function Layout({ children }: { children: React.ReactNode }) {
                       <TooltipTrigger asChild>
                         <NavLink
                           to={item.href}
-                          className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium text-muted-foreground transition-all hover:text-foreground hover:bg-secondary/50 border-l border-border/50 ml-1 pl-4"
+                          className="flex items-center gap-1.5 px-2.5 py-2 rounded-lg text-xs font-medium text-muted-foreground transition-all hover:text-foreground hover:bg-secondary/50 border-l border-border/50 ml-0.5 pl-2.5"
                           activeClassName="text-primary bg-primary/10 hover:bg-primary/15"
                         >
-                          <item.icon className="h-4 w-4" />
-                          <span className="hidden xl:inline">{item.name}</span>
+                          <item.icon className="h-3.5 w-3.5" />
+                          <span className="hidden xl:inline whitespace-nowrap">{item.name}</span>
                         </NavLink>
                       </TooltipTrigger>
                       <TooltipContent>
@@ -267,30 +267,28 @@ export function Layout({ children }: { children: React.ReactNode }) {
           </div>
 
           {/* Right side - User Info & Actions */}
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2">
             {/* User Info */}
-            <div className="hidden lg:flex items-center gap-2 px-2 py-1.5 rounded-lg bg-secondary/50 border border-border/50">
-              <Avatar className="h-6 w-6">
-                <AvatarFallback className="text-[10px] font-semibold bg-primary text-primary-foreground">
+            <div className="hidden lg:flex items-center gap-1.5 px-2 py-1 rounded-lg bg-secondary/50 border border-border/50">
+              <Avatar className="h-5 w-5">
+                <AvatarFallback className="text-[9px] font-semibold bg-primary text-primary-foreground">
                   {initials}
                 </AvatarFallback>
               </Avatar>
-              <div className="flex flex-col gap-0">
-                <div className="flex items-center gap-1.5">
-                  <span className="text-xs font-medium text-foreground">{displayName}</span>
-                  {isAdmin && (
-                    <span className="inline-flex items-center gap-0.5 px-1.5 py-0 rounded-full bg-primary/10 border border-primary/20">
-                      <Shield className="h-2.5 w-2.5 text-primary" />
-                      <span className="text-[9px] font-semibold text-primary">ADMIN</span>
-                    </span>
-                  )}
-                </div>
+              <div className="flex items-center gap-1">
+                <span className="text-xs font-medium text-foreground whitespace-nowrap">{displayName}</span>
+                {isAdmin && (
+                  <span className="inline-flex items-center gap-0.5 px-1 py-0 rounded-full bg-primary/10 border border-primary/20">
+                    <Shield className="h-2 w-2 text-primary" />
+                    <span className="text-[8px] font-semibold text-primary">ADMIN</span>
+                  </span>
+                )}
               </div>
               <Button
                 variant="ghost"
                 size="icon"
                 onClick={handleLogout}
-                className="h-6 w-6 text-muted-foreground hover:text-foreground"
+                className="h-5 w-5 text-muted-foreground hover:text-foreground"
                 title="Wyloguj"
               >
                 <LogOut className="h-3 w-3" />
@@ -300,9 +298,9 @@ export function Layout({ children }: { children: React.ReactNode }) {
             {/* Bot Status & Emergency - only show if user has API keys */}
             {!showSimplifiedLayout && (
               <>
-                <div className="hidden md:flex items-center gap-2 px-3 py-1.5 rounded-full bg-profit/10 border border-profit/20">
-                  <div className="h-2 w-2 rounded-full bg-profit animate-pulse" />
-                  <span className="text-xs font-medium text-profit">Bot Aktywny</span>
+                <div className="hidden md:flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-profit/10 border border-profit/20">
+                  <div className="h-1.5 w-1.5 rounded-full bg-profit animate-pulse" />
+                  <span className="text-[10px] font-medium text-profit whitespace-nowrap">Bot Aktywny</span>
                 </div>
 
                 <Button
@@ -314,10 +312,10 @@ export function Layout({ children }: { children: React.ReactNode }) {
                     }
                   }}
                   disabled={emergencyShutdownMutation.isPending}
-                  className="gap-2 bg-destructive/90 hover:bg-destructive"
+                  className="gap-1.5 bg-destructive/90 hover:bg-destructive h-8 px-2.5"
                 >
-                  <AlertTriangle className="h-4 w-4" />
-                  <span className="hidden sm:inline">
+                  <AlertTriangle className="h-3.5 w-3.5" />
+                  <span className="hidden sm:inline text-xs whitespace-nowrap">
                     {emergencyShutdownMutation.isPending ? 'Wyłączanie...' : 'Emergency'}
                   </span>
                 </Button>
