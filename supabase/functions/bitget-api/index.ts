@@ -415,6 +415,20 @@ serve(async (req) => {
         });
         break;
 
+      case 'get_orders_history':
+        // Get orders history with leverage info - v2 API
+        const ordersHistoryParams = new URLSearchParams({
+          productType: 'USDT-FUTURES',
+          limit: params.limit || '100'
+        });
+        if (params.symbol) ordersHistoryParams.append('symbol', params.symbol);
+        if (params.startTime) ordersHistoryParams.append('startTime', params.startTime);
+        if (params.endTime) ordersHistoryParams.append('endTime', params.endTime);
+        if (params.idLessThan) ordersHistoryParams.append('idLessThan', params.idLessThan);
+        
+        result = await bitgetRequest(config, 'GET', `/api/v2/mix/order/orders-history?${ordersHistoryParams.toString()}`);
+        break;
+
       default:
         await log({
           functionName: 'bitget-api',

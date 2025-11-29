@@ -1,7 +1,7 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { AlertCircle, Eye, Ban, CheckCircle, XCircle, TrendingUp } from "lucide-react";
+import { AlertCircle, Eye, Ban, CheckCircle, XCircle, TrendingUp, Wrench } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Button } from "@/components/ui/button";
@@ -216,6 +216,31 @@ export default function Diagnostics() {
     },
   });
 
+  const fixPositionsDataMutation = useMutation({
+    mutationFn: async () => {
+      const { data, error } = await supabase.functions.invoke("fix-positions-data", {
+        body: {},
+      });
+      
+      if (error) throw error;
+      if (!data.success) throw new Error(data.error || "Nie udało się naprawić danych");
+      return data;
+    },
+    onSuccess: (data) => {
+      toast({
+        title: "Dane pozycji naprawione",
+        description: `Naprawiono quantity: ${data.summary.quantityFixed}, leverage: ${data.summary.leverageFixed}`,
+      });
+    },
+    onError: (error) => {
+      toast({
+        title: "Błąd",
+        description: error instanceof Error ? error.message : "Nie udało się naprawić danych pozycji",
+        variant: "destructive",
+      });
+    },
+  });
+
   const getStatusColor = (status: string) => {
     switch (status) {
       case 'success':
@@ -249,6 +274,30 @@ export default function Diagnostics() {
         <h1 className="text-3xl font-bold">Diagnostyka</h1>
         <p className="text-muted-foreground">Monitorowanie i diagnostyka bota tradingowego</p>
       </div>
+
+      {/* Data Repair Widget */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Wrench className="h-5 w-5" />
+            Naprawa Danych Pozycji
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="space-y-3">
+            <p className="text-sm text-muted-foreground">
+              Naprawia quantity (ilość) obliczając ją z PnL oraz leverage pobierając rzeczywistą wartość z historii orderów Bitget.
+            </p>
+            <Button 
+              onClick={() => fixPositionsDataMutation.mutate()}
+              disabled={fixPositionsDataMutation.isPending}
+              className="w-full sm:w-auto"
+            >
+              {fixPositionsDataMutation.isPending ? "Naprawiam..." : "🔧 Napraw Quantity i Leverage"}
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
 
       {/* Deviations Widget */}
       <Card>
