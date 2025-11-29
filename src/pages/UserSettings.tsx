@@ -283,19 +283,18 @@ export default function UserSettings() {
 
       {/* Fee Calculator - Always visible */}
       <FeeCalculator
-        takerFeeRate={localSettings.taker_fee_rate || 0.06}
-        includeFeesInCalculations={localSettings.include_fees_in_calculations ?? true}
-        minProfitableTpPercent={localSettings.min_profitable_tp_percent || 0.2}
         margin={localSettings.max_margin_per_trade || 2}
         leverage={localSettings.default_leverage || 10}
         maxLoss={localSettings.max_loss_per_trade || 1}
         tp1RrRatio={localSettings.tp1_rr_ratio || 1.5}
         tp2RrRatio={localSettings.tp2_rr_ratio || 2.5}
         tp3RrRatio={localSettings.tp3_rr_ratio || 3.5}
-        readOnly={localSettings.money_mode === 'copy_admin'}
-        onFeeRateChange={(value) => updateLocal("taker_fee_rate", value)}
-        onIncludeFeesChange={(value) => updateLocal("include_fees_in_calculations", value)}
-        onMinProfitableTpChange={(value) => updateLocal("min_profitable_tp_percent", value)}
+        onMarginChange={localSettings.money_mode !== 'copy_admin' ? (value) => updateLocal("max_margin_per_trade", value) : undefined}
+        onLeverageChange={localSettings.money_mode !== 'copy_admin' ? (value) => updateLocal("default_leverage", value) : undefined}
+        onMaxLossChange={localSettings.money_mode !== 'copy_admin' ? (value) => updateLocal("max_loss_per_trade", value) : undefined}
+        onTP1RRChange={localSettings.money_mode !== 'copy_admin' ? (value) => updateLocal("tp1_rr_ratio", value) : undefined}
+        onTP2RRChange={localSettings.money_mode !== 'copy_admin' ? (value) => updateLocal("tp2_rr_ratio", value) : undefined}
+        onTP3RRChange={localSettings.money_mode !== 'copy_admin' ? (value) => updateLocal("tp3_rr_ratio", value) : undefined}
       />
 
       {/* SL/TP Mode */}

@@ -970,26 +970,25 @@ export default function Settings() {
 
                 <Card>
                   <CardHeader>
-                    <CardTitle>📊 Fee-Aware Trading Calculator</CardTitle>
+                    <CardTitle>📊 Fee-Aware Strategy Optimizer</CardTitle>
                     <CardDescription>
-                      Real-time impact analysis of trading fees on your scalping strategy
+                      Optymalizuj margin, leverage i R:R żeby zminimalizować wpływ fees na zyski
                     </CardDescription>
                   </CardHeader>
                   <CardContent>
                     <FeeCalculator
-                      takerFeeRate={localSettings.taker_fee_rate ?? 0.06}
-                      includeFeesInCalculations={localSettings.include_fees_in_calculations ?? true}
-                      minProfitableTpPercent={localSettings.min_profitable_tp_percent ?? 0.2}
                       margin={localSettings.max_margin_per_trade ?? 2}
                       leverage={localSettings.default_leverage ?? 10}
                       maxLoss={localSettings.max_loss_per_trade ?? 1}
                       tp1RrRatio={localSettings.tp1_rr_ratio ?? 1.5}
                       tp2RrRatio={localSettings.tp2_rr_ratio ?? 2.5}
                       tp3RrRatio={localSettings.tp3_rr_ratio ?? 3.5}
-                      readOnly={false}
-                      onFeeRateChange={(value) => updateLocal("taker_fee_rate", value)}
-                      onIncludeFeesChange={(value) => updateLocal("include_fees_in_calculations", value)}
-                      onMinProfitableTpChange={(value) => updateLocal("min_profitable_tp_percent", value)}
+                      onMarginChange={(value) => updateLocal("max_margin_per_trade", value)}
+                      onLeverageChange={(value) => updateLocal("default_leverage", value)}
+                      onMaxLossChange={(value) => updateLocal("max_loss_per_trade", value)}
+                      onTP1RRChange={(value) => updateLocal("tp1_rr_ratio", value)}
+                      onTP2RRChange={(value) => updateLocal("tp2_rr_ratio", value)}
+                      onTP3RRChange={(value) => updateLocal("tp3_rr_ratio", value)}
                     />
                   </CardContent>
                 </Card>
