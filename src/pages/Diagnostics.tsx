@@ -6,6 +6,8 @@ import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/hooks/use-toast";
+import { LatencyAlertsCard } from "@/components/diagnostics/LatencyAlertsCard";
+import { useEffect } from "react";
 
 export default function Diagnostics() {
   const { toast } = useToast();
@@ -89,6 +91,58 @@ export default function Diagnostics() {
     },
     refetchInterval: 5000,
   });
+
+  const { data: latencyAlerts } = useQuery({
+    queryKey: ["latency-alerts"],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("latency_alerts")
+        .select(`
+          *,
+          alerts (
+            symbol,
+            side,
+            tier
+          )
+        `)
+        .order("created_at", { ascending: false })
+        .limit(100);
+      
+      if (error) throw error;
+      return data || [];
+    },
+    refetchInterval: 5000,
+  });
+
+  // Real-time subscription for new latency alerts
+  useEffect(() => {
+    const channel = supabase
+      .channel('latency-alerts-changes')
+      .on(
+        'postgres_changes',
+        {
+          event: 'INSERT',
+          schema: 'public',
+          table: 'latency_alerts'
+        },
+        (payload) => {
+          console.log('New latency alert:', payload);
+          queryClient.invalidateQueries({ queryKey: ["latency-alerts"] });
+          
+          // Show toast notification
+          toast({
+            title: "⚠️ Wykryto wysoką latencję!",
+            description: `Latencja: ${((payload.new as any).latency_ms / 1000).toFixed(1)}s (próg: 30s)`,
+            variant: "destructive",
+          });
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [queryClient, toast]);
 
   const unbanMutation = useMutation({
     mutationFn: async (symbolId: string) => {
@@ -267,6 +321,59 @@ export default function Diagnostics() {
     },
   });
 
+  const acknowledgeLatencyAlertMutation = useMutation({
+    mutationFn: async (alertId: string) => {
+      const { error } = await supabase
+        .from("latency_alerts")
+        .update({ 
+          acknowledged_at: new Date().toISOString(),
+          acknowledged_by: (await supabase.auth.getUser()).data.user?.id 
+        })
+        .eq("id", alertId);
+      
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["latency-alerts"] });
+      toast({
+        title: "Alert potwierdzony",
+        description: "Alert o wysokiej latencji został potwierdzony",
+      });
+    },
+    onError: (error) => {
+      toast({
+        title: "Błąd",
+        description: error instanceof Error ? error.message : "Nie udało się potwierdzić alertu",
+        variant: "destructive",
+      });
+    },
+  });
+
+  const clearLatencyAlertsMutation = useMutation({
+    mutationFn: async () => {
+      const { error } = await supabase
+        .from("latency_alerts")
+        .delete()
+        .not("id", "is", null);
+      
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["latency-alerts"] });
+      toast({
+        title: "Alerty wyczyszczone",
+        description: "Wszystkie alerty latencji zostały usunięte",
+      });
+    },
+    onError: (error) => {
+      toast({
+        title: "Błąd",
+        description: error instanceof Error ? error.message : "Nie udało się wyczyścić alertów",
+        variant: "destructive",
+      });
+    },
+  });
+
   const getStatusColor = (status: string) => {
     switch (status) {
       case 'success':
@@ -300,6 +407,15 @@ export default function Diagnostics() {
         <h1 className="text-3xl font-bold">Diagnostyka</h1>
         <p className="text-muted-foreground">Monitorowanie i diagnostyka bota tradingowego</p>
       </div>
+
+      {/* Latency Alerts Widget */}
+      <LatencyAlertsCard
+        alerts={latencyAlerts || []}
+        onAcknowledge={(alertId) => acknowledgeLatencyAlertMutation.mutate(alertId)}
+        onClear={() => clearLatencyAlertsMutation.mutate()}
+        isAcknowledging={acknowledgeLatencyAlertMutation.isPending}
+        isClearing={clearLatencyAlertsMutation.isPending}
+      />
 
       {/* Data Repair Widget */}
       <Card>

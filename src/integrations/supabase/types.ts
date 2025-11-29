@@ -209,6 +209,47 @@ export type Database = {
           },
         ]
       }
+      latency_alerts: {
+        Row: {
+          acknowledged_at: string | null
+          acknowledged_by: string | null
+          alert_id: string | null
+          created_at: string
+          id: string
+          latency_ms: number
+          threshold_ms: number
+          user_id: string | null
+        }
+        Insert: {
+          acknowledged_at?: string | null
+          acknowledged_by?: string | null
+          alert_id?: string | null
+          created_at?: string
+          id?: string
+          latency_ms: number
+          threshold_ms?: number
+          user_id?: string | null
+        }
+        Update: {
+          acknowledged_at?: string | null
+          acknowledged_by?: string | null
+          alert_id?: string | null
+          created_at?: string
+          id?: string
+          latency_ms?: number
+          threshold_ms?: number
+          user_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "latency_alerts_alert_id_fkey"
+            columns: ["alert_id"]
+            isOneToOne: false
+            referencedRelation: "alerts"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       monitor_locks: {
         Row: {
           acquired_at: string | null
