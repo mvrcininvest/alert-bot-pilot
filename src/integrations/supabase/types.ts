@@ -1044,6 +1044,36 @@ export type Database = {
         Args: { p_max_positions: number; p_user_id: string }
         Returns: boolean
       }
+      get_leverage_stats: {
+        Args: never
+        Returns: {
+          avg_pnl: number
+          count: number
+          leverage: number
+          total_pnl: number
+          win_rate: number
+        }[]
+      }
+      get_margin_bucket_stats: {
+        Args: never
+        Returns: {
+          avg_pnl: number
+          count: number
+          margin_bucket: string
+          total_pnl: number
+          win_rate: number
+        }[]
+      }
+      get_tier_stats: {
+        Args: never
+        Returns: {
+          avg_pnl: number
+          count: number
+          tier: string
+          total_pnl: number
+          win_rate: number
+        }[]
+      }
       has_role: {
         Args: {
           _role: Database["public"]["Enums"]["app_role"]

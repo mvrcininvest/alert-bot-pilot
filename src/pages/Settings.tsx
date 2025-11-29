@@ -14,6 +14,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { useState, useEffect } from "react";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { FeeCalculator } from "@/components/settings/FeeCalculator";
+import { useTradingStats } from "@/hooks/useTradingStats";
 
 export default function Settings() {
   const { toast } = useToast();
@@ -21,6 +22,11 @@ export default function Settings() {
   const [localSettings, setLocalSettings] = useState<any>(null);
   const [newSymbolLeverage, setNewSymbolLeverage] = useState<string>("");
   const [leverageSource, setLeverageSource] = useState<"alert" | "global_max" | "custom">("alert");
+  const [accountBalance, setAccountBalance] = useState<number>(100);
+  const [isFetchingBalance, setIsFetchingBalance] = useState(false);
+  
+  // Fetch trading statistics
+  const { data: tradingStats, isLoading: statsLoading } = useTradingStats();
 
   const { data: settings, isLoading, error } = useQuery({
     queryKey: ["settings"],
@@ -146,6 +152,48 @@ export default function Settings() {
 
   const updateLocal = (key: string, value: any) => {
     setLocalSettings((prev: any) => ({ ...prev, [key]: value }));
+  };
+
+  // Fetch balance from Bitget
+  const fetchAccountBalance = async () => {
+    setIsFetchingBalance(true);
+    try {
+      const { data, error } = await supabase.functions.invoke('bitget-api', {
+        body: { 
+          action: 'get_account', 
+          params: {} 
+        }
+      });
+      
+      if (error) throw error;
+      
+      if (data && Array.isArray(data)) {
+        // Find USDT account
+        const usdtAccount = data.find((acc: any) => acc.marginCoin === 'USDT');
+        if (usdtAccount && usdtAccount.available) {
+          const balance = parseFloat(usdtAccount.available);
+          setAccountBalance(balance);
+          toast({
+            title: "Pobrano saldo",
+            description: `Dostępne: ${balance.toFixed(2)} USDT`,
+          });
+        } else {
+          toast({
+            title: "Nie znaleziono konta",
+            description: "Nie znaleziono konta USDT na Bitget",
+            variant: "destructive",
+          });
+        }
+      }
+    } catch (error: any) {
+      toast({
+        title: "Błąd",
+        description: `Nie udało się pobrać salda: ${error.message}`,
+        variant: "destructive",
+      });
+    } finally {
+      setIsFetchingBalance(false);
+    }
   };
 
   if (isLoading) {
@@ -984,17 +1032,28 @@ export default function Settings() {
                       tp2RrRatio={localSettings.tp2_rr_ratio ?? 2.5}
                       tp3RrRatio={localSettings.tp3_rr_ratio ?? 3.5}
                       tpLevels={localSettings.tp_levels ?? 1}
-                      feeAwareBreakeven={localSettings.fee_aware_breakeven ?? true}
-                      accountBalance={100}
+                      accountBalance={accountBalance}
                       onMarginChange={(value) => updateLocal("max_margin_per_trade", value)}
                       onLeverageChange={(value) => updateLocal("default_leverage", value)}
                       onMaxLossChange={(value) => updateLocal("max_loss_per_trade", value)}
                       onTP1RRChange={(value) => updateLocal("tp1_rr_ratio", value)}
                       onTP2RRChange={(value) => updateLocal("tp2_rr_ratio", value)}
                       onTP3RRChange={(value) => updateLocal("tp3_rr_ratio", value)}
-                      onTPLevelsChange={(value) => updateLocal("tp_levels", value)}
-                      onFeeAwareBreakevenChange={(value) => updateLocal("fee_aware_breakeven", value)}
-                      onAccountBalanceChange={() => {}}
+                      onAccountBalanceChange={setAccountBalance}
+                      onFetchBalance={fetchAccountBalance}
+                      isFetchingBalance={isFetchingBalance}
+                      tradingStats={tradingStats}
+                      currentSettings={{
+                        positionSizingType: localSettings.position_sizing_type,
+                        tpLevels: localSettings.tp_levels,
+                        slMethod: localSettings.sl_method,
+                        maxLossPerTrade: localSettings.max_loss_per_trade,
+                        maxMarginPerTrade: localSettings.max_margin_per_trade,
+                        defaultLeverage: localSettings.default_leverage,
+                        slToBreakeven: localSettings.sl_to_breakeven,
+                        slPercentMin: localSettings.sl_percent_min,
+                        slPercentMax: localSettings.sl_percent_max,
+                      }}
                     />
                   </CardContent>
                 </Card>
