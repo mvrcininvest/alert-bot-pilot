@@ -15,6 +15,8 @@ import { useState, useEffect } from "react";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { FeeCalculator } from "@/components/settings/FeeCalculator";
 import { useTradingStats } from "@/hooks/useTradingStats";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import { AlertTriangle } from "lucide-react";
 
 export default function Settings() {
   const { toast } = useToast();
@@ -319,16 +321,12 @@ export default function Settings() {
       </div>
 
       <Tabs defaultValue="general" className="space-y-6">
-        <TabsList className={`grid w-full ${localSettings.position_sizing_type === "scalping_mode" ? "grid-cols-6" : "grid-cols-7"}`}>
+        <TabsList className="grid w-full grid-cols-5">
           <TabsTrigger value="general">Ogólne</TabsTrigger>
-          <TabsTrigger value="position">Pozycje</TabsTrigger>
-          {localSettings.position_sizing_type !== "scalping_mode" && (
-            <TabsTrigger value="sltp">SL/TP</TabsTrigger>
-          )}
-          <TabsTrigger value="adaptive">Adaptacyjne</TabsTrigger>
-          <TabsTrigger value="risk">Risk Mgmt</TabsTrigger>
-          <TabsTrigger value="monitor">Monitoring</TabsTrigger>
+          <TabsTrigger value="strategy">Strategia</TabsTrigger>
           <TabsTrigger value="categories">Kategorie</TabsTrigger>
+          <TabsTrigger value="risk">Risk & Monitoring</TabsTrigger>
+          <TabsTrigger value="calculator">Kalkulator</TabsTrigger>
         </TabsList>
 
         {/* GENERAL TAB */}
@@ -916,12 +914,35 @@ export default function Settings() {
           </Card>
         </TabsContent>
 
-        {/* POSITION SIZING TAB */}
-        <TabsContent value="position" className="space-y-4">
+        {/* STRATEGY TAB - Combined Position Sizing + SL/TP */}
+        <TabsContent value="strategy" className="space-y-4">
+          {/* Warning if categories override settings */}
+          {(() => {
+            const anyCategoryEnabled = 
+              localSettings.category_settings?.BTC_ETH?.enabled ||
+              localSettings.category_settings?.MAJOR?.enabled ||
+              localSettings.category_settings?.ALTCOIN?.enabled;
+            
+            return anyCategoryEnabled ? (
+              <Alert className="bg-yellow-500/10 border-yellow-500/30">
+                <AlertTriangle className="h-4 w-4" />
+                <AlertDescription>
+                  ⚠️ <strong>Uwaga:</strong> Masz włączone ustawienia kategorii ({
+                    [
+                      localSettings.category_settings?.BTC_ETH?.enabled && "BTC/ETH",
+                      localSettings.category_settings?.MAJOR?.enabled && "MAJOR",
+                      localSettings.category_settings?.ALTCOIN?.enabled && "ALTCOIN"
+                    ].filter(Boolean).join(", ")
+                  }). 
+                  Te główne ustawienia strategii będą nadpisane dla symboli z aktywnych kategorii.
+                </AlertDescription>
+              </Alert>
+            ) : null;
+          })()}
           <Card>
             <CardHeader>
-              <CardTitle>Wielkość Pozycji</CardTitle>
-              <CardDescription>Konfiguracja rozmiaru otwieranych pozycji</CardDescription>
+              <CardTitle>Strategia Pozycji i SL/TP</CardTitle>
+              <CardDescription>Metoda kalkulacji wielkości pozycji, dźwigni oraz Stop Loss / Take Profit</CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
               <div className="space-y-2">
@@ -1451,11 +1472,10 @@ export default function Settings() {
               </div>
             </CardContent>
           </Card>
-        </TabsContent>
 
-        {/* SL/TP TAB */}
-        {localSettings.position_sizing_type !== "scalping_mode" && (
-        <TabsContent value="sltp" className="space-y-4">
+          {/* SL/TP Configuration (only when NOT scalping mode) */}
+          {localSettings.position_sizing_type !== "scalping_mode" && (
+            <>
           <Card>
             <CardHeader>
               <CardTitle>Kalkulator SL/TP</CardTitle>
@@ -1953,11 +1973,12 @@ export default function Settings() {
               )}
             </CardContent>
           </Card>
-        </TabsContent>
-        )}
+            </>
+          )}
 
-        {/* ADAPTIVE TAB */}
-        <TabsContent value="adaptive" className="space-y-4">
+          {/* Adaptive Settings (only when NOT scalping mode) */}
+          {localSettings.position_sizing_type !== "scalping_mode" && (
+            <>
           <Card>
             <CardHeader>
               <CardTitle>Adaptive TP Spacing</CardTitle>
@@ -2162,10 +2183,44 @@ export default function Settings() {
               )}
             </CardContent>
           </Card>
+            </>
+          )}
         </TabsContent>
 
-        {/* RISK MANAGEMENT TAB */}
-        <TabsContent value="risk" className="space-y-4">
+        {/* CATEGORIES TAB */}
+        <TabsContent value="categories" className="space-y-4">
+          <Card>
+            <CardHeader>
+              <CardTitle>Ustawienia Per Kategoria Symboli</CardTitle>
+              <CardDescription>
+                <strong className="text-yellow-600">⚠️ UWAGA:</strong> Te ustawienia <strong>NADPISUJĄ</strong> główne ustawienia ze zakładki "Strategia" dla konkretnych kategorii symboli.
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <Alert className="mb-6 bg-blue-500/10 border-blue-500/30">
+                <AlertTriangle className="h-4 w-4" />
+                <AlertDescription>
+                  <strong>ℹ️ Jak to działa:</strong>
+                  <ul className="list-disc list-inside mt-2 space-y-1 text-sm">
+                    <li>Backend automatycznie stosuje te ustawienia na podstawie symbolu</li>
+                    <li>Kategorie mają różne limity max leverage zgodnie z Bitget</li>
+                    <li>Możesz ustawić osobne strategie TP/SL dla każdej kategorii</li>
+                    {(() => {
+                      const allEnabled = 
+                        localSettings.category_settings?.BTC_ETH?.enabled &&
+                        localSettings.category_settings?.MAJOR?.enabled &&
+                        localSettings.category_settings?.ALTCOIN?.enabled;
+                      return allEnabled ? (
+                        <li className="text-yellow-600 font-semibold">
+                          ⚠️ Wszystkie 3 kategorie są włączone - główne ustawienia Strategii są nieaktywne!
+                        </li>
+                      ) : null;
+                    })()}
+                  </ul>
+                </AlertDescription>
+              </Alert>
+            </CardContent>
+          </Card>
           <Card>
             <CardHeader>
               <CardTitle>Limity Ryzyka</CardTitle>
@@ -2377,10 +2432,8 @@ export default function Settings() {
               )}
             </CardContent>
           </Card>
-        </TabsContent>
-
-        {/* MONITORING TAB */}
-        <TabsContent value="monitor" className="space-y-4">
+          
+          {/* MONITORING Section (integrated into Risk tab) */}
           <Card>
             <CardHeader>
               <CardTitle>System Monitoringu</CardTitle>
@@ -2428,27 +2481,59 @@ export default function Settings() {
           </Card>
         </TabsContent>
 
-        {/* CATEGORIES TAB */}
-        <TabsContent value="categories" className="space-y-4">
+        {/* CALCULATOR TAB - Standalone FeeCalculator */}
+        <TabsContent value="calculator" className="space-y-4">
           <Card>
             <CardHeader>
-              <CardTitle>Ustawienia Per Kategoria Symboli</CardTitle>
+              <CardTitle>📊 Fee-Aware Strategy Optimizer</CardTitle>
               <CardDescription>
-                Te ustawienia nadpisują główne ustawienia dla konkretnych kategorii symboli. 
-                Jeśli zostawisz wartość pustą, użyte zostaną ustawienia z głównej zakładki.
+                Optymalizuj margin, leverage i R:R żeby zminimalizować wpływ fees na zyski. 
+                Kalkulator dostępny zawsze, niezależnie od wybranego trybu.
               </CardDescription>
             </CardHeader>
             <CardContent>
-              <div className="p-4 bg-muted/50 rounded-lg mb-6">
-                <div className="text-sm space-y-2">
-                  <div className="font-medium">ℹ️ Jak to działa:</div>
-                  <ul className="list-disc list-inside space-y-1 text-muted-foreground">
-                    <li>Backend automatycznie stosuje te ustawienia na podstawie symbolu</li>
-                    <li>Kategorie mają różne limity max leverage zgodnie z Bitget</li>
-                    <li>Możesz ustawić osobne strategie TP/SL dla każdej kategorii</li>
-                  </ul>
-                </div>
-              </div>
+              <FeeCalculator
+                margin={localSettings.max_margin_per_trade ?? 2}
+                leverage={localSettings.default_leverage ?? 10}
+                maxLoss={localSettings.max_loss_per_trade ?? 1}
+                tp1RrRatio={localSettings.tp1_rr_ratio ?? 1.5}
+                tp2RrRatio={localSettings.tp2_rr_ratio ?? 2.5}
+                tp3RrRatio={localSettings.tp3_rr_ratio ?? 3.5}
+                tpLevels={localSettings.tp_levels ?? 1}
+                tp1ClosePct={localSettings.tp1_close_percent ?? 100}
+                tp2ClosePct={localSettings.tp2_close_percent ?? 0}
+                tp3ClosePct={localSettings.tp3_close_percent ?? 0}
+                accountBalance={accountBalance}
+                onMarginChange={(value) => updateLocal("max_margin_per_trade", value)}
+                onLeverageChange={(value) => updateLocal("default_leverage", value)}
+                onMaxLossChange={(value) => updateLocal("max_loss_per_trade", value)}
+                onTP1RRChange={(value) => updateLocal("tp1_rr_ratio", value)}
+                onTP2RRChange={(value) => updateLocal("tp2_rr_ratio", value)}
+                onTP3RRChange={(value) => updateLocal("tp3_rr_ratio", value)}
+                onTPLevelsChange={(value) => updateLocal("tp_levels", value)}
+                onTP1ClosePctChange={(value) => updateLocal("tp1_close_percent", value)}
+                onTP2ClosePctChange={(value) => updateLocal("tp2_close_percent", value)}
+                onTP3ClosePctChange={(value) => updateLocal("tp3_close_percent", value)}
+                entryPrice={entryPrice}
+                onEntryPriceChange={setEntryPrice}
+                slPercent={slPercent}
+                onSlPercentChange={setSlPercent}
+                takerFeeRate={takerFeeRate}
+                onTakerFeeRateChange={setTakerFeeRate}
+                symbolCategory={symbolCategory}
+                onSymbolCategoryChange={setSymbolCategory}
+                atrValue={atrValue}
+                onAtrValueChange={setAtrValue}
+                seriesWins={seriesWins}
+                onSeriesWinsChange={setSeriesWins}
+                seriesLosses={seriesLosses}
+                onSeriesLossesChange={setSeriesLosses}
+                onAccountBalanceChange={setAccountBalance}
+                onFetchBalance={fetchAccountBalance}
+                isFetchingBalance={isFetchingBalance}
+                tradingStats={tradingStats}
+                onRefreshStats={refreshTradingStats}
+              />
             </CardContent>
           </Card>
 
