@@ -11,7 +11,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Calendar } from "@/components/ui/calendar";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { format } from "date-fns";
-import { Info, AlertCircle, Download, Calendar as CalendarIcon } from "lucide-react";
+import { Info, AlertCircle, Calendar as CalendarIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useToast } from "@/hooks/use-toast";
 
@@ -372,16 +372,6 @@ export default function History() {
         <div>
           <h1 className="text-3xl font-bold">Historia Pozycji</h1>
           <p className="text-muted-foreground">Wszystkie zamknięte pozycje</p>
-        </div>
-        <div className="flex gap-2">
-          <Button variant="outline" onClick={exportToCSV}>
-            <Download className="mr-2 h-4 w-4" />
-            CSV
-          </Button>
-          <Button variant="outline" onClick={exportToJSON}>
-            <Download className="mr-2 h-4 w-4" />
-            JSON
-          </Button>
         </div>
       </div>
       

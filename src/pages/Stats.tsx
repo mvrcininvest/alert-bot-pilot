@@ -192,6 +192,19 @@ export default function Stats() {
     refetchInterval: 30000,
   });
 
+  const { data: allAlerts } = useQuery({
+    queryKey: ["all-alerts-stats"],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("alerts")
+        .select("*")
+        .order("created_at", { ascending: false });
+      
+      if (error) throw error;
+      return data || [];
+    },
+  });
+
   // Filter positions by time
   const filteredPositions = useMemo(() => {
     if (!allPositions) return [];
@@ -228,6 +241,43 @@ export default function Stats() {
       return isAfter(closedAt, startDate);
     });
   }, [allPositions, timeFilter, customRange]);
+
+  // Filter alerts by time
+  const filteredAlerts = useMemo(() => {
+    if (!allAlerts) return [];
+    
+    const now = new Date();
+    let startDate: Date;
+    
+    switch (timeFilter) {
+      case "today":
+        startDate = startOfDay(now);
+        break;
+      case "7d":
+        startDate = subDays(now, 7);
+        break;
+      case "30d":
+        startDate = subDays(now, 30);
+        break;
+      case "90d":
+        startDate = subDays(now, 90);
+        break;
+      case "custom":
+        if (!customRange.from || !customRange.to) return allAlerts;
+        return allAlerts.filter(a => {
+          const createdAt = new Date(a.created_at);
+          return isAfter(createdAt, customRange.from!) && isBefore(createdAt, customRange.to!);
+        });
+      case "all":
+      default:
+        return allAlerts;
+    }
+    
+    return allAlerts.filter(a => {
+      const createdAt = new Date(a.created_at);
+      return isAfter(createdAt, startDate);
+    });
+  }, [allAlerts, timeFilter, customRange]);
 
   // Calculate statistics
   const stats = useMemo(() => {
@@ -1225,6 +1275,66 @@ export default function Stats() {
     });
   };
 
+  const handleExportAlerts = () => {
+    if (!filteredAlerts || filteredAlerts.length === 0) {
+      toast({
+        title: "Brak danych",
+        description: "Brak alertów do eksportu",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    const headers = [
+      "Data", "Symbol", "Side", "Entry Price", "SL", "TP", "Tier", 
+      "Strength", "Leverage", 
+      "TV Timestamp", "Webhook Received", "Exchange Executed",
+      "Latencja TV→Webhook (ms)", "Latencja Processing (ms)", "Latencja Total (ms)",
+      "Status", "Testowy", "Błąd"
+    ];
+
+    const rows = filteredAlerts.map((alert) => [
+      format(new Date(alert.created_at), "dd.MM.yyyy HH:mm:ss"),
+      alert.symbol,
+      alert.side,
+      Number(alert.entry_price).toFixed(8),
+      Number(alert.sl).toFixed(8),
+      Number(alert.main_tp).toFixed(8),
+      alert.tier || "-",
+      Number(alert.strength || 0).toFixed(2),
+      alert.leverage,
+      alert.tv_timestamp || "-",
+      alert.webhook_received_at ? format(new Date(alert.webhook_received_at), "dd.MM.yyyy HH:mm:ss") : "-",
+      alert.exchange_executed_at || "-",
+      alert.latency_webhook_ms || "-",
+      alert.latency_execution_ms || "-",
+      alert.latency_ms || "-",
+      alert.status,
+      alert.is_test ? "Tak" : "Nie",
+      alert.error_message || "-"
+    ]);
+
+    const csvContent = [
+      headers.join(","),
+      ...rows.map(row => row.map(cell => `"${cell}"`).join(","))
+    ].join("\n");
+
+    const blob = new Blob(["\ufeff" + csvContent], { type: "text/csv;charset=utf-8;" });
+    const link = document.createElement("a");
+    const url = URL.createObjectURL(blob);
+    link.setAttribute("href", url);
+    link.setAttribute("download", `alerts_${format(new Date(), "yyyy-MM-dd_HH-mm")}.csv`);
+    link.style.visibility = "hidden";
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+
+    toast({
+      title: "Eksport zakończony",
+      description: `Wyeksportowano ${filteredAlerts.length} alertów do CSV`,
+    });
+  };
+
   // Equity curve data
   const equityData = useMemo(() => {
     if (!filteredPositions) return [];
@@ -1316,6 +1426,15 @@ export default function Stats() {
           >
             <FileDown className="h-4 w-4 mr-2" />
             Eksport Statystyk
+          </Button>
+          <Button
+            onClick={handleExportAlerts}
+            variant="outline"
+            size="sm"
+            disabled={!filteredAlerts || filteredAlerts.length === 0}
+          >
+            <FileDown className="h-4 w-4 mr-2" />
+            Eksport Alertów
           </Button>
         </div>
       </div>

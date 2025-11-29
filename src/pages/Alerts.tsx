@@ -6,7 +6,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { format } from "date-fns";
-import { Info, AlertCircle, TestTube, Download } from "lucide-react";
+import { Info, AlertCircle, TestTube } from "lucide-react";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useState, useEffect, useRef } from "react";
@@ -30,8 +30,7 @@ export default function Alerts() {
       const { data, error } = await supabase
         .from("alerts")
         .select("*")
-        .order("created_at", { ascending: false })
-        .limit(100);
+        .order("created_at", { ascending: false });
       
       if (error) throw error;
       return data || [];
@@ -211,16 +210,6 @@ export default function Alerts() {
         <div>
           <h1 className="text-3xl font-bold">Historia Alertów</h1>
           <p className="text-muted-foreground">Wszystkie alerty otrzymane z TradingView</p>
-        </div>
-        <div className="flex gap-2">
-          <Button variant="outline" onClick={exportToCSV}>
-            <Download className="mr-2 h-4 w-4" />
-            CSV
-          </Button>
-          <Button variant="outline" onClick={exportToJSON}>
-            <Download className="mr-2 h-4 w-4" />
-            JSON
-          </Button>
         </div>
       </div>
 
