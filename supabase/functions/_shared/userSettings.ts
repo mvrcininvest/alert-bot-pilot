@@ -114,7 +114,7 @@ async function getAdminSettings(supabase: any): Promise<any> {
   return data;
 }
 
-export async function getUserSettings(userId: string): Promise<UserSettings> {
+export async function getUserSettings(userId: string, symbol?: string): Promise<UserSettings> {
   const supabaseUrl = Deno.env.get('SUPABASE_URL');
   const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
 
@@ -282,6 +282,36 @@ export async function getUserSettings(userId: string): Promise<UserSettings> {
     finalSettings.duplicate_alert_handling = adminSettings.duplicate_alert_handling ?? true;
     finalSettings.require_profit_for_same_direction = adminSettings.require_profit_for_same_direction ?? true;
     finalSettings.pnl_threshold_percent = adminSettings.pnl_threshold_percent ?? 0.5;
+  }
+
+  // Apply category-specific overrides if symbol provided
+  if (symbol && userSettings.category_settings) {
+    // Import getSymbolCategory dynamically or implement inline
+    const getSymbolCategory = (sym: string): 'BTC_ETH' | 'MAJOR' | 'ALTCOIN' => {
+      if (['BTCUSDT', 'ETHUSDT'].includes(sym)) return 'BTC_ETH';
+      if (['XRPUSDT', 'SOLUSDT', 'BNBUSDT'].includes(sym)) return 'MAJOR';
+      return 'ALTCOIN';
+    };
+    
+    const category = getSymbolCategory(symbol);
+    const categorySettings = userSettings.category_settings[category];
+    
+    if (categorySettings) {
+      // Override with category-specific values
+      finalSettings.default_leverage = Math.min(
+        finalSettings.default_leverage,
+        categorySettings.max_leverage || finalSettings.default_leverage
+      );
+      finalSettings.max_margin_per_trade = categorySettings.max_margin ?? finalSettings.max_margin_per_trade;
+      finalSettings.max_loss_per_trade = categorySettings.max_loss ?? finalSettings.max_loss_per_trade;
+      finalSettings.tp_levels = categorySettings.tp_levels ?? finalSettings.tp_levels;
+      finalSettings.tp1_rr_ratio = categorySettings.tp1_rr ?? finalSettings.tp1_rr_ratio;
+      finalSettings.tp2_rr_ratio = categorySettings.tp2_rr ?? finalSettings.tp2_rr_ratio;
+      finalSettings.tp3_rr_ratio = categorySettings.tp3_rr ?? finalSettings.tp3_rr_ratio;
+      finalSettings.tp1_close_percent = categorySettings.tp1_close_pct ?? finalSettings.tp1_close_percent;
+      finalSettings.tp2_close_percent = categorySettings.tp2_close_pct ?? finalSettings.tp2_close_percent;
+      finalSettings.tp3_close_percent = categorySettings.tp3_close_pct ?? finalSettings.tp3_close_percent;
+    }
   }
 
   return finalSettings as UserSettings;
