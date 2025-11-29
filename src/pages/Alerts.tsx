@@ -116,30 +116,40 @@ export default function Alerts() {
     }
 
     const headers = [
-      "Data", "Symbol", "Side", "Entry Price", "SL", "TP", "Tier", 
-      "Strength", "Leverage", 
-      "TV Timestamp", "Webhook Received", "Exchange Executed",
+      "ID", "Data", "Symbol", "Side", "Entry Price", "SL", "Main TP", 
+      "TP1", "TP2", "TP3", "Mode",
+      "Tier", "Strength", "Leverage", "ATR",
+      "TV Timestamp", "Webhook Received", "Exchange Executed", "Executed At",
       "Latencja TV→Webhook (ms)", "Latencja Processing (ms)", "Latencja Total (ms)",
-      "Status", "Testowy"
+      "Status", "Position ID", "Error Message", "Testowy"
     ];
 
     const rows = alerts.map((alert) => [
+      alert.id,
       format(new Date(alert.created_at), "dd.MM.yyyy HH:mm"),
       alert.symbol,
       alert.side,
       Number(alert.entry_price).toFixed(4),
       Number(alert.sl).toFixed(4),
       Number(alert.main_tp).toFixed(4),
+      alert.tp1 ? Number(alert.tp1).toFixed(4) : "-",
+      alert.tp2 ? Number(alert.tp2).toFixed(4) : "-",
+      alert.tp3 ? Number(alert.tp3).toFixed(4) : "-",
+      alert.mode || "-",
       alert.tier || "-",
       Number(alert.strength || 0).toFixed(2),
       alert.leverage,
+      alert.atr ? Number(alert.atr).toFixed(4) : "-",
       alert.tv_timestamp || "-",
       alert.webhook_received_at ? format(new Date(alert.webhook_received_at), "dd.MM.yyyy HH:mm:ss") : "-",
       alert.exchange_executed_at || "-",
+      alert.executed_at ? format(new Date(alert.executed_at), "dd.MM.yyyy HH:mm:ss") : "-",
       alert.latency_webhook_ms || "-",
       alert.latency_execution_ms || "-",
       alert.latency_ms || "-",
       alert.status,
+      alert.position_id || "-",
+      alert.error_message ? alert.error_message.substring(0, 100) : "-",
       alert.is_test ? "Tak" : "Nie"
     ]);
 
