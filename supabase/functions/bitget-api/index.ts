@@ -166,6 +166,19 @@ serve(async (req) => {
         result = await bitgetRequest(config, 'GET', `/api/v2/mix/order/fill-history?${fillParams.toString()}`);
         break;
 
+      case 'get_position_history':
+        // Get actual closed position history with real PnL data - v2 API
+        const posHistoryParams = new URLSearchParams({
+          productType: 'USDT-FUTURES',
+          pageSize: params.pageSize || '100'
+        });
+        if (params.symbol) posHistoryParams.append('symbol', params.symbol);
+        if (params.startTime) posHistoryParams.append('startTime', params.startTime);
+        if (params.endTime) posHistoryParams.append('endTime', params.endTime);
+        
+        result = await bitgetRequest(config, 'GET', `/api/v2/mix/position/history-position?${posHistoryParams.toString()}`);
+        break;
+
       case 'place_order':
         // Place order (market or limit) - v2 API
         // Map internal side format to Bitget API format
