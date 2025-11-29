@@ -168,15 +168,20 @@ serve(async (req) => {
 
       case 'get_position_history':
         // Get actual closed position history with real PnL data - v2 API
+        // Uses cursor-based pagination with idLessThan + limit
         const posHistoryParams = new URLSearchParams({
           productType: 'USDT-FUTURES',
-          pageSize: params.pageSize || '100'
+          limit: params.limit || '100'  // Changed from pageSize to limit
         });
         if (params.symbol) posHistoryParams.append('symbol', params.symbol);
         if (params.startTime) posHistoryParams.append('startTime', params.startTime);
         if (params.endTime) posHistoryParams.append('endTime', params.endTime);
+        if (params.idLessThan) posHistoryParams.append('idLessThan', params.idLessThan);  // Cursor for pagination
         
         result = await bitgetRequest(config, 'GET', `/api/v2/mix/position/history-position?${posHistoryParams.toString()}`);
+        
+        // Log response structure for debugging
+        console.log(`[get_position_history] Response structure: list=${result?.data?.list?.length || 0}, cursor=${result?.data?.cursor}, endId=${result?.data?.endId}`);
         break;
 
       case 'place_order':
