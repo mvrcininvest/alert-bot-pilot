@@ -1,7 +1,7 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { AlertCircle, Eye, Ban, CheckCircle, XCircle, TrendingUp, Wrench } from "lucide-react";
+import { AlertCircle, Eye, Ban, CheckCircle, XCircle, TrendingUp } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Button } from "@/components/ui/button";
@@ -416,48 +416,6 @@ export default function Diagnostics() {
         isAcknowledging={acknowledgeLatencyAlertMutation.isPending}
         isClearing={clearLatencyAlertsMutation.isPending}
       />
-
-      {/* Data Repair Widget */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <Wrench className="h-5 w-5" />
-            Naprawa Danych Pozycji
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="space-y-3">
-            <div className="space-y-2">
-              <p className="text-sm font-medium">Napraw Quantity i Leverage</p>
-              <p className="text-sm text-muted-foreground">
-                Naprawia quantity (ilość) obliczając ją z PnL oraz leverage pobierając rzeczywistą wartość z historii orderów Bitget.
-              </p>
-              <Button 
-                onClick={() => fixPositionsDataMutation.mutate()}
-                disabled={fixPositionsDataMutation.isPending}
-                className="w-full sm:w-auto"
-              >
-                {fixPositionsDataMutation.isPending ? "Naprawiam..." : "🔧 Napraw Quantity i Leverage"}
-              </Button>
-            </div>
-            
-            <div className="space-y-2 pt-3 border-t border-border">
-              <p className="text-sm font-medium">Połącz Pozycje z Alertami</p>
-              <p className="text-sm text-muted-foreground">
-                Automatycznie dopasowuje pozycje bez alertu do odpowiednich alertów z historii na podstawie symbolu, strony, czasu i ceny.
-              </p>
-              <Button 
-                onClick={() => linkPositionsAlertsMutation.mutate()}
-                disabled={linkPositionsAlertsMutation.isPending}
-                variant="secondary"
-                className="w-full sm:w-auto"
-              >
-                {linkPositionsAlertsMutation.isPending ? "Łączę..." : "🔗 Połącz Pozycje z Alertami"}
-              </Button>
-            </div>
-          </div>
-        </CardContent>
-      </Card>
 
       {/* Deviations Widget */}
       <Card>

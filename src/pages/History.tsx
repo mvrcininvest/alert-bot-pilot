@@ -382,13 +382,6 @@ export default function History() {
             <Download className="mr-2 h-4 w-4" />
             JSON
           </Button>
-          <Button 
-            onClick={repairHistory} 
-            variant="outline"
-            disabled={isRepairing}
-          >
-            {isRepairing ? "Naprawianie..." : "🔧 Napraw historię (sync z Bitget)"}
-          </Button>
         </div>
       </div>
       
