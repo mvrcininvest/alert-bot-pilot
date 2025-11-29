@@ -425,6 +425,11 @@ created_at, closed_at, updated_at, last_check_at, check_errors,
 last_error, metadata, user_id, alert_id
 ```
 
+**`metadata`** (jsonb) - Dodatkowe dane pozycji:
+- `settings_snapshot`: Pełne ustawienia MM użyte przy otwarciu (position_sizing_type, max_margin_per_trade, max_loss_per_trade, effective_leverage, sl_percent, tp1_rr, etc.)
+- `mm_data`: Obliczone dane dla starych pozycji (calculated_margin, symbol_category, margin_bucket, position_sizing_type="legacy_unknown")
+- `execution_details`: Szczegóły wykonania trade'a
+
 **`settings`** - Admin settings (global)
 ```sql
 id, bot_active, position_sizing_type, position_size_value,
@@ -489,6 +494,23 @@ ban_reason, banned_at, banned_by, last_seen_at,
 notify_position_opened, notify_position_closed, notify_bot_status,
 notify_loss_alerts, notify_daily_summary, created_at, updated_at
 ```
+
+### Database Functions
+
+**`get_money_management_stats()`** - Agreguje statystyki według ustawień MM
+- Grupuje po: `position_sizing_type`, `margin_bucket`, `symbol_category`
+- Używa `settings_snapshot` (nowe pozycje) lub `mm_data` (legacy)
+- Zwraca: count, win_rate, avg_pnl, total_pnl
+
+**`get_tier_stats()`** - Statystyki per tier
+
+**`get_leverage_stats()`** - Statystyki per leverage
+
+**`get_rr_stats()`** - Statystyki per R:R ratio
+
+**`get_margin_bucket_stats()`** - Statystyki per margin bucket
+
+**`get_tp_distribution_stats()`** - Statystyki per close reason
 
 ### Edge Functions
 
@@ -603,6 +625,10 @@ Dezaktywuje bota (bot_active = false)
 **`link-positions-alerts`** - Linkowanie pozycji do alertów
 **`fix-positions-data`** - Fix quantity i PnL
 **`recalculate-sltp`** - Przeliczeń SL/TP dla otwartych pozycji
+**`repair-mm-data`** - Naprawa danych Money Management dla historycznych pozycji
+  - Oblicza i zapisuje `margin_bucket`, `symbol_category` dla starych pozycji
+  - Oznacza pozycje bez `settings_snapshot` jako "legacy_unknown"
+  - Pozwala włączyć stare pozycje do statystyk MM
 
 ---
 
@@ -718,6 +744,42 @@ Balanced      | 89     | 81%      | +2.34
 Conservative  | 34     | 87%      | +1.67
 Scalping      | 23     | 79%      | +1.23
 ```
+
+**Money Management Analysis** (from `get_money_management_stats()`)
+
+Statystyki pogrupowane według ustawień money management używanych przy otwarciu pozycji.
+
+**Position Sizing Types**
+```
+Type              | Trades | Win Rate | Avg PnL | Total PnL
+Fixed USDT        | 45     | 78%      | +1.89   | +85.05
+Percentage        | 23     | 82%      | +2.12   | +48.76
+Scalping Mode     | 67     | 85%      | +2.45   | +164.15
+Legacy (Unknown)  | 34     | 72%      | +1.23   | +41.82
+```
+
+**Margin Buckets** (tylko dla Scalping Mode)
+```
+Margin Range | Trades | Win Rate | Avg PnL | Total PnL
+<1 USDT      | 34     | 88%      | +1.12   | +38.08
+1-2 USDT     | 45     | 84%      | +2.34   | +105.30
+2-5 USDT     | 23     | 79%      | +3.12   | +71.76
+>5 USDT      | 12     | 71%      | +4.56   | +54.72
+```
+
+**Symbol Categories**
+```
+Category  | Trades | Win Rate | Avg PnL | Total PnL
+BTC_ETH   | 45     | 87%      | +3.12   | +140.40
+MAJOR     | 67     | 82%      | +2.34   | +156.78
+ALTCOIN   | 56     | 76%      | +1.89   | +105.84
+```
+
+**Uwaga:** Pozycje z etykietą "Legacy (Unknown)" pochodzą z okresu przed 
+implementacją śledzenia MM. Margin i kategoria są obliczone na podstawie danych 
+pozycji, ale dokładny typ position sizing nie jest znany.
+
+Uruchom funkcję `repair-mm-data` aby uzupełnić stare pozycje o obliczone dane MM.
 
 ---
 
@@ -891,7 +953,7 @@ Supabase Authentication (email/password)
 - Tabela zamkniętych pozycji
 - Filtry: symbol, side, close_reason, date range
 - PnL breakdown
-- Export do CSV
+- Export do CSV (zawiera sekcję "WEDŁUG MONEY MANAGEMENT" z breakdown per sizing type, margin bucket, symbol category)
 
 ### `/stats` - Zaawansowane Statystyki
 - Equity Curve
@@ -905,6 +967,7 @@ Supabase Authentication (email/password)
 - Session Analysis
 - Close Reason Breakdown
 - Signal Strength Correlation
+- Money Management Analysis (Position Sizing Types, Margin Buckets, Symbol Categories)
 
 ### `/admin/settings` - Admin Settings
 ADMIN ONLY - Globalne ustawienia bota
