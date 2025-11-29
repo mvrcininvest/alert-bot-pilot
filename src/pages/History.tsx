@@ -15,6 +15,13 @@ import { Info, AlertCircle, Download, Calendar as CalendarIcon } from "lucide-re
 import { cn } from "@/lib/utils";
 import { useToast } from "@/hooks/use-toast";
 
+// Helper function to format prices with appropriate precision
+const formatPrice = (price: number) => {
+  if (price >= 1000) return price.toFixed(2);
+  if (price >= 1) return price.toFixed(4);
+  return price.toFixed(6); // for small prices like DOGE
+};
+
 export default function History() {
   const { toast } = useToast();
   const [dateFrom, setDateFrom] = useState<Date>();
@@ -124,14 +131,12 @@ export default function History() {
 
     const rows = filteredPositions.map((position) => {
       const pnl = Number(position.realized_pnl || 0);
-      const pnlPercent = position.entry_price && position.close_price
-        ? ((Number(position.close_price) - Number(position.entry_price)) / Number(position.entry_price)) * 100 * (position.side === 'BUY' ? 1 : -1)
-        : 0;
+      const notionalValue = Number(position.entry_price) * Number(position.quantity);
+      const marginUsed = position.leverage ? notionalValue / Number(position.leverage) : notionalValue;
+      const roi = marginUsed > 0 ? (pnl / marginUsed) * 100 : 0;
       const duration = position.closed_at && position.created_at
         ? Math.floor((new Date(position.closed_at).getTime() - new Date(position.created_at).getTime()) / 1000 / 60)
         : 0;
-      const notionalValue = Number(position.entry_price) * Number(position.quantity);
-      const marginUsed = position.leverage ? notionalValue / Number(position.leverage) : 0;
       const alert = Array.isArray(position.alerts) ? position.alerts[0] : position.alerts;
 
       return [
@@ -143,8 +148,8 @@ export default function History() {
         position.leverage,
         notionalValue.toFixed(2),
         marginUsed.toFixed(2),
-        pnl.toFixed(2),
-        pnlPercent.toFixed(2),
+        pnl.toFixed(4),
+        roi.toFixed(2),
         position.close_reason || "Unknown",
         format(new Date(position.created_at), "dd.MM.yyyy HH:mm"),
         position.closed_at ? format(new Date(position.closed_at), "dd.MM.yyyy HH:mm") : "-",
@@ -379,7 +384,7 @@ export default function History() {
                   <TableHead>Wartość</TableHead>
                   <TableHead>Margin</TableHead>
                   <TableHead>PnL</TableHead>
-                  <TableHead>PnL %</TableHead>
+                  <TableHead>ROI %</TableHead>
                   <TableHead>Powód zamknięcia</TableHead>
                   <TableHead>Otwarcie</TableHead>
                   <TableHead>Zamknięcie</TableHead>
@@ -397,16 +402,13 @@ export default function History() {
                 ) : filteredPositions && filteredPositions.length > 0 ? (
                   filteredPositions.map((position) => {
                     const pnl = Number(position.realized_pnl || 0);
-                    const pnlPercent = position.entry_price && position.close_price
-                      ? ((Number(position.close_price) - Number(position.entry_price)) / Number(position.entry_price)) * 100 * (position.side === 'BUY' ? 1 : -1)
-                      : 0;
+                    const notionalValue = Number(position.entry_price) * Number(position.quantity);
+                    const marginUsed = position.leverage ? notionalValue / Number(position.leverage) : notionalValue;
+                    const roi = marginUsed > 0 ? (pnl / marginUsed) * 100 : 0;
                     
                     const duration = position.closed_at && position.created_at
                       ? Math.floor((new Date(position.closed_at).getTime() - new Date(position.created_at).getTime()) / 1000 / 60)
                       : 0;
-                    
-                    const notionalValue = Number(position.entry_price) * Number(position.quantity);
-                    const marginUsed = position.leverage ? notionalValue / Number(position.leverage) : 0;
                     
                     const alert = Array.isArray(position.alerts) ? position.alerts[0] : position.alerts;
                     
@@ -433,17 +435,17 @@ export default function History() {
                             {position.side === "BUY" ? "LONG" : "SHORT"}
                           </Badge>
                         </TableCell>
-                        <TableCell>${Number(position.entry_price).toFixed(4)}</TableCell>
-                        <TableCell>${Number(position.close_price).toFixed(4)}</TableCell>
+                        <TableCell>${formatPrice(Number(position.entry_price))}</TableCell>
+                        <TableCell>${formatPrice(Number(position.close_price))}</TableCell>
                         <TableCell>{Number(position.quantity).toFixed(4)}</TableCell>
                         <TableCell className="font-medium">{position.leverage}x</TableCell>
                         <TableCell className="font-medium">${notionalValue.toFixed(2)}</TableCell>
                         <TableCell className="text-muted-foreground">${marginUsed.toFixed(2)}</TableCell>
-                        <TableCell className={pnl >= 0 ? "text-profit font-medium" : "text-loss font-medium"}>
-                          ${pnl.toFixed(2)}
+                        <TableCell className={`font-medium ${pnl >= 0 ? "text-profit" : "text-loss"}`}>
+                          ${pnl.toFixed(4)}
                         </TableCell>
-                        <TableCell className={pnlPercent >= 0 ? "text-profit" : "text-loss"}>
-                          {pnlPercent.toFixed(2)}%
+                        <TableCell className={`${roi >= 0 ? "text-profit" : "text-loss"}`}>
+                          {roi.toFixed(2)}%
                         </TableCell>
                         <TableCell>
                           <Badge variant="outline">

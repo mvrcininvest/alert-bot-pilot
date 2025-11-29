@@ -25,13 +25,13 @@ serve(async (req) => {
       level: 'info'
     });
 
-    // Get all closed positions from database that might need sync
+    // Get all closed positions from database that might need sync (last 200 to cover all positions)
     const { data: dbPositions, error: dbError } = await supabase
       .from('positions')
       .select('*')
       .eq('status', 'closed')
       .order('closed_at', { ascending: false })
-      .limit(50);
+      .limit(200);
 
     if (dbError) throw dbError;
 
@@ -84,9 +84,9 @@ serve(async (req) => {
       };
 
       try {
-        // Get position history from Bitget (last 7 days)
+        // Get position history from Bitget (last 30 days to cover all positions)
         const endTime = Date.now();
-        const startTime = endTime - (7 * 24 * 60 * 60 * 1000); // 7 days ago
+        const startTime = endTime - (30 * 24 * 60 * 60 * 1000); // 30 days ago
 
         console.log(`Fetching position history for user ${userId} from ${new Date(startTime).toISOString()}`);
 
