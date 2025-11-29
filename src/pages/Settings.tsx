@@ -834,6 +834,84 @@ export default function Settings() {
                   </div>
                 </div>
               </div>
+
+              <Separator />
+
+              {/* KATEGORIE */}
+              <div>
+                <h3 className="font-semibold mb-3">Ustawienia per Kategoria</h3>
+                <div className="space-y-4">
+                  {['BTC_ETH', 'MAJOR', 'ALTCOIN'].map((category) => {
+                    const cat = localSettings.category_settings?.[category];
+                    const isEnabled = cat?.enabled === true;
+                    
+                    return (
+                      <div key={category}>
+                        <div className="flex items-center gap-2 mb-2">
+                          <Badge variant={isEnabled ? "default" : "secondary"}>
+                            {category === 'BTC_ETH' ? 'BTC/ETH' : category}
+                          </Badge>
+                          <span className="text-sm text-muted-foreground">
+                            {isEnabled ? "✓ Własne ustawienia" : "✗ Główne ustawienia"}
+                          </span>
+                        </div>
+                        {isEnabled && (
+                          <div className="grid grid-cols-3 gap-2 text-sm pl-4">
+                            <div className="space-y-1">
+                              <div className="text-xs text-muted-foreground">Max Leverage</div>
+                              <div className="font-medium">{cat.max_leverage}x</div>
+                            </div>
+                            <div className="space-y-1">
+                              <div className="text-xs text-muted-foreground">Max Margin</div>
+                              <div className="font-medium">{cat.max_margin} USDT</div>
+                            </div>
+                            <div className="space-y-1">
+                              <div className="text-xs text-muted-foreground">Max Loss</div>
+                              <div className="font-medium">{cat.max_loss} USDT</div>
+                            </div>
+                            <div className="space-y-1">
+                              <div className="text-xs text-muted-foreground">TP Levels</div>
+                              <div className="font-medium">{cat.tp_levels}</div>
+                            </div>
+                            <div className="space-y-1">
+                              <div className="text-xs text-muted-foreground">TP1 R:R</div>
+                              <div className="font-medium">{cat.tp1_rr}</div>
+                            </div>
+                            {cat.tp_levels >= 2 && (
+                              <div className="space-y-1">
+                                <div className="text-xs text-muted-foreground">TP2 R:R</div>
+                                <div className="font-medium">{cat.tp2_rr}</div>
+                              </div>
+                            )}
+                            {cat.tp_levels >= 3 && (
+                              <div className="space-y-1">
+                                <div className="text-xs text-muted-foreground">TP3 R:R</div>
+                                <div className="font-medium">{cat.tp3_rr}</div>
+                              </div>
+                            )}
+                            <div className="space-y-1">
+                              <div className="text-xs text-muted-foreground">TP1 Close %</div>
+                              <div className="font-medium">{cat.tp1_close_pct}%</div>
+                            </div>
+                            {cat.tp_levels >= 2 && (
+                              <div className="space-y-1">
+                                <div className="text-xs text-muted-foreground">TP2 Close %</div>
+                                <div className="font-medium">{cat.tp2_close_pct}%</div>
+                              </div>
+                            )}
+                            {cat.tp_levels >= 3 && (
+                              <div className="space-y-1">
+                                <div className="text-xs text-muted-foreground">TP3 Close %</div>
+                                <div className="font-medium">{cat.tp3_close_pct}%</div>
+                              </div>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
             </CardContent>
           </Card>
         </TabsContent>
