@@ -173,7 +173,11 @@ export default function Stats() {
             mode,
             raw_data,
             atr,
-            latency_ms
+            latency_ms,
+            latency_webhook_ms,
+            latency_execution_ms,
+            tv_timestamp,
+            exchange_executed_at
           )
         `)
         .eq("status", "closed")
@@ -1189,6 +1193,31 @@ export default function Stats() {
       .filter(Boolean) as any[];
   }, [filteredPositions]);
 
+  // Helper: Get time filter label for export filenames
+  const getTimeFilterLabel = () => {
+    if (timeFilter === "custom" && customRange.from && customRange.to) {
+      return `custom_${format(customRange.from, "yyyy-MM-dd")}_${format(customRange.to, "yyyy-MM-dd")}`;
+    }
+    return timeFilter === "all" ? "all" : timeFilter;
+  };
+
+  // Helper: Get time filter display text
+  const getTimeFilterDisplay = () => {
+    switch (timeFilter) {
+      case "today": return "Dziś";
+      case "7d": return "7 dni";
+      case "30d": return "30 dni";
+      case "90d": return "90 dni";
+      case "all": return "Wszystkie";
+      case "custom": 
+        if (customRange.from && customRange.to) {
+          return `${format(customRange.from, "dd.MM")} - ${format(customRange.to, "dd.MM")}`;
+        }
+        return "Własny";
+      default: return "";
+    }
+  };
+
   // Export handlers
   const handleExportPositions = () => {
     if (!filteredPositions || filteredPositions.length === 0) {
@@ -1200,7 +1229,8 @@ export default function Stats() {
       return;
     }
 
-    exportToCSV(filteredPositions as any, "trading-positions");
+    const filename = `positions_${getTimeFilterLabel()}_${format(new Date(), "yyyy-MM-dd")}`;
+    exportToCSV(filteredPositions as any, filename);
     toast({
       title: "Eksport zakończony",
       description: `Wyeksportowano ${filteredPositions.length} pozycji`,
@@ -1267,7 +1297,7 @@ export default function Stats() {
         pnl: t.totalPnL,
       })),
       monthlyData: monthlyData,
-    }, "stats-summary");
+    }, `stats_${getTimeFilterLabel()}_${format(new Date(), "yyyy-MM-dd")}`);
     
     toast({
       title: "Eksport zakończony",
@@ -1322,8 +1352,9 @@ export default function Stats() {
     const blob = new Blob(["\ufeff" + csvContent], { type: "text/csv;charset=utf-8;" });
     const link = document.createElement("a");
     const url = URL.createObjectURL(blob);
+    const filename = `alerts_${getTimeFilterLabel()}_${format(new Date(), "yyyy-MM-dd")}.csv`;
     link.setAttribute("href", url);
-    link.setAttribute("download", `alerts_${format(new Date(), "yyyy-MM-dd_HH-mm")}.csv`);
+    link.setAttribute("download", filename);
     link.style.visibility = "hidden";
     document.body.appendChild(link);
     link.click();
@@ -1409,32 +1440,14 @@ export default function Stats() {
             <Download className="h-4 w-4 mr-2" />
             Import 90 dni
           </Button>
-          <div className="w-px h-8 bg-border" />
           <Button
-            onClick={handleExportPositions}
+            onClick={() => repairMutation.mutate()}
+            disabled={repairMutation.isPending}
             variant="outline"
             size="sm"
-            disabled={!filteredPositions || filteredPositions.length === 0}
           >
-            <FileDown className="h-4 w-4 mr-2" />
-            Eksport Pozycji
-          </Button>
-          <Button
-            onClick={handleExportStats}
-            size="sm"
-            disabled={!stats}
-          >
-            <FileDown className="h-4 w-4 mr-2" />
-            Eksport Statystyk
-          </Button>
-          <Button
-            onClick={handleExportAlerts}
-            variant="outline"
-            size="sm"
-            disabled={!filteredAlerts || filteredAlerts.length === 0}
-          >
-            <FileDown className="h-4 w-4 mr-2" />
-            Eksport Alertów
+            <Wrench className="h-4 w-4 mr-2" />
+            Napraw dane
           </Button>
         </div>
       </div>
@@ -1446,6 +1459,36 @@ export default function Stats() {
         customRange={customRange}
         onCustomRangeChange={setCustomRange}
       />
+
+      {/* Export Buttons */}
+      <div className="flex gap-2 flex-wrap">
+        <Button
+          onClick={handleExportPositions}
+          variant="outline"
+          size="sm"
+          disabled={!filteredPositions || filteredPositions.length === 0}
+        >
+          <FileDown className="h-4 w-4 mr-2" />
+          Eksport Pozycji ({getTimeFilterDisplay()})
+        </Button>
+        <Button
+          onClick={handleExportStats}
+          size="sm"
+          disabled={!stats}
+        >
+          <FileDown className="h-4 w-4 mr-2" />
+          Eksport Statystyk ({getTimeFilterDisplay()})
+        </Button>
+        <Button
+          onClick={handleExportAlerts}
+          variant="outline"
+          size="sm"
+          disabled={!filteredAlerts || filteredAlerts.length === 0}
+        >
+          <FileDown className="h-4 w-4 mr-2" />
+          Eksport Alertów ({getTimeFilterDisplay()})
+        </Button>
+      </div>
 
       {stats ? (
         <>
