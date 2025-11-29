@@ -1146,7 +1146,32 @@ export default function Stats() {
         avgWin: stats.avgWin,
         avgLoss: stats.avgLoss,
         maxDrawdown: stats.maxDrawdown,
+        largestWin: stats.largestWin,
+        largestLoss: stats.largestLoss,
+        avgDurationMinutes: stats.avgDurationMinutes,
+        bestWinStreak: stats.bestWinStreak,
+        worstLossStreak: stats.worstLossStreak,
       },
+      advancedMetrics: {
+        sharpeRatio: advancedMetrics.sharpeRatio,
+        sortinoRatio: advancedMetrics.sortinoRatio,
+        calmarRatio: advancedMetrics.calmarRatio,
+        recoveryFactor: advancedMetrics.recoveryFactor,
+        payoffRatio: advancedMetrics.payoffRatio,
+      },
+      bySession: sessionStats,
+      byCloseReason: closeReasonStats,
+      bySignalStrength: strengthStats,
+      byDuration: durationStats,
+      byHour: hourlyStats,
+      byDayOfWeek: dailyStats,
+      byLeverage: roiStats.map(r => ({
+        leverage: parseInt(r.range.split('x')[0]),
+        trades: r.trades,
+        winRate: (r.wins / r.trades) * 100,
+        avgPnL: r.totalPnL / r.trades,
+        totalPnL: r.totalPnL,
+      })),
       bySymbol: symbolStats.map(s => ({
         symbol: s.symbol,
         trades: s.trades,
@@ -1159,11 +1184,12 @@ export default function Stats() {
         winRate: t.winRate,
         pnl: t.totalPnL,
       })),
+      monthlyData: monthlyData,
     }, "stats-summary");
     
     toast({
       title: "Eksport zakończony",
-      description: "Statystyki zostały wyeksportowane do CSV",
+      description: "Wszystkie statystyki zostały wyeksportowane do CSV",
     });
   };
 

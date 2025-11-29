@@ -128,42 +128,77 @@ export default function History() {
 
     const headers = [
       "Symbol", "Side", "Entry Price", "Close Price", "Quantity", "Leverage",
-      "Position Value", "Margin Used", "PnL", "PnL %", "Close Reason",
-      "Open Time", "Close Time", "Duration (min)", "Alert ID", "Alert Tier",
-      "Alert Strength", "Alert Entry Price", "Alert SL", "Alert TP"
+      "Position Value", "Margin Used", "Fees", "Gross PnL", "Net PnL", "ROI %", "Real R:R",
+      "Close Reason", "Open Time", "Close Time", "Duration (min)",
+      "SL Price", "TP1 Price", "TP1 Quantity", "TP1 Filled",
+      "TP2 Price", "TP2 Quantity", "TP2 Filled",
+      "TP3 Price", "TP3 Quantity", "TP3 Filled",
+      "Bitget Order ID", "SL Order ID", "TP1 Order ID", "TP2 Order ID", "TP3 Order ID",
+      "Alert ID", "Alert Tier", "Alert Strength", "Alert Mode", "Alert ATR",
+      "Alert Entry Price", "Alert SL", "Alert TP",
+      "Session", "Regime", "Zone Type", "BTC Correlation"
     ];
 
     const rows = filteredPositions.map((position) => {
-      const pnl = Number(position.realized_pnl || 0);
+      const netPnl = Number(position.realized_pnl || 0);
       const notionalValue = Number(position.entry_price) * Number(position.quantity);
       const marginUsed = position.leverage ? notionalValue / Number(position.leverage) : notionalValue;
-      const roi = marginUsed > 0 ? (pnl / marginUsed) * 100 : 0;
+      const fees = notionalValue * 0.0012;
+      const grossPnl = netPnl + fees;
+      const roi = marginUsed > 0 ? (netPnl / marginUsed) * 100 : 0;
+      const estimatedLoss = marginUsed > 0 ? marginUsed * 0.02 : 1;
+      const realRR = (estimatedLoss + fees) > 0 ? netPnl / (estimatedLoss + fees) : 0;
       const duration = position.closed_at && position.created_at
         ? Math.floor((new Date(position.closed_at).getTime() - new Date(position.created_at).getTime()) / 1000 / 60)
         : 0;
       const alert = Array.isArray(position.alerts) ? position.alerts[0] : position.alerts;
+      const metadata = position.metadata as any;
 
       return [
         position.symbol,
         position.side === 'BUY' ? 'LONG' : 'SHORT',
-        Number(position.entry_price).toFixed(4),
-        Number(position.close_price).toFixed(4),
-        Number(position.quantity).toFixed(4),
+        Number(position.entry_price).toFixed(8),
+        Number(position.close_price).toFixed(8),
+        Number(position.quantity).toFixed(8),
         position.leverage,
         notionalValue.toFixed(2),
         marginUsed.toFixed(2),
-        pnl.toFixed(4),
+        fees.toFixed(4),
+        grossPnl.toFixed(4),
+        netPnl.toFixed(4),
         roi.toFixed(2),
+        realRR.toFixed(2),
         position.close_reason || "Unknown",
         format(new Date(position.created_at), "dd.MM.yyyy HH:mm:ss"),
         position.closed_at ? format(new Date(position.closed_at), "dd.MM.yyyy HH:mm:ss") : "-",
         duration,
+        position.sl_price || "-",
+        position.tp1_price || "-",
+        position.tp1_quantity || "-",
+        position.tp1_filled ? "YES" : "NO",
+        position.tp2_price || "-",
+        position.tp2_quantity || "-",
+        position.tp2_filled ? "YES" : "NO",
+        position.tp3_price || "-",
+        position.tp3_quantity || "-",
+        position.tp3_filled ? "YES" : "NO",
+        position.bitget_order_id || "-",
+        position.sl_order_id || "-",
+        position.tp1_order_id || "-",
+        position.tp2_order_id || "-",
+        position.tp3_order_id || "-",
         alert?.id || "-",
         alert?.tier || "-",
         alert?.strength || "-",
+        alert?.mode || "-",
+        alert?.atr || "-",
         alert?.entry_price || "-",
         alert?.sl || "-",
-        alert?.main_tp || "-"
+        alert?.main_tp || "-",
+        metadata?.session || "-",
+        metadata?.regime || "-",
+        metadata?.zone_type || "-",
+        metadata?.btc_correlation || "-"
       ];
     });
 
@@ -172,7 +207,7 @@ export default function History() {
       ...rows.map(row => row.map(cell => `"${cell}"`).join(","))
     ].join("\n");
 
-    const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
+    const blob = new Blob(["\ufeff" + csvContent], { type: "text/csv;charset=utf-8;" });
     const link = document.createElement("a");
     const url = URL.createObjectURL(blob);
     link.setAttribute("href", url);
@@ -200,6 +235,15 @@ export default function History() {
 
     const exportData = filteredPositions.map((position) => {
       const alert = Array.isArray(position.alerts) ? position.alerts[0] : position.alerts;
+      const netPnl = Number(position.realized_pnl || 0);
+      const notionalValue = Number(position.entry_price) * Number(position.quantity);
+      const marginUsed = position.leverage ? notionalValue / Number(position.leverage) : notionalValue;
+      const fees = notionalValue * 0.0012;
+      const grossPnl = netPnl + fees;
+      const roi = marginUsed > 0 ? (netPnl / marginUsed) * 100 : 0;
+      const estimatedLoss = marginUsed > 0 ? marginUsed * 0.02 : 1;
+      const realRR = (estimatedLoss + fees) > 0 ? netPnl / (estimatedLoss + fees) : 0;
+      
       return {
         position: {
           id: position.id,
@@ -209,11 +253,39 @@ export default function History() {
           close_price: Number(position.close_price),
           quantity: Number(position.quantity),
           leverage: position.leverage,
-          realized_pnl: Number(position.realized_pnl || 0),
+          sl_price: position.sl_price,
+          tp1_price: position.tp1_price,
+          tp1_quantity: position.tp1_quantity,
+          tp1_filled: position.tp1_filled,
+          tp2_price: position.tp2_price,
+          tp2_quantity: position.tp2_quantity,
+          tp2_filled: position.tp2_filled,
+          tp3_price: position.tp3_price,
+          tp3_quantity: position.tp3_quantity,
+          tp3_filled: position.tp3_filled,
+          bitget_order_id: position.bitget_order_id,
+          sl_order_id: position.sl_order_id,
+          tp1_order_id: position.tp1_order_id,
+          tp2_order_id: position.tp2_order_id,
+          tp3_order_id: position.tp3_order_id,
+          realized_pnl: netPnl,
           close_reason: position.close_reason,
           created_at: position.created_at,
           closed_at: position.closed_at,
           status: position.status,
+          metadata: position.metadata,
+        },
+        calculated: {
+          position_value: notionalValue,
+          margin_used: marginUsed,
+          fees: fees,
+          gross_pnl: grossPnl,
+          net_pnl: netPnl,
+          roi_percent: roi,
+          real_rr: realRR,
+          duration_minutes: position.closed_at && position.created_at
+            ? Math.floor((new Date(position.closed_at).getTime() - new Date(position.created_at).getTime()) / 1000 / 60)
+            : 0,
         },
         alert: alert ? {
           id: alert.id,
@@ -224,6 +296,8 @@ export default function History() {
           main_tp: alert.main_tp,
           tier: alert.tier,
           strength: alert.strength,
+          mode: alert.mode,
+          atr: alert.atr,
           leverage: alert.leverage,
           created_at: alert.created_at,
           raw_data: alert.raw_data,
