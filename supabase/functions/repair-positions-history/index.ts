@@ -8,11 +8,11 @@ const FUNCTION_NAME = "repair-positions-history";
 interface BitgetHistoryPosition {
   symbol: string;
   netProfit: string;
-  openPriceAvg: string;
-  closePriceAvg: string;
-  createdTime: string;
-  updatedTime: string;
-  posSide: string;
+  openAvgPrice: string;
+  closeAvgPrice: string;
+  ctime: string;
+  utime: string;
+  holdSide: string;
   closeTotalPos: string;
   leverage: string;
 }
@@ -164,8 +164,8 @@ Deno.serve(async (req) => {
 
     for (let i = 0; i < allBitgetPositions.length; i++) {
       const bitgetPos = allBitgetPositions[i];
-      const bitgetCloseTime = Number(bitgetPos.updatedTime);
-      const bitgetSide = bitgetPos.posSide === 'long' ? 'BUY' : 'SELL';
+      const bitgetCloseTime = Number(bitgetPos.utime);
+      const bitgetSide = bitgetPos.holdSide === 'long' ? 'BUY' : 'SELL';
 
       // Find all potential matches in DB
       const candidates = (dbPositions || []).filter(db => {
@@ -197,8 +197,8 @@ Deno.serve(async (req) => {
         const { error: updateError } = await supabase
           .from("positions")
           .update({
-            entry_price: Number(bitgetPos.openPriceAvg),
-            close_price: Number(bitgetPos.closePriceAvg),
+            entry_price: Number(bitgetPos.openAvgPrice),
+            close_price: Number(bitgetPos.closeAvgPrice),
             realized_pnl: Number(bitgetPos.netProfit),
             quantity: Number(bitgetPos.closeTotalPos),
             leverage: Number(bitgetPos.leverage),
@@ -239,22 +239,22 @@ Deno.serve(async (req) => {
       const newPositions = unmatchedBitgetPositions.map(bitgetPos => ({
         user_id: user.id,
         symbol: bitgetPos.symbol,
-        side: bitgetPos.posSide === 'long' ? 'BUY' : 'SELL',
-        entry_price: Number(bitgetPos.openPriceAvg),
-        close_price: Number(bitgetPos.closePriceAvg),
+        side: bitgetPos.holdSide === 'long' ? 'BUY' : 'SELL',
+        entry_price: Number(bitgetPos.openAvgPrice),
+        close_price: Number(bitgetPos.closeAvgPrice),
         quantity: Number(bitgetPos.closeTotalPos),
         leverage: Number(bitgetPos.leverage),
         realized_pnl: Number(bitgetPos.netProfit),
         sl_price: 0,  // Placeholder - no SL info in history
         status: 'closed',
-        closed_at: new Date(Number(bitgetPos.updatedTime)).toISOString(),
-        created_at: new Date(Number(bitgetPos.createdTime)).toISOString(),
+        closed_at: new Date(Number(bitgetPos.utime)).toISOString(),
+        created_at: new Date(Number(bitgetPos.ctime)).toISOString(),
         close_reason: 'imported_from_bitget',
         metadata: {
           imported_from_bitget: true,
           import_time: new Date().toISOString(),
-          bitget_close_time: bitgetPos.updatedTime,
-          bitget_create_time: bitgetPos.createdTime
+          bitget_close_time: bitgetPos.utime,
+          bitget_create_time: bitgetPos.ctime
         }
       }));
 
