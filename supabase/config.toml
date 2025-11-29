@@ -29,3 +29,6 @@ verify_jwt = false
 
 [functions.repair-history-data]
 verify_jwt = false
+
+[functions.repair-positions-history]
+verify_jwt = true
