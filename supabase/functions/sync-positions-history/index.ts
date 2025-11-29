@@ -21,7 +21,7 @@ serve(async (req) => {
 
     await log({
       functionName: 'sync-positions-history',
-      message: 'Starting position history synchronization',
+      message: 'Starting position history synchronization with Bitget data',
       level: 'info'
     });
 
@@ -83,202 +83,169 @@ serve(async (req) => {
         passphrase: userKeys.passphrase
       };
 
-      // Get unique symbols for this user
-      const symbols = [...new Set(userPositions.map(p => normalizeSymbol(p.symbol)))];
+      try {
+        // Get position history from Bitget (last 7 days)
+        const endTime = Date.now();
+        const startTime = endTime - (7 * 24 * 60 * 60 * 1000); // 7 days ago
 
-      for (const symbol of symbols) {
-        try {
-          // Get fill history from Bitget (last 7 days)
-          const endTime = Date.now();
-          const startTime = endTime - (7 * 24 * 60 * 60 * 1000); // 7 days ago
+        console.log(`Fetching position history for user ${userId} from ${new Date(startTime).toISOString()}`);
 
-          const { data: historyResult } = await supabase.functions.invoke('bitget-api', {
-            body: {
-              action: 'get_fills',
-              params: {
-                symbol: symbol,
-                startTime: startTime.toString(),
-                endTime: endTime.toString()
-              },
-              apiCredentials
-            }
-          });
-
-          if (!historyResult?.success || !historyResult.data?.fillList) {
-            console.log(`No fill data for ${symbol}`);
-            continue;
+        const { data: historyResult } = await supabase.functions.invoke('bitget-api', {
+          body: {
+            action: 'get_position_history',
+            params: {
+              startTime: startTime.toString(),
+              endTime: endTime.toString(),
+              pageSize: '100'
+            },
+            apiCredentials
           }
+        });
 
-        const fills = historyResult.data.fillList;
-        console.log(`Got ${fills.length} fills for ${symbol}`);
-
-        // Group fills by order ID to reconstruct position closes
-        const orderGroups = new Map<string, any[]>();
-        for (const fill of fills) {
-          const orderId = fill.orderId;
-          if (!orderGroups.has(orderId)) {
-            orderGroups.set(orderId, []);
-          }
-          orderGroups.get(orderId)!.push(fill);
+        if (!historyResult?.success || !historyResult.data?.list) {
+          console.log(`No position history data for user ${userId}`);
+          continue;
         }
 
-        console.log(`Found ${orderGroups.size} unique orders for ${symbol}`);
+        const bitgetPositions = historyResult.data.list;
+        console.log(`Got ${bitgetPositions.length} positions from Bitget for user ${userId}`);
 
-        // Process each order (position close)
-        for (const [orderId, orderFills] of orderGroups) {
-          // Skip if not a close order
-          const firstFill = orderFills[0];
-          console.log(`Processing order ${orderId}: tradeSide=${firstFill.tradeSide}`);
-          
-          if (firstFill.tradeSide !== 'close_long' && firstFill.tradeSide !== 'close_short') {
-            console.log(`Skipping order ${orderId} - not a close order`);
+        // Process each Bitget position
+        for (const bitgetPos of bitgetPositions) {
+          const symbol = normalizeSymbol(bitgetPos.symbol);
+          const openTime = Number(bitgetPos.cTime);
+          const closeTime = Number(bitgetPos.uTime);
+
+          console.log(`Processing Bitget position: ${symbol}, open=${new Date(openTime).toISOString()}, close=${new Date(closeTime).toISOString()}`);
+
+          // Find matching position in database
+          // First try to match by symbol and time window (within 5 minutes of close time)
+          const dbPos = userPositions.find(p => {
+            const normalizedPosSymbol = normalizeSymbol(p.symbol);
+            if (normalizedPosSymbol !== symbol) return false;
+            if (!p.closed_at) return false;
+            
+            const posCloseTime = new Date(p.closed_at).getTime();
+            const timeDiff = Math.abs(posCloseTime - closeTime);
+            const withinWindow = timeDiff < (5 * 60 * 1000); // 5 minutes
+            
+            if (withinWindow) {
+              console.log(`✅ Time match for ${symbol}: DB=${new Date(posCloseTime).toISOString()}, Bitget=${new Date(closeTime).toISOString()}, diff=${Math.round(timeDiff/1000)}s`);
+            }
+            
+            return withinWindow;
+          });
+
+          if (!dbPos) {
+            console.log(`❌ No DB match for Bitget position ${symbol} closed at ${new Date(closeTime).toISOString()}`);
             continue;
           }
 
-          // Calculate total from fills
-          const totalSize = orderFills.reduce((sum, f) => sum + Number(f.sizeQty), 0);
-          const avgPrice = orderFills.reduce((sum, f) => sum + (Number(f.price) * Number(f.sizeQty)), 0) / totalSize;
-          const totalFee = orderFills.reduce((sum, f) => sum + Number(f.fee), 0);
-          const closeTime = Number(orderFills[0].cTime);
+          // Extract real data from Bitget
+          const bitgetEntryPrice = Number(bitgetPos.openPriceAvg);
+          const bitgetClosePrice = Number(bitgetPos.closePriceAvg);
+          const bitgetRealizedPnl = Number(bitgetPos.netProfit); // netProfit includes fees
+          const bitgetSide = bitgetPos.holdSide === 'long' ? 'BUY' : 'SELL';
 
-          // Try to match with database position by order ID or by symbol + time window
-          let dbPos = userPositions.find(p => p.bitget_order_id === orderId);
-          console.log(`Match by order ID ${orderId}: ${dbPos ? 'FOUND' : 'NOT FOUND'}`);
+          // Determine close reason
+          let closeReason = 'manual_close';
           
-          // If no match by order ID, try to match by symbol and approximate time (within 2 hours)
-          if (!dbPos) {
-            dbPos = userPositions.find(p => {
-              const normalizedPosSymbol = normalizeSymbol(p.symbol);
-              if (normalizedPosSymbol !== symbol) return false;
-              if (!p.closed_at) return false;
-              
-              const posCloseTime = new Date(p.closed_at).getTime();
-              const timeDiff = Math.abs(posCloseTime - closeTime);
-              const withinWindow = timeDiff < (2 * 60 * 60 * 1000); // 2 hours
-              
-              if (withinWindow) {
-                console.log(`Time match found for ${symbol}: DB=${new Date(posCloseTime).toISOString()}, Fill=${new Date(closeTime).toISOString()}, diff=${Math.round(timeDiff/1000)}s`);
-              }
-              
-              return withinWindow;
-            });
-            if (dbPos) {
-              console.log(`✅ Matched by time: ${symbol} position ${dbPos.id}`);
-            } else {
-              console.log(`❌ No time match for order ${orderId}`);
-            }
-          }
-
-          if (dbPos) {
-            // Calculate correct PnL from Bitget data
-            const entryPrice = Number(dbPos.entry_price);
-            const quantity = Number(dbPos.quantity);
-            const isBuy = dbPos.side === 'BUY';
-            
-            // Calculate PnL: (close_price - entry_price) * quantity for LONG
-            // or (entry_price - close_price) * quantity for SHORT
-            const priceDiff = isBuy 
-              ? avgPrice - entryPrice 
-              : entryPrice - avgPrice;
-            const realizedPnl = priceDiff * quantity;
-
-            // Determine close reason from fill data
-            let closeReason = 'unknown';
-            
-            // Check if it was TP or SL based on price
-            const slPrice = Number(dbPos.sl_price);
+          if (bitgetPos.closeType === 'sl') {
+            closeReason = 'sl_hit';
+          } else if (bitgetPos.closeType === 'tp') {
+            // Check which TP was hit
             const tp1Price = dbPos.tp1_price ? Number(dbPos.tp1_price) : null;
             const tp2Price = dbPos.tp2_price ? Number(dbPos.tp2_price) : null;
             const tp3Price = dbPos.tp3_price ? Number(dbPos.tp3_price) : null;
 
-            if (isBuy) {
-              if (avgPrice <= slPrice * 1.005) {
-                closeReason = 'sl_hit';
-              } else if (tp3Price && avgPrice >= tp3Price * 0.995) {
+            if (bitgetSide === 'BUY') {
+              if (tp3Price && bitgetClosePrice >= tp3Price * 0.995) {
                 closeReason = 'tp3_hit';
-              } else if (tp2Price && avgPrice >= tp2Price * 0.995) {
+              } else if (tp2Price && bitgetClosePrice >= tp2Price * 0.995) {
                 closeReason = 'tp2_hit';
-              } else if (tp1Price && avgPrice >= tp1Price * 0.995) {
+              } else if (tp1Price && bitgetClosePrice >= tp1Price * 0.995) {
                 closeReason = 'tp1_hit';
-              } else if (avgPrice > entryPrice) {
-                closeReason = 'tp_hit';
               } else {
-                closeReason = 'sl_hit';
+                closeReason = 'tp_hit';
               }
             } else {
-              if (avgPrice >= slPrice * 0.995) {
-                closeReason = 'sl_hit';
-              } else if (tp3Price && avgPrice <= tp3Price * 1.005) {
+              if (tp3Price && bitgetClosePrice <= tp3Price * 1.005) {
                 closeReason = 'tp3_hit';
-              } else if (tp2Price && avgPrice <= tp2Price * 1.005) {
+              } else if (tp2Price && bitgetClosePrice <= tp2Price * 1.005) {
                 closeReason = 'tp2_hit';
-              } else if (tp1Price && avgPrice <= tp1Price * 1.005) {
+              } else if (tp1Price && bitgetClosePrice <= tp1Price * 1.005) {
                 closeReason = 'tp1_hit';
-              } else if (avgPrice < entryPrice) {
-                closeReason = 'tp_hit';
               } else {
-                closeReason = 'sl_hit';
+                closeReason = 'tp_hit';
               }
             }
-
-            // Check if data needs updating (always update if current data is null/missing)
-            const needsUpdate = 
-              !dbPos.realized_pnl || 
-              !dbPos.close_price ||
-              dbPos.close_reason === 'Position not found on exchange' ||
-              dbPos.close_reason === 'unknown' ||
-              Math.abs(Number(dbPos.realized_pnl) - realizedPnl) > 0.01 ||
-              Math.abs(Number(dbPos.close_price) - avgPrice) > 0.01 ||
-              dbPos.close_reason !== closeReason;
-
-            console.log(`Position ${dbPos.symbol} - needsUpdate: ${needsUpdate}, current close_price: ${dbPos.close_price}, calculated: ${avgPrice}, current pnl: ${dbPos.realized_pnl}, calculated: ${realizedPnl}`);
-
-            if (needsUpdate) {
-              await supabase
-                .from('positions')
-                .update({
-                  close_price: avgPrice,
-                  realized_pnl: realizedPnl,
-                  close_reason: closeReason,
-                  closed_at: new Date(closeTime).toISOString(),
-                  metadata: {
-                    ...dbPos.metadata,
-                    synced_from_bitget: true,
-                    sync_time: new Date().toISOString(),
-                    total_fee: totalFee
-                  }
-                })
-                .eq('id', dbPos.id);
-
-              updatedCount++;
-              console.log(`✅ Updated ${symbol}: PnL ${realizedPnl.toFixed(2)}, Reason: ${closeReason}`);
-
-              await log({
-                functionName: 'sync-positions-history',
-                message: `Synced position ${symbol}`,
-                level: 'info',
-                positionId: dbPos.id,
-                metadata: {
-                  old_pnl: dbPos.realized_pnl,
-                  new_pnl: realizedPnl,
-                  old_reason: dbPos.close_reason,
-                  new_reason: closeReason
-                }
-              });
-            }
-
-            syncedCount++;
+          } else if (bitgetPos.closeType === 'liquidation') {
+            closeReason = 'liquidated';
           }
+
+          // Check if data needs updating
+          const needsUpdate = 
+            Math.abs(Number(dbPos.entry_price) - bitgetEntryPrice) > 0.01 ||
+            Math.abs(Number(dbPos.close_price || 0) - bitgetClosePrice) > 0.01 ||
+            Math.abs(Number(dbPos.realized_pnl || 0) - bitgetRealizedPnl) > 0.01 ||
+            dbPos.close_reason !== closeReason ||
+            !dbPos.close_price ||
+            !dbPos.realized_pnl;
+
+          console.log(`Position ${symbol} - needsUpdate: ${needsUpdate}`);
+          console.log(`  Entry: DB=${dbPos.entry_price} vs Bitget=${bitgetEntryPrice}`);
+          console.log(`  Close: DB=${dbPos.close_price} vs Bitget=${bitgetClosePrice}`);
+          console.log(`  PnL: DB=${dbPos.realized_pnl} vs Bitget=${bitgetRealizedPnl}`);
+          console.log(`  Reason: DB=${dbPos.close_reason} vs Bitget=${closeReason}`);
+
+          if (needsUpdate) {
+            await supabase
+              .from('positions')
+              .update({
+                entry_price: bitgetEntryPrice,
+                close_price: bitgetClosePrice,
+                realized_pnl: bitgetRealizedPnl,
+                close_reason: closeReason,
+                closed_at: new Date(closeTime).toISOString(),
+                metadata: {
+                  ...dbPos.metadata,
+                  synced_from_bitget: true,
+                  sync_time: new Date().toISOString(),
+                  bitget_close_type: bitgetPos.closeType
+                }
+              })
+              .eq('id', dbPos.id);
+
+            updatedCount++;
+            console.log(`✅ Updated ${symbol}: Entry=${bitgetEntryPrice}, Close=${bitgetClosePrice}, PnL=${bitgetRealizedPnl.toFixed(2)}, Reason=${closeReason}`);
+
+            await log({
+              functionName: 'sync-positions-history',
+              message: `Synced position ${symbol} with Bitget data`,
+              level: 'info',
+              positionId: dbPos.id,
+              metadata: {
+                old_entry: dbPos.entry_price,
+                new_entry: bitgetEntryPrice,
+                old_close: dbPos.close_price,
+                new_close: bitgetClosePrice,
+                old_pnl: dbPos.realized_pnl,
+                new_pnl: bitgetRealizedPnl,
+                old_reason: dbPos.close_reason,
+                new_reason: closeReason
+              }
+            });
+          }
+
+          syncedCount++;
         }
 
-        } catch (error) {
-          console.error(`Error syncing ${symbol} for user ${userId}:`, error);
-          errors.push({
-            user_id: userId,
-            symbol,
-            error: error instanceof Error ? error.message : 'Unknown error'
-          });
-        }
+      } catch (error) {
+        console.error(`Error syncing positions for user ${userId}:`, error);
+        errors.push({
+          user_id: userId,
+          error: error instanceof Error ? error.message : 'Unknown error'
+        });
       }
     }
 
