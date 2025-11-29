@@ -69,6 +69,9 @@ export function calculateScalpingSLTP(
     tp1_rr_ratio: number;
     tp2_rr_ratio: number;
     tp3_rr_ratio: number;
+    taker_fee_rate?: number;
+    include_fees_in_calculations?: boolean;
+    min_profitable_tp_percent?: number;
   },
   effectiveLeverage: number
 ): ScalpingResult {
@@ -77,26 +80,41 @@ export function calculateScalpingSLTP(
   const slMin = settings.sl_percent_min / 100;
   const slMax = settings.sl_percent_max / 100;
 
-  // Calculate base SL% = maxLoss / (maxMargin × leverage)
-  let slPercent = maxLoss / (maxMargin * effectiveLeverage);
+  // Fee-aware parameters
+  const feeRate = settings.taker_fee_rate || 0.06;
+  const includeFeesInCalc = settings.include_fees_in_calculations ?? true;
+  const minProfitablePercent = settings.min_profitable_tp_percent || 0.2;
+
+  // Calculate notional and fees
+  const notional = maxMargin * effectiveLeverage;
+  const roundTripFees = notional * (feeRate * 2) / 100;
+
+  // Adjust max loss to include fees if enabled
+  let adjustedMaxLoss = maxLoss;
+  if (includeFeesInCalc) {
+    adjustedMaxLoss = maxLoss + roundTripFees;
+  }
+
+  // Calculate base SL% = adjustedMaxLoss / (maxMargin × leverage)
+  let slPercent = adjustedMaxLoss / (maxMargin * effectiveLeverage);
   let actualMargin = maxMargin;
-  let actualLoss = maxLoss;
+  let actualLoss = adjustedMaxLoss;
   let adjustment: 'none' | 'margin_reduced' | 'sl_capped' = 'none';
   let adjustmentReason: string | undefined;
 
   // If SL% < sl_min, reduce margin automatically
   if (slPercent < slMin) {
-    actualMargin = maxLoss / (slMin * effectiveLeverage);
+    actualMargin = adjustedMaxLoss / (slMin * effectiveLeverage);
     slPercent = slMin;
     adjustment = 'margin_reduced';
-    adjustmentReason = `SL% was ${(maxLoss / (maxMargin * effectiveLeverage) * 100).toFixed(3)}% (< ${(slMin * 100).toFixed(2)}% min). Reduced margin from ${maxMargin} to ${actualMargin.toFixed(2)} USDT.`;
+    adjustmentReason = `SL% was ${(adjustedMaxLoss / (maxMargin * effectiveLeverage) * 100).toFixed(3)}% (< ${(slMin * 100).toFixed(2)}% min). Reduced margin from ${maxMargin} to ${actualMargin.toFixed(2)} USDT.`;
   }
   // If SL% > sl_max, cap SL to max
   else if (slPercent > slMax) {
     actualLoss = maxMargin * effectiveLeverage * slMax;
     slPercent = slMax;
     adjustment = 'sl_capped';
-    adjustmentReason = `SL% was ${(maxLoss / (maxMargin * effectiveLeverage) * 100).toFixed(3)}% (> ${(slMax * 100).toFixed(2)}% max). Capped loss from ${maxLoss} to ${actualLoss.toFixed(2)} USDT.`;
+    adjustmentReason = `SL% was ${(adjustedMaxLoss / (maxMargin * effectiveLeverage) * 100).toFixed(3)}% (> ${(slMax * 100).toFixed(2)}% max). Capped loss from ${adjustedMaxLoss} to ${actualLoss.toFixed(2)} USDT.`;
   }
 
   // Calculate SL price
@@ -106,7 +124,14 @@ export function calculateScalpingSLTP(
     : alertData.price + slDistance;
 
   // Calculate TP prices using existing tp*_rr_ratio fields
-  const tp1Distance = slDistance * settings.tp1_rr_ratio;
+  let tp1Distance = slDistance * settings.tp1_rr_ratio;
+
+  // Enforce minimum profitable TP distance if fees are included
+  if (includeFeesInCalc) {
+    const minTP1Distance = alertData.price * (minProfitablePercent / 100);
+    tp1Distance = Math.max(tp1Distance, minTP1Distance);
+  }
+
   const tp1Price = alertData.side === 'BUY'
     ? alertData.price + tp1Distance
     : alertData.price - tp1Distance;

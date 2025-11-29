@@ -91,6 +91,11 @@ export interface UserSettings {
   require_profit_for_same_direction: boolean;
   pnl_threshold_percent: number;
   
+  // Fee-aware trading
+  taker_fee_rate: number;
+  include_fees_in_calculations: boolean;
+  min_profitable_tp_percent: number;
+  
   // Modes (not needed for runtime, just for tracking)
   money_mode?: string;
   sltp_mode?: string;
@@ -201,6 +206,9 @@ export async function getUserSettings(userId: string): Promise<UserSettings> {
     duplicate_alert_handling: userSettings.duplicate_alert_handling ?? true,
     require_profit_for_same_direction: userSettings.require_profit_for_same_direction ?? true,
     pnl_threshold_percent: userSettings.pnl_threshold_percent ?? 0.5,
+    taker_fee_rate: userSettings.taker_fee_rate ?? 0.06,
+    include_fees_in_calculations: userSettings.include_fees_in_calculations ?? true,
+    min_profitable_tp_percent: userSettings.min_profitable_tp_percent ?? 0.2,
   };
 
   // Money Management settings (copy_admin mode)

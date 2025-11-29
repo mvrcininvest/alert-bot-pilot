@@ -426,8 +426,11 @@ export default function History() {
                   <TableHead>Leverage</TableHead>
                   <TableHead>Wartość</TableHead>
                   <TableHead>Margin</TableHead>
-                  <TableHead>PnL</TableHead>
+                  <TableHead>Fees</TableHead>
+                  <TableHead>Gross PnL</TableHead>
+                  <TableHead>Net PnL</TableHead>
                   <TableHead>ROI %</TableHead>
+                  <TableHead>Real R:R</TableHead>
                   <TableHead>Powód zamknięcia</TableHead>
                   <TableHead>Otwarcie</TableHead>
                   <TableHead>Zamknięcie</TableHead>
@@ -444,10 +447,20 @@ export default function History() {
                   </TableRow>
                 ) : filteredPositions && filteredPositions.length > 0 ? (
                   filteredPositions.map((position) => {
-                    const pnl = Number(position.realized_pnl || 0);
+                    const netPnl = Number(position.realized_pnl || 0);
                     const notionalValue = Number(position.entry_price) * Number(position.quantity);
                     const marginUsed = position.leverage ? notionalValue / Number(position.leverage) : notionalValue;
-                    const roi = marginUsed > 0 ? (pnl / marginUsed) * 100 : 0;
+                    
+                    // Calculate fees (round-trip 0.12%)
+                    const fees = notionalValue * 0.0012;
+                    const grossPnl = netPnl + fees;
+                    
+                    // Calculate ROI based on net PnL
+                    const roi = marginUsed > 0 ? (netPnl / marginUsed) * 100 : 0;
+                    
+                    // Calculate Real R:R (net profit / estimated loss including fees)
+                    const estimatedLoss = marginUsed > 0 ? marginUsed * 0.02 : 1; // Estimate 2% loss if not available
+                    const realRR = (estimatedLoss + fees) > 0 ? netPnl / (estimatedLoss + fees) : 0;
                     
                     const duration = position.closed_at && position.created_at
                       ? Math.floor((new Date(position.closed_at).getTime() - new Date(position.created_at).getTime()) / 1000 / 60)
@@ -484,11 +497,26 @@ export default function History() {
                         <TableCell className="font-medium">{position.leverage}x</TableCell>
                         <TableCell className="font-medium">${notionalValue.toFixed(2)}</TableCell>
                         <TableCell className="text-muted-foreground">${marginUsed.toFixed(2)}</TableCell>
-                        <TableCell className={`font-medium ${pnl >= 0 ? "text-profit" : "text-loss"}`}>
-                          ${pnl.toFixed(4)}
+                        <TableCell className="text-muted-foreground">
+                          ${fees.toFixed(4)}
                         </TableCell>
-                        <TableCell className={`${roi >= 0 ? "text-profit" : "text-loss"}`}>
+                        <TableCell className={grossPnl >= 0 ? "text-profit" : "text-loss"}>
+                          ${grossPnl.toFixed(4)}
+                        </TableCell>
+                        <TableCell className={netPnl >= 0 ? "text-profit font-semibold" : "text-loss font-semibold"}>
+                          ${netPnl.toFixed(4)}
+                        </TableCell>
+                        <TableCell className={roi >= 0 ? "text-profit" : "text-loss"}>
                           {roi.toFixed(2)}%
+                        </TableCell>
+                        <TableCell className={
+                          realRR < 1 
+                            ? "text-loss font-semibold" 
+                            : realRR < 2 
+                            ? "text-warning font-semibold" 
+                            : "text-profit font-semibold"
+                        }>
+                          {realRR.toFixed(2)}:1
                         </TableCell>
                         <TableCell>
                           <Badge variant="outline">

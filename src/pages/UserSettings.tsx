@@ -12,6 +12,7 @@ import { Separator } from "@/components/ui/separator";
 import { useState, useEffect } from "react";
 import { Settings as SettingsIcon, Copy, User } from "lucide-react";
 import { Alert, AlertDescription } from "@/components/ui/alert";
+import { FeeCalculator } from "@/components/settings/FeeCalculator";
 
 export default function UserSettings() {
   const { toast } = useToast();
@@ -250,6 +251,21 @@ export default function UserSettings() {
                 />
               </div>
             </div>
+          )}
+
+          {/* Fee Calculator - only show in custom mode */}
+          {localSettings.money_mode === 'custom' && (
+            <FeeCalculator
+              takerFeeRate={localSettings.taker_fee_rate || 0.06}
+              includeFeesInCalculations={localSettings.include_fees_in_calculations ?? true}
+              minProfitableTpPercent={localSettings.min_profitable_tp_percent || 0.2}
+              margin={localSettings.max_margin_per_trade || 2}
+              leverage={localSettings.default_leverage || 10}
+              maxLoss={localSettings.max_loss_per_trade || 1}
+              onFeeRateChange={(value) => updateLocal("taker_fee_rate", value)}
+              onIncludeFeesChange={(value) => updateLocal("include_fees_in_calculations", value)}
+              onMinProfitableTpChange={(value) => updateLocal("min_profitable_tp_percent", value)}
+            />
           )}
         </CardContent>
       </Card>
