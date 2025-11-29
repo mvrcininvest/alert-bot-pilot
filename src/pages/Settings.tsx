@@ -25,6 +25,15 @@ export default function Settings() {
   const [accountBalance, setAccountBalance] = useState<number>(100);
   const [isFetchingBalance, setIsFetchingBalance] = useState(false);
   
+  // Advanced FeeCalculator parameters
+  const [entryPrice, setEntryPrice] = useState<number | undefined>();
+  const [slPercent, setSlPercent] = useState<number | undefined>();
+  const [takerFeeRate, setTakerFeeRate] = useState(0.06);
+  const [symbolCategory, setSymbolCategory] = useState<string>('ALTCOIN');
+  const [atrValue, setAtrValue] = useState<number | undefined>();
+  const [seriesWins, setSeriesWins] = useState(10);
+  const [seriesLosses, setSeriesLosses] = useState(5);
+  
   // Fetch trading statistics
   const { data: tradingStats, isLoading: statsLoading } = useTradingStats();
 
@@ -1068,6 +1077,20 @@ export default function Settings() {
                       onTP1ClosePctChange={(value) => updateLocal("tp1_close_percent", value)}
                       onTP2ClosePctChange={(value) => updateLocal("tp2_close_percent", value)}
                       onTP3ClosePctChange={(value) => updateLocal("tp3_close_percent", value)}
+                      entryPrice={entryPrice}
+                      onEntryPriceChange={setEntryPrice}
+                      slPercent={slPercent}
+                      onSlPercentChange={setSlPercent}
+                      takerFeeRate={takerFeeRate}
+                      onTakerFeeRateChange={setTakerFeeRate}
+                      symbolCategory={symbolCategory}
+                      onSymbolCategoryChange={setSymbolCategory}
+                      atrValue={atrValue}
+                      onAtrValueChange={setAtrValue}
+                      seriesWins={seriesWins}
+                      onSeriesWinsChange={setSeriesWins}
+                      seriesLosses={seriesLosses}
+                      onSeriesLossesChange={setSeriesLosses}
               onAccountBalanceChange={setAccountBalance}
               onFetchBalance={fetchAccountBalance}
               isFetchingBalance={isFetchingBalance}

@@ -7,9 +7,11 @@ import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Alert, AlertDescription } from "@/components/ui/alert";
-import { AlertTriangle, TrendingUp, TrendingDown, RefreshCw, BarChart3, Target, Shield, Zap, Calculator } from "lucide-react";
+import { AlertTriangle, TrendingUp, TrendingDown, RefreshCw, BarChart3, Target, Shield, Zap, Calculator, ChevronRight } from "lucide-react";
 import { TradingStats } from "@/hooks/useTradingStats";
 import { cn } from "@/lib/utils";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
 interface FeeCalculatorProps {
   // Editable parameters
@@ -35,6 +37,24 @@ interface FeeCalculatorProps {
   onTP1ClosePctChange?: (value: number) => void;
   onTP2ClosePctChange?: (value: number) => void;
   onTP3ClosePctChange?: (value: number) => void;
+  
+  // Advanced optional parameters
+  entryPrice?: number;
+  onEntryPriceChange?: (value: number | undefined) => void;
+  slPercent?: number;
+  onSlPercentChange?: (value: number | undefined) => void;
+  takerFeeRate?: number;
+  onTakerFeeRateChange?: (value: number) => void;
+  symbolCategory?: string;
+  onSymbolCategoryChange?: (value: string) => void;
+  atrValue?: number;
+  onAtrValueChange?: (value: number | undefined) => void;
+  
+  // Trade series simulation
+  seriesWins?: number;
+  onSeriesWinsChange?: (value: number) => void;
+  seriesLosses?: number;
+  onSeriesLossesChange?: (value: number) => void;
   
   // Account balance
   accountBalance: number;
@@ -111,6 +131,20 @@ export function FeeCalculator({
   onTP1ClosePctChange,
   onTP2ClosePctChange,
   onTP3ClosePctChange,
+  entryPrice,
+  onEntryPriceChange,
+  slPercent,
+  onSlPercentChange,
+  takerFeeRate = 0.06,
+  onTakerFeeRateChange,
+  symbolCategory = 'ALTCOIN',
+  onSymbolCategoryChange,
+  atrValue,
+  onAtrValueChange,
+  seriesWins = 10,
+  onSeriesWinsChange,
+  seriesLosses = 5,
+  onSeriesLossesChange,
   accountBalance,
   onAccountBalanceChange,
   onFetchBalance,
@@ -131,6 +165,16 @@ export function FeeCalculator({
 
   const [rrSimulation, setRrSimulation] = useState<RRSimulation[]>([]);
   const [recommendations, setRecommendations] = useState<Recommendation[]>([]);
+  
+  // Calculate trade series simulation
+  const totalTrades = seriesWins + seriesLosses;
+  const winRate = totalTrades > 0 ? (seriesWins / totalTrades) * 100 : 0;
+  
+  // Calculate expected PnL from trade series
+  const avgWinProfit = rrSimulation[0]?.netProfit || 0;
+  const totalPnL = (seriesWins * avgWinProfit) - (seriesLosses * calculations.realMaxLoss);
+  const expectedPerTrade = totalTrades > 0 ? totalPnL / totalTrades : 0;
+  const maxDrawdown = seriesLosses * calculations.realMaxLoss;
 
   // Calculate minimum margin needed for target Real R:R
   const calculateMinMarginForTargetRR = (targetRealRR: number, currentMaxLoss: number, currentLeverage: number, tpRatio: number): number => {
@@ -198,7 +242,7 @@ export function FeeCalculator({
   useEffect(() => {
     // Calculate real-time values
     const notional = margin * leverage;
-    const feeRate = BITGET_TAKER_FEE / 100;
+    const feeRate = (takerFeeRate || BITGET_TAKER_FEE) / 100;
     const roundTripFees = notional * feeRate * 2;
     const realMaxLoss = maxLoss + roundTripFees;
     const breakEvenPercent = BITGET_TAKER_FEE * 2; // 0.12%
@@ -289,7 +333,7 @@ export function FeeCalculator({
     }
 
     setRecommendations(newRecommendations);
-  }, [margin, leverage, maxLoss, tp1RrRatio, tp2RrRatio, tp3RrRatio, tpLevels, onMarginChange, onLeverageChange, onTP1RRChange]);
+  }, [margin, leverage, maxLoss, tp1RrRatio, tp2RrRatio, tp3RrRatio, tpLevels, takerFeeRate, onMarginChange, onLeverageChange, onTP1RRChange]);
 
   const hasLowRR = rrSimulation.some((sim) => sim.realRR < 1);
   const hasHighFeeImpact = calculations.feeImpactPercent > 50;
@@ -774,7 +818,9 @@ export function FeeCalculator({
         {/* Simulation Parameters */}
         <div className="space-y-4">
           <h3 className="font-semibold">📐 PARAMETRY SYMULACJI</h3>
-          <div className="grid grid-cols-2 gap-4">
+          
+          {/* Row 1: Basic params */}
+          <div className="grid grid-cols-4 gap-4">
             <div className="space-y-2">
               <Label>Margin (USDT)</Label>
               <Input
@@ -803,6 +849,23 @@ export function FeeCalculator({
               />
             </div>
             <div className="space-y-2">
+              <Label>TP Levels (1-3)</Label>
+              <Input
+                type="number"
+                value={tpLevels}
+                onChange={(e) => onTPLevelsChange?.(Math.min(3, Math.max(1, parseInt(e.target.value) || 1)))}
+                min="1"
+                max="3"
+              />
+            </div>
+          </div>
+          
+          {/* Row 2: TP R:R Ratios (dynamic) */}
+          <div className={cn(
+            "grid gap-4",
+            tpLevels === 1 ? "grid-cols-1" : tpLevels === 2 ? "grid-cols-2" : "grid-cols-3"
+          )}>
+            <div className="space-y-2">
               <Label>TP1 R:R Ratio</Label>
               <Input
                 type="number"
@@ -811,8 +874,228 @@ export function FeeCalculator({
                 step="0.1"
               />
             </div>
+            {tpLevels >= 2 && (
+              <div className="space-y-2">
+                <Label>TP2 R:R Ratio</Label>
+                <Input
+                  type="number"
+                  value={tp2RrRatio}
+                  onChange={(e) => onTP2RRChange(parseFloat(e.target.value) || 2.5)}
+                  step="0.1"
+                />
+              </div>
+            )}
+            {tpLevels >= 3 && (
+              <div className="space-y-2">
+                <Label>TP3 R:R Ratio</Label>
+                <Input
+                  type="number"
+                  value={tp3RrRatio}
+                  onChange={(e) => onTP3RRChange(parseFloat(e.target.value) || 3.5)}
+                  step="0.1"
+                />
+              </div>
+            )}
           </div>
+          
+          {/* Row 3: TP Close % (when tpLevels > 1) */}
+          {tpLevels > 1 && (
+            <div className={cn(
+              "grid gap-4",
+              tpLevels === 2 ? "grid-cols-2" : "grid-cols-3"
+            )}>
+              <div className="space-y-2">
+                <Label>TP1 Close %</Label>
+                <Input
+                  type="number"
+                  value={tp1ClosePct ?? 50}
+                  onChange={(e) => onTP1ClosePctChange?.(parseFloat(e.target.value) || 50)}
+                  step="5"
+                  min="0"
+                  max="100"
+                />
+              </div>
+              {tpLevels >= 2 && (
+                <div className="space-y-2">
+                  <Label>TP2 Close %</Label>
+                  <Input
+                    type="number"
+                    value={tp2ClosePct ?? 30}
+                    onChange={(e) => onTP2ClosePctChange?.(parseFloat(e.target.value) || 30)}
+                    step="5"
+                    min="0"
+                    max="100"
+                  />
+                </div>
+              )}
+              {tpLevels >= 3 && (
+                <div className="space-y-2">
+                  <Label>TP3 Close %</Label>
+                  <Input
+                    type="number"
+                    value={tp3ClosePct ?? 20}
+                    onChange={(e) => onTP3ClosePctChange?.(parseFloat(e.target.value) || 20)}
+                    step="5"
+                    min="0"
+                    max="100"
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    Pozostałe: {100 - (tp1ClosePct ?? 50) - (tp2ClosePct ?? 30)}%
+                  </p>
+                </div>
+              )}
+            </div>
+          )}
         </div>
+        
+        <Separator />
+        
+        {/* Advanced Parameters (Collapsible) */}
+        <Collapsible>
+          <CollapsibleTrigger className="flex items-center gap-2 text-sm font-medium hover:underline w-full">
+            <ChevronRight className="h-4 w-4" />
+            ⚙️ Zaawansowane parametry (opcjonalne)
+          </CollapsibleTrigger>
+          <CollapsibleContent className="pt-4">
+            <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+              
+              <div className="space-y-2">
+                <Label>Entry Price (opcjonalnie)</Label>
+                <Input
+                  type="number"
+                  placeholder="np. 95000"
+                  value={entryPrice || ''}
+                  onChange={(e) => onEntryPriceChange?.(e.target.value ? parseFloat(e.target.value) : undefined)}
+                />
+                <p className="text-xs text-muted-foreground">
+                  Konkretna cena wejścia
+                </p>
+              </div>
+              
+              <div className="space-y-2">
+                <Label>SL % (bezpośrednio)</Label>
+                <Input
+                  type="number"
+                  placeholder="np. 0.5"
+                  step="0.1"
+                  value={slPercent || ''}
+                  onChange={(e) => onSlPercentChange?.(e.target.value ? parseFloat(e.target.value) : undefined)}
+                />
+                <p className="text-xs text-muted-foreground">
+                  Nadpisuje kalkulację z Max Loss
+                </p>
+              </div>
+              
+              <div className="space-y-2">
+                <Label>Taker Fee %</Label>
+                <Input
+                  type="number"
+                  value={takerFeeRate}
+                  onChange={(e) => onTakerFeeRateChange?.(parseFloat(e.target.value) || 0.06)}
+                  step="0.01"
+                />
+                <p className="text-xs text-muted-foreground">
+                  Bitget default: 0.06%
+                </p>
+              </div>
+              
+              <div className="space-y-2">
+                <Label>Kategoria symbolu</Label>
+                <Select value={symbolCategory} onValueChange={onSymbolCategoryChange}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Wybierz kategorię" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="BTC_ETH">BTC/ETH (max 150x)</SelectItem>
+                    <SelectItem value="MAJOR">Major - SOL, XRP, BNB (max 100x)</SelectItem>
+                    <SelectItem value="ALTCOIN">Altcoiny (max 75x)</SelectItem>
+                  </SelectContent>
+                </Select>
+                <p className="text-xs text-muted-foreground">
+                  Wpływa na max leverage i presety
+                </p>
+              </div>
+              
+              <div className="space-y-2">
+                <Label>ATR Value (opcjonalnie)</Label>
+                <Input
+                  type="number"
+                  placeholder="np. 1500"
+                  value={atrValue || ''}
+                  onChange={(e) => onAtrValueChange?.(e.target.value ? parseFloat(e.target.value) : undefined)}
+                />
+                <p className="text-xs text-muted-foreground">
+                  Dla symulacji z ATR-based
+                </p>
+              </div>
+              
+            </div>
+          </CollapsibleContent>
+        </Collapsible>
+        
+        <Separator />
+        
+        {/* Trade Series Simulation (Collapsible) */}
+        <Collapsible>
+          <CollapsibleTrigger className="flex items-center gap-2 text-sm font-medium hover:underline w-full">
+            <ChevronRight className="h-4 w-4" />
+            📊 Symulacja serii trade'ów (opcjonalne)
+          </CollapsibleTrigger>
+          <CollapsibleContent className="pt-4 space-y-4">
+            
+            <div className="grid grid-cols-3 gap-4">
+              <div className="space-y-2">
+                <Label>Liczba wygranych</Label>
+                <Input
+                  type="number"
+                  value={seriesWins}
+                  onChange={(e) => onSeriesWinsChange?.(parseInt(e.target.value) || 0)}
+                  min={0}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label>Liczba przegranych</Label>
+                <Input
+                  type="number"
+                  value={seriesLosses}
+                  onChange={(e) => onSeriesLossesChange?.(parseInt(e.target.value) || 0)}
+                  min={0}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label>Win Rate</Label>
+                <div className="h-10 flex items-center text-lg font-semibold">
+                  {winRate.toFixed(1)}%
+                </div>
+              </div>
+            </div>
+            
+            <div className="p-4 bg-muted/50 rounded-lg space-y-2">
+              <div className="flex justify-between">
+                <span>Łączny PnL po {totalTrades} tradeach:</span>
+                <span className={cn(
+                  "font-semibold",
+                  totalPnL >= 0 ? "text-green-600" : "text-red-600"
+                )}>
+                  {totalPnL >= 0 ? '+' : ''}{totalPnL.toFixed(2)} USDT
+                </span>
+              </div>
+              <div className="flex justify-between">
+                <span>Oczekiwany zwrot na trade:</span>
+                <span className={cn(
+                  expectedPerTrade >= 0 ? "text-green-600" : "text-red-600"
+                )}>
+                  {expectedPerTrade >= 0 ? '+' : ''}{expectedPerTrade.toFixed(3)} USDT
+                </span>
+              </div>
+              <div className="flex justify-between">
+                <span>Max Drawdown (worst case):</span>
+                <span className="text-red-600">-{maxDrawdown.toFixed(2)} USDT</span>
+              </div>
+            </div>
+            
+          </CollapsibleContent>
+        </Collapsible>
 
         <Separator />
 
