@@ -193,6 +193,31 @@ Deno.serve(async (req) => {
         verifiedIds.add(bestMatch.id);
         matchedBitgetIndices.add(i);  // Track matched Bitget position
         
+        // Validate quantity before update - only update if Bitget data looks reasonable
+        const originalQuantity = bestMatch.quantity;
+        const bitgetQuantity = Number(bitgetPos.closeTotalPos);
+        const quantityRatio = bitgetQuantity / originalQuantity;
+        
+        // Preserve original quantity if in metadata, otherwise use current
+        const originalQtyFromMetadata = bestMatch.metadata?.original_quantity;
+        const useQuantity = (quantityRatio > 0.5 && quantityRatio < 2) 
+          ? bitgetQuantity 
+          : (originalQtyFromMetadata || originalQuantity); // Keep original if Bitget data looks wrong
+        
+        if (quantityRatio <= 0.5 || quantityRatio >= 2) {
+          await log({
+            functionName: FUNCTION_NAME,
+            level: "warn",
+            message: `Suspicious quantity ratio (${quantityRatio.toFixed(2)}) for ${bestMatch.symbol}, keeping original`,
+            metadata: { 
+              positionId: bestMatch.id, 
+              originalQuantity, 
+              bitgetQuantity,
+              usingQuantity: useQuantity
+            },
+          });
+        }
+        
         // Update position with accurate Bitget data
         const { error: updateError } = await supabase
           .from("positions")
@@ -200,14 +225,15 @@ Deno.serve(async (req) => {
             entry_price: Number(bitgetPos.openAvgPrice),
             close_price: Number(bitgetPos.closeAvgPrice),
             realized_pnl: Number(bitgetPos.netProfit),
-            quantity: Number(bitgetPos.closeTotalPos),
+            quantity: useQuantity,
             leverage: Number(bitgetPos.leverage),
             closed_at: new Date(bitgetCloseTime).toISOString(),
             updated_at: new Date().toISOString(),
             metadata: {
               ...bestMatch.metadata,
               synced_from_bitget: true,
-              sync_time: new Date().toISOString()
+              sync_time: new Date().toISOString(),
+              quantity_validation: quantityRatio > 0.5 && quantityRatio < 2 ? 'passed' : 'failed_kept_original'
             }
           })
           .eq("id", bestMatch.id);

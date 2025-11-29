@@ -92,10 +92,25 @@ Deno.serve(async (req) => {
     // Step 1: Fix quantity for positions where calculated differs from stored
     let quantityFixCount = 0;
     const quantityUpdates: { id: string; calculated_quantity: number }[] = [];
+    const minPriceDiffPercent = 0.001; // 0.1% - skip if price diff too small (fees dominate)
 
     for (const pos of positions || []) {
       const priceDiff = Math.abs(pos.close_price - pos.entry_price);
       if (priceDiff === 0 || !pos.realized_pnl) continue;
+
+      // Check if price difference is large enough to calculate quantity accurately
+      const priceDiffPercent = priceDiff / pos.entry_price;
+      
+      if (priceDiffPercent < minPriceDiffPercent) {
+        // Price diff too small - fees dominate PnL, skip this position
+        await log({
+          functionName: FUNCTION_NAME,
+          level: "info",
+          message: `Skipping ${pos.symbol}: price diff too small (${(priceDiffPercent * 100).toFixed(4)}%), fees dominate`,
+          metadata: { positionId: pos.id, priceDiffPercent },
+        });
+        continue;
+      }
 
       // Calculate quantity from PnL: quantity = |realized_pnl| / |close_price - entry_price|
       const calculatedQuantity = Math.abs(pos.realized_pnl) / priceDiff;
