@@ -114,7 +114,7 @@ Deno.serve(async (req) => {
       }
 
       return {
-        symbol: pos.symbol.replace('USDT', ''),
+        symbol: pos.symbol, // Keep full symbol from Bitget (e.g. BTCUSDT)
         side: pos.holdSide === 'long' ? 'BUY' : 'SELL',
         entry_price: parseFloat(pos.openAvgPrice),
         close_price: parseFloat(pos.closeAvgPrice),
@@ -139,21 +139,23 @@ Deno.serve(async (req) => {
     });
 
     // Check for existing positions to avoid duplicates
-    const existingSymbols = dbPositions.map(p => p.symbol);
     const { data: existing } = await supabase
       .from('positions')
-      .select('symbol, created_at, close_price')
-      .eq('status', 'closed')
-      .in('symbol', existingSymbols);
+      .select('entry_price, close_price, closed_at')
+      .eq('status', 'closed');
 
-    // Filter out duplicates based on symbol, created_at, and close_price
+    // Filter out duplicates based on entry_price, close_price, and closed_at (with 5-minute tolerance)
     const existingSet = new Set(
-      (existing || []).map(e => `${e.symbol}_${e.created_at}_${e.close_price}`)
+      (existing || []).map(e => 
+        `${e.entry_price}_${e.close_price}_${Math.floor(new Date(e.closed_at).getTime() / 300000)}`
+      )
     );
 
-    const newPositions = dbPositions.filter(p => 
-      !existingSet.has(`${p.symbol}_${p.created_at}_${p.close_price}`)
-    );
+    const newPositions = dbPositions.filter(p => {
+      const timeKey = Math.floor(new Date(p.closed_at).getTime() / 300000);
+      const key = `${p.entry_price}_${p.close_price}_${timeKey}`;
+      return !existingSet.has(key);
+    });
 
     console.log(`Inserting ${newPositions.length} new positions (${dbPositions.length - newPositions.length} duplicates skipped)`);
 
