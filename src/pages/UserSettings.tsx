@@ -290,17 +290,26 @@ export default function UserSettings() {
         tp2RrRatio={localSettings.tp2_rr_ratio || 2.5}
         tp3RrRatio={localSettings.tp3_rr_ratio || 3.5}
         tpLevels={localSettings.tp_levels || 1}
-        feeAwareBreakeven={localSettings.fee_aware_breakeven ?? true}
         accountBalance={100}
-        onMarginChange={localSettings.money_mode !== 'copy_admin' ? (value) => updateLocal("max_margin_per_trade", value) : undefined}
-        onLeverageChange={localSettings.money_mode !== 'copy_admin' ? (value) => updateLocal("default_leverage", value) : undefined}
-        onMaxLossChange={localSettings.money_mode !== 'copy_admin' ? (value) => updateLocal("max_loss_per_trade", value) : undefined}
-        onTP1RRChange={localSettings.money_mode !== 'copy_admin' ? (value) => updateLocal("tp1_rr_ratio", value) : undefined}
-        onTP2RRChange={localSettings.money_mode !== 'copy_admin' ? (value) => updateLocal("tp2_rr_ratio", value) : undefined}
-        onTP3RRChange={localSettings.money_mode !== 'copy_admin' ? (value) => updateLocal("tp3_rr_ratio", value) : undefined}
-        onTPLevelsChange={localSettings.sltp_mode !== 'copy_admin' ? (value) => updateLocal("tp_levels", value) : undefined}
-        onFeeAwareBreakevenChange={localSettings.sltp_mode !== 'copy_admin' ? (value) => updateLocal("fee_aware_breakeven", value) : undefined}
+        onMarginChange={localSettings.money_mode !== 'copy_admin' ? (value) => updateLocal("max_margin_per_trade", value) : () => {}}
+        onLeverageChange={localSettings.money_mode !== 'copy_admin' ? (value) => updateLocal("default_leverage", value) : () => {}}
+        onMaxLossChange={localSettings.money_mode !== 'copy_admin' ? (value) => updateLocal("max_loss_per_trade", value) : () => {}}
+        onTP1RRChange={localSettings.money_mode !== 'copy_admin' ? (value) => updateLocal("tp1_rr_ratio", value) : () => {}}
+        onTP2RRChange={localSettings.money_mode !== 'copy_admin' ? (value) => updateLocal("tp2_rr_ratio", value) : () => {}}
+        onTP3RRChange={localSettings.money_mode !== 'copy_admin' ? (value) => updateLocal("tp3_rr_ratio", value) : () => {}}
         onAccountBalanceChange={() => {}}
+        tradingStats={undefined}
+        currentSettings={{
+          positionSizingType: 'scalping_mode',
+          tpLevels: localSettings.tp_levels || 1,
+          slMethod: localSettings.sl_method || 'percent_entry',
+          maxLossPerTrade: localSettings.max_loss_per_trade || 1,
+          maxMarginPerTrade: localSettings.max_margin_per_trade || 2,
+          defaultLeverage: localSettings.default_leverage || 10,
+          slToBreakeven: localSettings.sl_to_breakeven ?? true,
+          slPercentMin: localSettings.sl_percent_min || 0.3,
+          slPercentMax: localSettings.sl_percent_max || 2.0,
+        }}
       />
 
       {/* SL/TP Mode */}
