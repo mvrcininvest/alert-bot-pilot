@@ -1064,6 +1064,16 @@ export type Database = {
           win_rate: number
         }[]
       }
+      get_rr_stats: {
+        Args: never
+        Returns: {
+          avg_pnl: number
+          count: number
+          total_pnl: number
+          tp1_rr_bucket: number
+          win_rate: number
+        }[]
+      }
       get_tier_stats: {
         Args: never
         Returns: {
@@ -1071,6 +1081,17 @@ export type Database = {
           count: number
           tier: string
           total_pnl: number
+          win_rate: number
+        }[]
+      }
+      get_tp_distribution_stats: {
+        Args: never
+        Returns: {
+          avg_pnl: number
+          avg_tp1_close_pct: number
+          close_reason: string
+          count: number
+          tp_levels_used: number
           win_rate: number
         }[]
       }
