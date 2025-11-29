@@ -294,106 +294,39 @@ export function FeeCalculator({
   const hasLowRR = rrSimulation.some((sim) => sim.realRR < 1);
   const hasHighFeeImpact = calculations.feeImpactPercent > 50;
 
+  // Symbol categories for leverage-aware presets
+  const SYMBOL_CATEGORIES = [
+    { id: 'BTC_ETH', name: 'BTC/ETH', maxLeverage: 150, symbols: 'BTCUSDT, ETHUSDT' },
+    { id: 'MAJOR', name: 'Major', maxLeverage: 100, symbols: 'SOL, XRP, BNB' },
+    { id: 'ALTCOIN', name: 'Altcoiny', maxLeverage: 75, symbols: 'Pozostałe' },
+  ];
+
   const calculateIntelligentPresets = (
     balance: number, 
     stats: TradingStats | undefined,
     settings: any
   ) => {
-    if (!stats || stats.totalTrades < 10) {
-      // Helper to calculate fee-aware preset
-      const createFeeAwarePreset = (presetConfig: any) => {
-        const realRRCalc = calculateRealRR(
-          presetConfig.margin, 
-          presetConfig.leverage, 
-          presetConfig.maxLoss, 
-          presetConfig.tp1RR
-        );
-        const isRRHealthy = realRRCalc.realRR >= 1.0;
-        
-        let adjustedTP1RR = presetConfig.tp1RR;
-        let autoAdjusted = false;
-        
-        // Auto-correct if Real R:R < 1.0
-        if (!isRRHealthy) {
-          adjustedTP1RR = calculateMinMathRRForTargetRealRR(
-            presetConfig.margin,
-            presetConfig.leverage,
-            presetConfig.maxLoss,
-            1.0
-          );
-          adjustedTP1RR = Math.ceil(adjustedTP1RR * 10) / 10; // Round up to 0.1
-          autoAdjusted = true;
-        }
-        
-        // Recalculate with adjusted R:R
-        const finalCalc = calculateRealRR(
-          presetConfig.margin, 
-          presetConfig.leverage, 
-          presetConfig.maxLoss, 
-          adjustedTP1RR
-        );
-        
-        return {
-          ...presetConfig,
-          tp1RR: adjustedTP1RR,
-          tp2RR: adjustedTP1RR * 1.5,
-          tp3RR: adjustedTP1RR * 2,
-          tp1RealRR: finalCalc.realRR,
-          tp1NetProfit: finalCalc.netProfit,
-          feeImpactPercent: finalCalc.feeImpactPercent,
-          isRRHealthy: finalCalc.realRR >= 1.0,
-          suggestedMinRR: !isRRHealthy ? adjustedTP1RR : null,
-          autoAdjusted,
-          reasoning: autoAdjusted 
-            ? `⚠️ Math R:R podniesione z ${presetConfig.tp1RR.toFixed(1)} do ${adjustedTP1RR.toFixed(1)} dla Real R:R ≥ 1.0. ${presetConfig.reasoning}`
-            : `Real R:R ${finalCalc.realRR.toFixed(2)}:1 po fees. ${presetConfig.reasoning}`,
-        };
-      };
+    // Helper to create TP breakdown for a preset
+    const createTPBreakdown = (margin: number, leverage: number, maxLoss: number, tp1RR: number, tpLevels: number, tp1ClosePct: number, tp2ClosePct: number) => {
+      const breakdown = [];
+      const tpRatios = [tp1RR, tp1RR * 1.5, tp1RR * 2];
+      const closePcts = [tp1ClosePct, tp2ClosePct, 100 - tp1ClosePct - tp2ClosePct];
       
-      // Default presets if not enough data
-      return {
-        conservative: createFeeAwarePreset({
-          icon: Shield,
-          name: "🛡️ BEZPIECZNY",
-          description: `Max 0.5% kapitału na trade`,
-          margin: Math.min(balance * 0.005, 0.5),
-          leverage: 50,
-          maxLoss: Math.min(balance * 0.002, 0.2),
-          tp1RR: 2.0,
-          tpLevels: 1,
-          tp1ClosePct: 100,
-          tp2ClosePct: 0,
-          tp3ClosePct: 0,
-          calculatedSLPercent: ((Math.min(balance * 0.002, 0.2) / (Math.min(balance * 0.005, 0.5) * 50)) * 100).toFixed(2),
-          expectedWinRate: 50,
-          reasoning: "Brak wystarczających danych - konserwatywne podejście",
-        }),
-        scalping: createFeeAwarePreset({
-          icon: Zap,
-          name: "⚡ SCALPING M5",
-          description: "Optymalne dla interwału M5",
-          margin: Math.min(balance * 0.01, 1),
-          leverage: 100,
-          maxLoss: settings?.maxLossPerTrade || 0.25,
-          tp1RR: 1.0,
-          tpLevels: 1,
-          tp1ClosePct: 100,
-          tp2ClosePct: 0,
-          tp3ClosePct: 0,
-          calculatedSLPercent: (((settings?.maxLossPerTrade || 0.25) / (Math.min(balance * 0.01, 1) * 100)) * 100).toFixed(2),
-          expectedWinRate: 50,
-          reasoning: "Scalping - full close na TP1 dla szybkich profitów",
-        }),
-      };
-    }
+      for (let i = 0; i < tpLevels; i++) {
+        const calc = calculateRealRR(margin, leverage, maxLoss, tpRatios[i]);
+        breakdown.push({
+          level: i + 1,
+          mathRR: tpRatios[i],
+          realRR: calc.realRR,
+          closePct: closePcts[i],
+          netProfit: calc.netProfit * (closePcts[i] / 100)
+        });
+      }
+      
+      return breakdown;
+    };
 
-    // With enough data, use actual statistics
-    const bestTP1RR = stats.bestTP1RR || 1.5;
-    const optimalTPLevels = stats.optimalTPLevels || 1;
-    const optimalTP1ClosePct = stats.optimalTP1ClosePct || 100;
-    const optimalTP2ClosePct = stats.optimalTP2ClosePct || 0;
-
-    // Helper to calculate fee-aware preset
+    // Helper to calculate fee-aware preset with full TP breakdown
     const createFeeAwarePreset = (presetConfig: any) => {
       const realRRCalc = calculateRealRR(
         presetConfig.margin, 
@@ -414,7 +347,7 @@ export function FeeCalculator({
           presetConfig.maxLoss,
           1.0
         );
-        adjustedTP1RR = Math.ceil(adjustedTP1RR * 10) / 10; // Round up to 0.1
+        adjustedTP1RR = Math.ceil(adjustedTP1RR * 10) / 10;
         autoAdjusted = true;
       }
       
@@ -425,6 +358,19 @@ export function FeeCalculator({
         presetConfig.maxLoss, 
         adjustedTP1RR
       );
+      
+      // Create full TP breakdown
+      const tpBreakdown = createTPBreakdown(
+        presetConfig.margin,
+        presetConfig.leverage,
+        presetConfig.maxLoss,
+        adjustedTP1RR,
+        presetConfig.tpLevels || 1,
+        presetConfig.tp1ClosePct || 100,
+        presetConfig.tp2ClosePct || 0
+      );
+      
+      const totalExpectedProfit = tpBreakdown.reduce((sum, tp) => sum + tp.netProfit, 0);
       
       return {
         ...presetConfig,
@@ -437,78 +383,84 @@ export function FeeCalculator({
         isRRHealthy: finalCalc.realRR >= 1.0,
         suggestedMinRR: !isRRHealthy ? adjustedTP1RR : null,
         autoAdjusted,
+        tpBreakdown,
+        totalExpectedProfit,
         reasoning: autoAdjusted 
           ? `⚠️ Math R:R podniesione z ${presetConfig.tp1RR.toFixed(1)} do ${adjustedTP1RR.toFixed(1)} dla Real R:R ≥ 1.0. ${presetConfig.reasoning}`
           : `Real R:R ${finalCalc.realRR.toFixed(2)}:1 po fees. ${presetConfig.reasoning}`,
       };
     };
 
-    return {
-      dataOptimized: createFeeAwarePreset({
+    if (!stats || stats.totalTrades < 10) {
+      // Generate category-specific presets without sufficient data
+      const presets: any = {};
+      
+      SYMBOL_CATEGORIES.forEach(category => {
+        const effectiveLeverage = Math.min(75, category.maxLeverage);
+        const leverageWarning = 75 > category.maxLeverage 
+          ? `⚠️ Leverage obcięty do max ${category.maxLeverage}x dla tej kategorii`
+          : null;
+        
+        presets[`${category.id}`] = createFeeAwarePreset({
+          icon: BarChart3,
+          name: `📊 OPTYMALNE (${category.name})`,
+          description: `Max ${category.maxLeverage}x | ${category.symbols}`,
+          category: category.id,
+          supportedSymbols: category.symbols,
+          leverageWarning,
+          margin: 0.8,
+          leverage: effectiveLeverage,
+          maxLoss: settings?.maxLossPerTrade || 0.25,
+          tp1RR: 1.5,
+          tpLevels: 1,
+          tp1ClosePct: 100,
+          tp2ClosePct: 0,
+          tp3ClosePct: 0,
+          calculatedSLPercent: (((settings?.maxLossPerTrade || 0.25) / (0.8 * effectiveLeverage)) * 100).toFixed(2),
+          expectedWinRate: 50,
+          reasoning: "Brak wystarczających danych - podstawowy preset",
+        });
+      });
+      
+      return presets;
+    }
+
+    // With enough data, generate category-specific presets
+    const bestTP1RR = stats.bestTP1RR || 1.5;
+    const optimalTPLevels = stats.optimalTPLevels || 1;
+    const optimalTP1ClosePct = stats.optimalTP1ClosePct || 100;
+    const optimalTP2ClosePct = stats.optimalTP2ClosePct || 0;
+    
+    const presets: any = {};
+    
+    SYMBOL_CATEGORIES.forEach(category => {
+      const effectiveLeverage = Math.min(stats.bestLeverage || 75, category.maxLeverage);
+      const leverageWarning = (stats.bestLeverage || 75) > category.maxLeverage 
+        ? `⚠️ Twój optymalny leverage (${stats.bestLeverage}x) obcięty do max ${category.maxLeverage}x`
+        : null;
+      
+      presets[`dataOptimized_${category.id}`] = createFeeAwarePreset({
         icon: BarChart3,
-        name: "📊 OPTYMALNE (z danych)",
-        description: `Bazowane na ${stats.totalTrades} Twoich tradeów`,
-        margin: 0.8, // < 1 USDT = best win rate
-        leverage: stats.bestLeverage || 75,
+        name: `📊 OPTYMALNE (${category.name})`,
+        description: `Bazowane na ${stats.totalTrades} tradeów | Max ${category.maxLeverage}x`,
+        category: category.id,
+        supportedSymbols: category.symbols,
+        leverageWarning,
+        margin: 0.8,
+        leverage: effectiveLeverage,
         maxLoss: settings?.maxLossPerTrade || 0.25,
         tp1RR: bestTP1RR,
         tpLevels: optimalTPLevels,
         tp1ClosePct: optimalTP1ClosePct,
         tp2ClosePct: optimalTP2ClosePct,
         tp3ClosePct: 100 - optimalTP1ClosePct - optimalTP2ClosePct,
-        calculatedSLPercent: (((settings?.maxLossPerTrade || 0.25) / (0.8 * (stats.bestLeverage || 75))) * 100).toFixed(2),
+        calculatedSLPercent: (((settings?.maxLossPerTrade || 0.25) / (0.8 * effectiveLeverage)) * 100).toFixed(2),
         expectedWinRate: stats.bestMarginWinRate,
         reasoning: `Math R:R ${bestTP1RR.toFixed(1)} = ${stats.bestTP1RRWinRate.toFixed(0)}% win rate. ${optimalTPLevels === 1 ? 'Full close' : `${optimalTPLevels} TP levels`}.`,
-      }),
-      conservative: createFeeAwarePreset({
-        icon: Shield,
-        name: "🛡️ BEZPIECZNY",
-        description: `Max ${((0.5/balance)*100).toFixed(1)}% kapitału`,
-        margin: Math.min(balance * 0.005, 0.5),
-        leverage: 50,
-        maxLoss: Math.min(balance * 0.002, 0.2),
-        tp1RR: 2.0,
-        tpLevels: 1,
-        tp1ClosePct: 100,
-        tp2ClosePct: 0,
-        tp3ClosePct: 0,
-        calculatedSLPercent: ((Math.min(balance * 0.002, 0.2) / (Math.min(balance * 0.005, 0.5) * 50)) * 100).toFixed(2),
-        expectedWinRate: Math.min(stats.winRate * 1.1, 100),
-        reasoning: "Ultra-bezpieczny dla małych kont. Wyższe R:R, full close.",
-      }),
-      scalping: createFeeAwarePreset({
-        icon: Zap,
-        name: "⚡ SCALPING M5",
-        description: "Optymalne dla interwału M5 i szybkich wejść",
-        margin: Math.min(balance * 0.01, 1),
-        leverage: 100,
-        maxLoss: settings?.maxLossPerTrade || 0.25,
-        tp1RR: bestTP1RR,
-        tpLevels: 1,
-        tp1ClosePct: 100,
-        tp2ClosePct: 0,
-        tp3ClosePct: 0,
-        calculatedSLPercent: (((settings?.maxLossPerTrade || 0.25) / (Math.min(balance * 0.01, 1) * 100)) * 100).toFixed(2),
-        expectedWinRate: stats.bestTP1RRWinRate || 50,
-        reasoning: `Scalping, ${stats.bestTP1RRWinRate.toFixed(0)}% win rate. Full close.`,
-      }),
-      tierOptimized: createFeeAwarePreset({
-        icon: Target,
-        name: "🎯 TIER-OPTYMALNE",
-        description: `Optymalne dla tier ${stats.bestTier} (${stats.bestTierWinRate.toFixed(0)}% win)`,
-        margin: 0.8,
-        leverage: stats.bestLeverage || 75,
-        maxLoss: settings?.maxLossPerTrade || 0.25,
-        tp1RR: bestTP1RR,
-        tpLevels: optimalTPLevels,
-        tp1ClosePct: optimalTP1ClosePct,
-        tp2ClosePct: optimalTP2ClosePct,
-        tp3ClosePct: 100 - optimalTP1ClosePct - optimalTP2ClosePct,
-        calculatedSLPercent: (((settings?.maxLossPerTrade || 0.25) / (0.8 * (stats.bestLeverage || 75))) * 100).toFixed(2),
-        expectedWinRate: stats.bestTierWinRate,
-        reasoning: `Tier "${stats.bestTier}" (+${stats.bestTierTotalPnl.toFixed(2)} USDT). ${optimalTPLevels} TP.`,
-      }),
-    };
+      });
+    });
+
+    return presets;
   };
 
   const presets = calculateIntelligentPresets(accountBalance, tradingStats, currentSettings);
@@ -652,7 +604,7 @@ export function FeeCalculator({
 
         {/* Intelligent Presets */}
         <div className="space-y-4">
-          <h3 className="font-semibold text-lg">🎯 INTELIGENTNE PRESETY</h3>
+          <h3 className="font-semibold text-lg">🎯 INTELIGENTNE PRESETY (per Kategoria Symboli)</h3>
           <div className="grid gap-4">
             {Object.entries(presets).map(([key, preset]: [string, any]) => {
               const Icon = preset.icon;
@@ -661,11 +613,14 @@ export function FeeCalculator({
               return (
                 <div key={key} className="p-4 border rounded-lg hover:border-primary/50 transition-colors">
                   <div className="flex items-start justify-between mb-3">
-                    <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-2 flex-1">
                       <Icon className="w-5 h-5 text-primary" />
-                      <div>
+                      <div className="flex-1">
                         <div className="font-semibold">{preset.name}</div>
                         <div className="text-sm text-muted-foreground">{preset.description}</div>
+                        {preset.leverageWarning && (
+                          <div className="text-xs text-orange-600 mt-1">{preset.leverageWarning}</div>
+                        )}
                       </div>
                     </div>
                     <Button 
@@ -697,19 +652,19 @@ export function FeeCalculator({
                           <span className="text-muted-foreground">% kapitału:</span>
                           <span className="font-semibold">{capitalUsed}%</span>
                         </div>
+                        <div className="flex justify-between">
+                          <span className="text-muted-foreground">Calc. SL:</span>
+                          <span className="font-semibold">~{preset.calculatedSLPercent}%</span>
+                        </div>
                       </div>
                     </div>
                     
                     <div className="p-2 bg-muted/30 rounded">
-                      <div className="text-xs text-muted-foreground mb-1">🎯 TP Configuration</div>
+                      <div className="text-xs text-muted-foreground mb-1">🎯 Quick Summary</div>
                       <div className="space-y-1">
                         <div className="flex justify-between">
                           <span className="text-muted-foreground">TP Levels:</span>
                           <span className="font-semibold">{preset.tpLevels}</span>
-                        </div>
-                        <div className="flex justify-between">
-                          <span className="text-muted-foreground">Math R:R:</span>
-                          <span className="font-semibold">{preset.tp1RR.toFixed(1)}:1</span>
                         </div>
                         <div className="flex justify-between">
                           <span className="text-muted-foreground">Real R:R:</span>
@@ -718,15 +673,6 @@ export function FeeCalculator({
                             preset.tp1RealRR >= 1.0 ? "text-green-600" : "text-red-600"
                           )}>
                             {preset.tp1RealRR.toFixed(2)}:1 {preset.tp1RealRR < 1.0 && '⚠️'}
-                          </span>
-                        </div>
-                        <div className="flex justify-between">
-                          <span className="text-muted-foreground">Net Profit:</span>
-                          <span className={cn(
-                            "font-semibold text-xs",
-                            preset.tp1NetProfit >= 0 ? "text-green-600" : "text-red-600"
-                          )}>
-                            {preset.tp1NetProfit >= 0 ? '+' : ''}{preset.tp1NetProfit.toFixed(3)} USDT
                           </span>
                         </div>
                         <div className="flex justify-between">
@@ -740,16 +686,66 @@ export function FeeCalculator({
                           </span>
                         </div>
                         <div className="flex justify-between">
-                          <span className="text-muted-foreground">Close %:</span>
-                          <span className="font-semibold">{preset.tp1ClosePct}%{preset.tpLevels >= 2 ? ` / ${preset.tp2ClosePct}%` : ''}</span>
+                          <span className="text-muted-foreground">Expected WR:</span>
+                          <span className="font-semibold">{preset.expectedWinRate.toFixed(0)}%</span>
                         </div>
                         <div className="flex justify-between">
-                          <span className="text-muted-foreground">Calc. SL:</span>
-                          <span className="font-semibold">~{preset.calculatedSLPercent}%</span>
+                          <span className="text-muted-foreground">Symbole:</span>
+                          <span className="font-semibold text-xs">{preset.supportedSymbols}</span>
                         </div>
                       </div>
                     </div>
                   </div>
+
+                  {/* TP Breakdown Table */}
+                  {preset.tpBreakdown && preset.tpBreakdown.length > 0 && (
+                    <div className="mt-3 mb-3">
+                      <div className="text-xs text-muted-foreground mb-2">📈 TP Breakdown:</div>
+                      <Table>
+                        <TableHeader>
+                          <TableRow>
+                            <TableHead className="text-xs">Level</TableHead>
+                            <TableHead className="text-xs">Math R:R</TableHead>
+                            <TableHead className="text-xs">Real R:R</TableHead>
+                            <TableHead className="text-xs">Close %</TableHead>
+                            <TableHead className="text-xs">Net Profit</TableHead>
+                          </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                          {preset.tpBreakdown.map((tp: any) => (
+                            <TableRow key={tp.level}>
+                              <TableCell className="font-medium text-xs">TP{tp.level}</TableCell>
+                              <TableCell className="text-xs">{tp.mathRR.toFixed(1)}:1</TableCell>
+                              <TableCell className={cn(
+                                "text-xs font-semibold",
+                                tp.realRR >= 1.0 ? "text-green-600" : "text-red-600"
+                              )}>
+                                {tp.realRR.toFixed(2)}:1 {tp.realRR < 1.0 && '⚠️'}
+                              </TableCell>
+                              <TableCell className="text-xs">{tp.closePct}%</TableCell>
+                              <TableCell className={cn(
+                                "text-xs font-semibold",
+                                tp.netProfit >= 0 ? "text-green-600" : "text-red-600"
+                              )}>
+                                {tp.netProfit >= 0 ? '+' : ''}{tp.netProfit.toFixed(3)} USDT
+                              </TableCell>
+                            </TableRow>
+                          ))}
+                        </TableBody>
+                      </Table>
+                      {preset.totalExpectedProfit !== undefined && (
+                        <div className="text-xs mt-2 p-2 bg-primary/5 rounded">
+                          <span className="text-muted-foreground">💵 Expected Total Profit (all TPs): </span>
+                          <span className={cn(
+                            "font-semibold",
+                            preset.totalExpectedProfit >= 0 ? "text-green-600" : "text-red-600"
+                          )}>
+                            {preset.totalExpectedProfit >= 0 ? '+' : ''}{preset.totalExpectedProfit.toFixed(3)} USDT
+                          </span>
+                        </div>
+                      )}
+                    </div>
+                  )}
                   
                   {/* Warning if Real R:R < 1.0 */}
                   {!preset.isRRHealthy && (
@@ -765,7 +761,6 @@ export function FeeCalculator({
                   )}
                   
                   <div className="text-xs p-2 bg-muted/30 rounded">
-                    <div className="font-medium mb-1">📈 Oczekiwany win rate: ~{preset.expectedWinRate.toFixed(0)}%</div>
                     <div className="text-muted-foreground">💡 {preset.reasoning}</div>
                   </div>
                 </div>

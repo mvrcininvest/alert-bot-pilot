@@ -562,6 +562,7 @@ export type Database = {
           bot_active: boolean | null
           breakeven_trigger_tp: number | null
           calculator_type: Database["public"]["Enums"]["calculator_type"]
+          category_settings: Json | null
           created_at: string
           daily_loss_limit: number | null
           daily_loss_percent: number | null
@@ -631,6 +632,7 @@ export type Database = {
           bot_active?: boolean | null
           breakeven_trigger_tp?: number | null
           calculator_type?: Database["public"]["Enums"]["calculator_type"]
+          category_settings?: Json | null
           created_at?: string
           daily_loss_limit?: number | null
           daily_loss_percent?: number | null
@@ -700,6 +702,7 @@ export type Database = {
           bot_active?: boolean | null
           breakeven_trigger_tp?: number | null
           calculator_type?: Database["public"]["Enums"]["calculator_type"]
+          category_settings?: Json | null
           created_at?: string
           daily_loss_limit?: number | null
           daily_loss_percent?: number | null
@@ -828,6 +831,7 @@ export type Database = {
           bot_active: boolean | null
           breakeven_trigger_tp: number | null
           calculator_type: Database["public"]["Enums"]["calculator_type"] | null
+          category_settings: Json | null
           created_at: string | null
           daily_loss_limit: number | null
           daily_loss_percent: number | null
@@ -903,6 +907,7 @@ export type Database = {
           calculator_type?:
             | Database["public"]["Enums"]["calculator_type"]
             | null
+          category_settings?: Json | null
           created_at?: string | null
           daily_loss_limit?: number | null
           daily_loss_percent?: number | null
@@ -978,6 +983,7 @@ export type Database = {
           calculator_type?:
             | Database["public"]["Enums"]["calculator_type"]
             | null
+          category_settings?: Json | null
           created_at?: string | null
           daily_loss_limit?: number | null
           daily_loss_percent?: number | null

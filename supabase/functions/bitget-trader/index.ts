@@ -55,8 +55,8 @@ serve(async (req) => {
       });
     }
     
-    // Load user settings with copy_admin logic
-    const settings = await getUserSettings(user_id);
+    // Load user settings with copy_admin logic, passing symbol for category-specific settings
+    const settings = await getUserSettings(user_id, alert_data.symbol);
     
     const apiCredentials = {
       apiKey: userKeys.apiKey,
