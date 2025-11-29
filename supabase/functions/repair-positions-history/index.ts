@@ -8,12 +8,12 @@ const FUNCTION_NAME = "repair-positions-history";
 interface BitgetHistoryPosition {
   symbol: string;
   netProfit: string;
-  openAvgPrice: string;
-  closeAvgPrice: string;
-  ctime: string;
-  utime: string;
-  holdSide: string;
-  total: string;
+  openPriceAvg: string;
+  closePriceAvg: string;
+  createdTime: string;
+  updatedTime: string;
+  posSide: string;
+  closeTotalPos: string;
   leverage: string;
 }
 
@@ -164,8 +164,8 @@ Deno.serve(async (req) => {
 
     for (let i = 0; i < allBitgetPositions.length; i++) {
       const bitgetPos = allBitgetPositions[i];
-      const bitgetCloseTime = Number(bitgetPos.utime);
-      const bitgetSide = bitgetPos.holdSide === 'long' ? 'BUY' : 'SELL';
+      const bitgetCloseTime = Number(bitgetPos.updatedTime);
+      const bitgetSide = bitgetPos.posSide === 'long' ? 'BUY' : 'SELL';
 
       // Find all potential matches in DB
       const candidates = (dbPositions || []).filter(db => {
@@ -197,10 +197,10 @@ Deno.serve(async (req) => {
         const { error: updateError } = await supabase
           .from("positions")
           .update({
-            entry_price: Number(bitgetPos.openAvgPrice),
-            close_price: Number(bitgetPos.closeAvgPrice),
+            entry_price: Number(bitgetPos.openPriceAvg),
+            close_price: Number(bitgetPos.closePriceAvg),
             realized_pnl: Number(bitgetPos.netProfit),
-            quantity: Number(bitgetPos.total),
+            quantity: Number(bitgetPos.closeTotalPos),
             leverage: Number(bitgetPos.leverage),
             closed_at: new Date(bitgetCloseTime).toISOString(),
             updated_at: new Date().toISOString(),
@@ -239,22 +239,22 @@ Deno.serve(async (req) => {
       const newPositions = unmatchedBitgetPositions.map(bitgetPos => ({
         user_id: user.id,
         symbol: bitgetPos.symbol,
-        side: bitgetPos.holdSide === 'long' ? 'BUY' : 'SELL',
-        entry_price: Number(bitgetPos.openAvgPrice),
-        close_price: Number(bitgetPos.closeAvgPrice),
-        quantity: Number(bitgetPos.total),
+        side: bitgetPos.posSide === 'long' ? 'BUY' : 'SELL',
+        entry_price: Number(bitgetPos.openPriceAvg),
+        close_price: Number(bitgetPos.closePriceAvg),
+        quantity: Number(bitgetPos.closeTotalPos),
         leverage: Number(bitgetPos.leverage),
         realized_pnl: Number(bitgetPos.netProfit),
         sl_price: 0,  // Placeholder - no SL info in history
         status: 'closed',
-        closed_at: new Date(Number(bitgetPos.utime)).toISOString(),
-        created_at: new Date(Number(bitgetPos.ctime)).toISOString(),
+        closed_at: new Date(Number(bitgetPos.updatedTime)).toISOString(),
+        created_at: new Date(Number(bitgetPos.createdTime)).toISOString(),
         close_reason: 'imported_from_bitget',
         metadata: {
           imported_from_bitget: true,
           import_time: new Date().toISOString(),
-          bitget_close_time: bitgetPos.utime,
-          bitget_create_time: bitgetPos.ctime
+          bitget_close_time: bitgetPos.updatedTime,
+          bitget_create_time: bitgetPos.createdTime
         }
       }));
 
