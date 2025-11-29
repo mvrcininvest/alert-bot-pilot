@@ -35,3 +35,6 @@ verify_jwt = true
 
 [functions.fix-positions-data]
 verify_jwt = true
+
+[functions.link-positions-alerts]
+verify_jwt = true

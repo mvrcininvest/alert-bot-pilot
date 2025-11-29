@@ -241,6 +241,32 @@ export default function Diagnostics() {
     },
   });
 
+  const linkPositionsAlertsMutation = useMutation({
+    mutationFn: async () => {
+      const { data, error } = await supabase.functions.invoke("link-positions-alerts", {
+        body: {},
+      });
+      
+      if (error) throw error;
+      if (!data.success) throw new Error(data.error || "Nie udało się połączyć pozycji z alertami");
+      return data;
+    },
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ["positions"] });
+      toast({
+        title: "Połączono pozycje z alertami",
+        description: `Dopasowano: ${data.matched}, Nie dopasowano: ${data.unmatched}`,
+      });
+    },
+    onError: (error) => {
+      toast({
+        title: "Błąd",
+        description: error instanceof Error ? error.message : "Nie udało się połączyć pozycji z alertami",
+        variant: "destructive",
+      });
+    },
+  });
+
   const getStatusColor = (status: string) => {
     switch (status) {
       case 'success':
@@ -285,16 +311,34 @@ export default function Diagnostics() {
         </CardHeader>
         <CardContent>
           <div className="space-y-3">
-            <p className="text-sm text-muted-foreground">
-              Naprawia quantity (ilość) obliczając ją z PnL oraz leverage pobierając rzeczywistą wartość z historii orderów Bitget.
-            </p>
-            <Button 
-              onClick={() => fixPositionsDataMutation.mutate()}
-              disabled={fixPositionsDataMutation.isPending}
-              className="w-full sm:w-auto"
-            >
-              {fixPositionsDataMutation.isPending ? "Naprawiam..." : "🔧 Napraw Quantity i Leverage"}
-            </Button>
+            <div className="space-y-2">
+              <p className="text-sm font-medium">Napraw Quantity i Leverage</p>
+              <p className="text-sm text-muted-foreground">
+                Naprawia quantity (ilość) obliczając ją z PnL oraz leverage pobierając rzeczywistą wartość z historii orderów Bitget.
+              </p>
+              <Button 
+                onClick={() => fixPositionsDataMutation.mutate()}
+                disabled={fixPositionsDataMutation.isPending}
+                className="w-full sm:w-auto"
+              >
+                {fixPositionsDataMutation.isPending ? "Naprawiam..." : "🔧 Napraw Quantity i Leverage"}
+              </Button>
+            </div>
+            
+            <div className="space-y-2 pt-3 border-t border-border">
+              <p className="text-sm font-medium">Połącz Pozycje z Alertami</p>
+              <p className="text-sm text-muted-foreground">
+                Automatycznie dopasowuje pozycje bez alertu do odpowiednich alertów z historii na podstawie symbolu, strony, czasu i ceny.
+              </p>
+              <Button 
+                onClick={() => linkPositionsAlertsMutation.mutate()}
+                disabled={linkPositionsAlertsMutation.isPending}
+                variant="secondary"
+                className="w-full sm:w-auto"
+              >
+                {linkPositionsAlertsMutation.isPending ? "Łączę..." : "🔗 Połącz Pozycje z Alertami"}
+              </Button>
+            </div>
           </div>
         </CardContent>
       </Card>
