@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from "react";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -26,8 +26,10 @@ const formatPrice = (price: number) => {
 
 export default function History() {
   const { toast } = useToast();
+  const queryClient = useQueryClient();
   const [dateFrom, setDateFrom] = useState<Date>();
   const [dateTo, setDateTo] = useState<Date>();
+  const [isRepairing, setIsRepairing] = useState(false);
   const tableRef = useRef<HTMLTableElement>(null);
   const topScrollRef = useRef<HTMLDivElement>(null);
   const bottomScrollRef = useRef<HTMLDivElement>(null);
@@ -246,6 +248,38 @@ export default function History() {
     });
   };
 
+  const repairHistory = async () => {
+    setIsRepairing(true);
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) throw new Error("Not authenticated");
+
+      const { data, error } = await supabase.functions.invoke("repair-positions-history", {
+        headers: {
+          Authorization: `Bearer ${session.access_token}`,
+        },
+      });
+
+      if (error) throw error;
+
+      toast({
+        title: "Historia naprawiona",
+        description: `Zweryfikowano ${data.summary.verified} pozycji, zaktualizowano ${data.summary.updated}, usunięto ${data.summary.deleted} duplikatów`,
+      });
+
+      // Refresh positions
+      queryClient.invalidateQueries({ queryKey: ["closed-positions"] });
+    } catch (error: any) {
+      toast({
+        title: "Błąd naprawy historii",
+        description: error.message,
+        variant: "destructive",
+      });
+    } finally {
+      setIsRepairing(false);
+    }
+  };
+
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
@@ -261,6 +295,13 @@ export default function History() {
           <Button variant="outline" onClick={exportToJSON}>
             <Download className="mr-2 h-4 w-4" />
             JSON
+          </Button>
+          <Button 
+            onClick={repairHistory} 
+            variant="outline"
+            disabled={isRepairing}
+          >
+            {isRepairing ? "Naprawianie..." : "🔧 Napraw historię (sync z Bitget)"}
           </Button>
         </div>
       </div>
