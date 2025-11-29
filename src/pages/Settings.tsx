@@ -153,6 +153,27 @@ export default function Settings() {
           });
         }
       }
+
+      // Validation for category TP percentages
+      const categories = ['BTC_ETH', 'MAJOR', 'ALTCOIN'] as const;
+      for (const category of categories) {
+        const cat = localSettings.category_settings?.[category];
+        if (cat?.enabled && (cat?.tp_levels ?? 1) > 1) {
+          const tp1 = cat.tp1_close_pct ?? 0;
+          const tp2 = cat.tp2_close_pct ?? 0;
+          const tp3 = cat.tp3_close_pct ?? 0;
+          const sum = tp1 + tp2 + tp3;
+          
+          if (Math.abs(sum - 100) > 0.01) {
+            toast({
+              title: "⚠️ Błąd walidacji",
+              description: `Suma % TP dla ${category} = ${sum.toFixed(1)}%, powinna być 100%`,
+              variant: "destructive",
+            });
+            return;
+          }
+        }
+      }
       
       console.log("Zapisywanie ustawień:", localSettings);
       updateSettings.mutate(localSettings);
@@ -174,6 +195,43 @@ export default function Settings() {
         }
       }
     }));
+  };
+
+  // Auto-calculate TP percentages to ensure sum = 100%
+  const handleTPCloseChange = (category: string, tpLevel: 1 | 2 | 3, value: number) => {
+    const tpLevels = localSettings.category_settings?.[category]?.tp_levels ?? 1;
+    const tp1 = tpLevel === 1 ? value : (localSettings.category_settings?.[category]?.tp1_close_pct ?? 0);
+    const tp2 = tpLevel === 2 ? value : (localSettings.category_settings?.[category]?.tp2_close_pct ?? 0);
+    const tp3 = tpLevel === 3 ? value : (localSettings.category_settings?.[category]?.tp3_close_pct ?? 0);
+    
+    if (tpLevels === 2) {
+      if (tpLevel === 1) {
+        updateCategoryLocal(category, "tp1_close_pct", value);
+        updateCategoryLocal(category, "tp2_close_pct", 100 - value);
+      } else {
+        updateCategoryLocal(category, "tp2_close_pct", value);
+        updateCategoryLocal(category, "tp1_close_pct", 100 - value);
+      }
+    } else if (tpLevels === 3) {
+      if (tpLevel === 1) {
+        const remaining = 100 - value;
+        const tp2New = Math.round(remaining * 0.5);
+        const tp3New = remaining - tp2New;
+        updateCategoryLocal(category, "tp1_close_pct", value);
+        updateCategoryLocal(category, "tp2_close_pct", tp2New);
+        updateCategoryLocal(category, "tp3_close_pct", tp3New);
+      } else if (tpLevel === 2) {
+        const remaining = 100 - tp1 - value;
+        updateCategoryLocal(category, "tp2_close_pct", value);
+        updateCategoryLocal(category, "tp3_close_pct", remaining);
+      } else {
+        const remaining = 100 - tp1 - value;
+        updateCategoryLocal(category, "tp3_close_pct", value);
+        updateCategoryLocal(category, "tp2_close_pct", remaining);
+      }
+    } else {
+      updateCategoryLocal(category, "tp1_close_pct", 100);
+    }
   };
 
   // Fetch balance from Bitget
@@ -2326,6 +2384,21 @@ export default function Settings() {
               <CardDescription>BTCUSDT, ETHUSDT</CardDescription>
             </CardHeader>
             <CardContent className="space-y-6">
+              <div className="flex items-center justify-between p-4 bg-muted/30 rounded-lg">
+                <div className="space-y-0.5">
+                  <Label>Użyj niestandardowych ustawień dla tej kategorii</Label>
+                  <div className="text-sm text-muted-foreground">
+                    Gdy wyłączone, bot użyje głównych ustawień
+                  </div>
+                </div>
+                <Switch
+                  checked={localSettings.category_settings?.BTC_ETH?.enabled ?? false}
+                  onCheckedChange={(checked) => updateCategoryLocal("BTC_ETH", "enabled", checked)}
+                />
+              </div>
+
+              {localSettings.category_settings?.BTC_ETH?.enabled && (
+                <>
               <div className="grid grid-cols-3 gap-4">
                 <div className="space-y-2">
                   <Label>Max Leverage</Label>
@@ -2407,8 +2480,8 @@ export default function Settings() {
                             type="number"
                             step="0.1"
                             min="0.1"
-                            value={localSettings.category_settings?.BTC_ETH?.tp1_rr_ratio ?? ""}
-                            onChange={(e) => updateCategoryLocal("BTC_ETH", "tp1_rr_ratio", e.target.value ? parseFloat(e.target.value) : null)}
+                            value={localSettings.category_settings?.BTC_ETH?.tp1_rr ?? ""}
+                            onChange={(e) => updateCategoryLocal("BTC_ETH", "tp1_rr", e.target.value ? parseFloat(e.target.value) : null)}
                             placeholder="Użyj głównych"
                             className="w-24"
                           />
@@ -2418,8 +2491,8 @@ export default function Settings() {
                             type="number"
                             min="0"
                             max="100"
-                            value={localSettings.category_settings?.BTC_ETH?.tp1_close_percent ?? ""}
-                            onChange={(e) => updateCategoryLocal("BTC_ETH", "tp1_close_percent", e.target.value ? parseFloat(e.target.value) : null)}
+                            value={localSettings.category_settings?.BTC_ETH?.tp1_close_pct ?? ""}
+                            onChange={(e) => handleTPCloseChange("BTC_ETH", 1, e.target.value ? parseFloat(e.target.value) : 0)}
                             placeholder="Użyj głównych"
                             className="w-24"
                           />
@@ -2433,8 +2506,8 @@ export default function Settings() {
                               type="number"
                               step="0.1"
                               min="0.1"
-                              value={localSettings.category_settings?.BTC_ETH?.tp2_rr_ratio ?? ""}
-                              onChange={(e) => updateCategoryLocal("BTC_ETH", "tp2_rr_ratio", e.target.value ? parseFloat(e.target.value) : null)}
+                              value={localSettings.category_settings?.BTC_ETH?.tp2_rr ?? ""}
+                              onChange={(e) => updateCategoryLocal("BTC_ETH", "tp2_rr", e.target.value ? parseFloat(e.target.value) : null)}
                               placeholder="Użyj głównych"
                               className="w-24"
                             />
@@ -2444,8 +2517,8 @@ export default function Settings() {
                               type="number"
                               min="0"
                               max="100"
-                              value={localSettings.category_settings?.BTC_ETH?.tp2_close_percent ?? ""}
-                              onChange={(e) => updateCategoryLocal("BTC_ETH", "tp2_close_percent", e.target.value ? parseFloat(e.target.value) : null)}
+                              value={localSettings.category_settings?.BTC_ETH?.tp2_close_pct ?? ""}
+                              onChange={(e) => handleTPCloseChange("BTC_ETH", 2, e.target.value ? parseFloat(e.target.value) : 0)}
                               placeholder="Użyj głównych"
                               className="w-24"
                             />
@@ -2460,8 +2533,8 @@ export default function Settings() {
                               type="number"
                               step="0.1"
                               min="0.1"
-                              value={localSettings.category_settings?.BTC_ETH?.tp3_rr_ratio ?? ""}
-                              onChange={(e) => updateCategoryLocal("BTC_ETH", "tp3_rr_ratio", e.target.value ? parseFloat(e.target.value) : null)}
+                              value={localSettings.category_settings?.BTC_ETH?.tp3_rr ?? ""}
+                              onChange={(e) => updateCategoryLocal("BTC_ETH", "tp3_rr", e.target.value ? parseFloat(e.target.value) : null)}
                               placeholder="Użyj głównych"
                               className="w-24"
                             />
@@ -2471,8 +2544,8 @@ export default function Settings() {
                               type="number"
                               min="0"
                               max="100"
-                              value={localSettings.category_settings?.BTC_ETH?.tp3_close_percent ?? ""}
-                              onChange={(e) => updateCategoryLocal("BTC_ETH", "tp3_close_percent", e.target.value ? parseFloat(e.target.value) : null)}
+                              value={localSettings.category_settings?.BTC_ETH?.tp3_close_pct ?? ""}
+                              onChange={(e) => handleTPCloseChange("BTC_ETH", 3, e.target.value ? parseFloat(e.target.value) : 0)}
                               placeholder="Użyj głównych"
                               className="w-24"
                             />
@@ -2483,6 +2556,8 @@ export default function Settings() {
                   </table>
                 </div>
               </div>
+                </>
+              )}
             </CardContent>
           </Card>
 
@@ -2496,6 +2571,21 @@ export default function Settings() {
               <CardDescription>XRPUSDT, SOLUSDT, BNBUSDT</CardDescription>
             </CardHeader>
             <CardContent className="space-y-6">
+              <div className="flex items-center justify-between p-4 bg-muted/30 rounded-lg">
+                <div className="space-y-0.5">
+                  <Label>Użyj niestandardowych ustawień dla tej kategorii</Label>
+                  <div className="text-sm text-muted-foreground">
+                    Gdy wyłączone, bot użyje głównych ustawień
+                  </div>
+                </div>
+                <Switch
+                  checked={localSettings.category_settings?.MAJOR?.enabled ?? false}
+                  onCheckedChange={(checked) => updateCategoryLocal("MAJOR", "enabled", checked)}
+                />
+              </div>
+
+              {localSettings.category_settings?.MAJOR?.enabled && (
+                <>
               <div className="grid grid-cols-3 gap-4">
                 <div className="space-y-2">
                   <Label>Max Leverage</Label>
@@ -2577,8 +2667,8 @@ export default function Settings() {
                             type="number"
                             step="0.1"
                             min="0.1"
-                            value={localSettings.category_settings?.MAJOR?.tp1_rr_ratio ?? ""}
-                            onChange={(e) => updateCategoryLocal("MAJOR", "tp1_rr_ratio", e.target.value ? parseFloat(e.target.value) : null)}
+                            value={localSettings.category_settings?.MAJOR?.tp1_rr ?? ""}
+                            onChange={(e) => updateCategoryLocal("MAJOR", "tp1_rr", e.target.value ? parseFloat(e.target.value) : null)}
                             placeholder="Użyj głównych"
                             className="w-24"
                           />
@@ -2588,8 +2678,8 @@ export default function Settings() {
                             type="number"
                             min="0"
                             max="100"
-                            value={localSettings.category_settings?.MAJOR?.tp1_close_percent ?? ""}
-                            onChange={(e) => updateCategoryLocal("MAJOR", "tp1_close_percent", e.target.value ? parseFloat(e.target.value) : null)}
+                            value={localSettings.category_settings?.MAJOR?.tp1_close_pct ?? ""}
+                            onChange={(e) => handleTPCloseChange("MAJOR", 1, e.target.value ? parseFloat(e.target.value) : 0)}
                             placeholder="Użyj głównych"
                             className="w-24"
                           />
@@ -2603,8 +2693,8 @@ export default function Settings() {
                               type="number"
                               step="0.1"
                               min="0.1"
-                              value={localSettings.category_settings?.MAJOR?.tp2_rr_ratio ?? ""}
-                              onChange={(e) => updateCategoryLocal("MAJOR", "tp2_rr_ratio", e.target.value ? parseFloat(e.target.value) : null)}
+                              value={localSettings.category_settings?.MAJOR?.tp2_rr ?? ""}
+                              onChange={(e) => updateCategoryLocal("MAJOR", "tp2_rr", e.target.value ? parseFloat(e.target.value) : null)}
                               placeholder="Użyj głównych"
                               className="w-24"
                             />
@@ -2614,8 +2704,8 @@ export default function Settings() {
                               type="number"
                               min="0"
                               max="100"
-                              value={localSettings.category_settings?.MAJOR?.tp2_close_percent ?? ""}
-                              onChange={(e) => updateCategoryLocal("MAJOR", "tp2_close_percent", e.target.value ? parseFloat(e.target.value) : null)}
+                              value={localSettings.category_settings?.MAJOR?.tp2_close_pct ?? ""}
+                              onChange={(e) => handleTPCloseChange("MAJOR", 2, e.target.value ? parseFloat(e.target.value) : 0)}
                               placeholder="Użyj głównych"
                               className="w-24"
                             />
@@ -2630,8 +2720,8 @@ export default function Settings() {
                               type="number"
                               step="0.1"
                               min="0.1"
-                              value={localSettings.category_settings?.MAJOR?.tp3_rr_ratio ?? ""}
-                              onChange={(e) => updateCategoryLocal("MAJOR", "tp3_rr_ratio", e.target.value ? parseFloat(e.target.value) : null)}
+                              value={localSettings.category_settings?.MAJOR?.tp3_rr ?? ""}
+                              onChange={(e) => updateCategoryLocal("MAJOR", "tp3_rr", e.target.value ? parseFloat(e.target.value) : null)}
                               placeholder="Użyj głównych"
                               className="w-24"
                             />
@@ -2641,8 +2731,8 @@ export default function Settings() {
                               type="number"
                               min="0"
                               max="100"
-                              value={localSettings.category_settings?.MAJOR?.tp3_close_percent ?? ""}
-                              onChange={(e) => updateCategoryLocal("MAJOR", "tp3_close_percent", e.target.value ? parseFloat(e.target.value) : null)}
+                              value={localSettings.category_settings?.MAJOR?.tp3_close_pct ?? ""}
+                              onChange={(e) => handleTPCloseChange("MAJOR", 3, e.target.value ? parseFloat(e.target.value) : 0)}
                               placeholder="Użyj głównych"
                               className="w-24"
                             />
@@ -2653,6 +2743,8 @@ export default function Settings() {
                   </table>
                 </div>
               </div>
+                </>
+              )}
             </CardContent>
           </Card>
 
@@ -2666,6 +2758,21 @@ export default function Settings() {
               <CardDescription>Wszystkie pozostałe symbole</CardDescription>
             </CardHeader>
             <CardContent className="space-y-6">
+              <div className="flex items-center justify-between p-4 bg-muted/30 rounded-lg">
+                <div className="space-y-0.5">
+                  <Label>Użyj niestandardowych ustawień dla tej kategorii</Label>
+                  <div className="text-sm text-muted-foreground">
+                    Gdy wyłączone, bot użyje głównych ustawień
+                  </div>
+                </div>
+                <Switch
+                  checked={localSettings.category_settings?.ALTCOIN?.enabled ?? false}
+                  onCheckedChange={(checked) => updateCategoryLocal("ALTCOIN", "enabled", checked)}
+                />
+              </div>
+
+              {localSettings.category_settings?.ALTCOIN?.enabled && (
+                <>
               <div className="grid grid-cols-3 gap-4">
                 <div className="space-y-2">
                   <Label>Max Leverage</Label>
@@ -2747,8 +2854,8 @@ export default function Settings() {
                             type="number"
                             step="0.1"
                             min="0.1"
-                            value={localSettings.category_settings?.ALTCOIN?.tp1_rr_ratio ?? ""}
-                            onChange={(e) => updateCategoryLocal("ALTCOIN", "tp1_rr_ratio", e.target.value ? parseFloat(e.target.value) : null)}
+                            value={localSettings.category_settings?.ALTCOIN?.tp1_rr ?? ""}
+                            onChange={(e) => updateCategoryLocal("ALTCOIN", "tp1_rr", e.target.value ? parseFloat(e.target.value) : null)}
                             placeholder="Użyj głównych"
                             className="w-24"
                           />
@@ -2758,8 +2865,8 @@ export default function Settings() {
                             type="number"
                             min="0"
                             max="100"
-                            value={localSettings.category_settings?.ALTCOIN?.tp1_close_percent ?? ""}
-                            onChange={(e) => updateCategoryLocal("ALTCOIN", "tp1_close_percent", e.target.value ? parseFloat(e.target.value) : null)}
+                            value={localSettings.category_settings?.ALTCOIN?.tp1_close_pct ?? ""}
+                            onChange={(e) => handleTPCloseChange("ALTCOIN", 1, e.target.value ? parseFloat(e.target.value) : 0)}
                             placeholder="Użyj głównych"
                             className="w-24"
                           />
@@ -2773,8 +2880,8 @@ export default function Settings() {
                               type="number"
                               step="0.1"
                               min="0.1"
-                              value={localSettings.category_settings?.ALTCOIN?.tp2_rr_ratio ?? ""}
-                              onChange={(e) => updateCategoryLocal("ALTCOIN", "tp2_rr_ratio", e.target.value ? parseFloat(e.target.value) : null)}
+                              value={localSettings.category_settings?.ALTCOIN?.tp2_rr ?? ""}
+                              onChange={(e) => updateCategoryLocal("ALTCOIN", "tp2_rr", e.target.value ? parseFloat(e.target.value) : null)}
                               placeholder="Użyj głównych"
                               className="w-24"
                             />
@@ -2784,8 +2891,8 @@ export default function Settings() {
                               type="number"
                               min="0"
                               max="100"
-                              value={localSettings.category_settings?.ALTCOIN?.tp2_close_percent ?? ""}
-                              onChange={(e) => updateCategoryLocal("ALTCOIN", "tp2_close_percent", e.target.value ? parseFloat(e.target.value) : null)}
+                              value={localSettings.category_settings?.ALTCOIN?.tp2_close_pct ?? ""}
+                              onChange={(e) => handleTPCloseChange("ALTCOIN", 2, e.target.value ? parseFloat(e.target.value) : 0)}
                               placeholder="Użyj głównych"
                               className="w-24"
                             />
@@ -2800,8 +2907,8 @@ export default function Settings() {
                               type="number"
                               step="0.1"
                               min="0.1"
-                              value={localSettings.category_settings?.ALTCOIN?.tp3_rr_ratio ?? ""}
-                              onChange={(e) => updateCategoryLocal("ALTCOIN", "tp3_rr_ratio", e.target.value ? parseFloat(e.target.value) : null)}
+                              value={localSettings.category_settings?.ALTCOIN?.tp3_rr ?? ""}
+                              onChange={(e) => updateCategoryLocal("ALTCOIN", "tp3_rr", e.target.value ? parseFloat(e.target.value) : null)}
                               placeholder="Użyj głównych"
                               className="w-24"
                             />
@@ -2811,8 +2918,8 @@ export default function Settings() {
                               type="number"
                               min="0"
                               max="100"
-                              value={localSettings.category_settings?.ALTCOIN?.tp3_close_percent ?? ""}
-                              onChange={(e) => updateCategoryLocal("ALTCOIN", "tp3_close_percent", e.target.value ? parseFloat(e.target.value) : null)}
+                              value={localSettings.category_settings?.ALTCOIN?.tp3_close_pct ?? ""}
+                              onChange={(e) => handleTPCloseChange("ALTCOIN", 3, e.target.value ? parseFloat(e.target.value) : 0)}
                               placeholder="Użyj głównych"
                               className="w-24"
                             />
@@ -2823,6 +2930,8 @@ export default function Settings() {
                   </table>
                 </div>
               </div>
+                </>
+              )}
             </CardContent>
           </Card>
         </TabsContent>
