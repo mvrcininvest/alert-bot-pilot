@@ -38,3 +38,6 @@ verify_jwt = true
 
 [functions.link-positions-alerts]
 verify_jwt = true
+
+[functions.repair-mm-data]
+verify_jwt = true

@@ -1070,6 +1070,18 @@ export type Database = {
           win_rate: number
         }[]
       }
+      get_money_management_stats: {
+        Args: never
+        Returns: {
+          avg_pnl: number
+          count: number
+          margin_bucket: string
+          position_sizing_type: string
+          symbol_category: string
+          total_pnl: number
+          win_rate: number
+        }[]
+      }
       get_rr_stats: {
         Args: never
         Returns: {
