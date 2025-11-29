@@ -110,42 +110,44 @@ serve(async (req) => {
         const bitgetPositions = historyResult.data.list;
         console.log(`Got ${bitgetPositions.length} positions from Bitget for user ${userId}`);
 
-        // Process each Bitget position
-        for (const bitgetPos of bitgetPositions) {
-          const symbol = normalizeSymbol(bitgetPos.symbol);
-          const openTime = Number(bitgetPos.createdTime);
-          const closeTime = Number(bitgetPos.updatedTime);
+        // Process each DB position and find matching Bitget data
+        for (const dbPos of userPositions) {
+          const symbol = normalizeSymbol(dbPos.symbol);
+          const dbCloseTime = new Date(dbPos.closed_at).getTime();
+          
+          console.log(`Processing DB position: ${dbPos.id}, symbol=${symbol}, closed_at=${dbPos.closed_at}`);
 
-          console.log(`Processing Bitget position: ${symbol}, open=${new Date(openTime).toISOString()}, close=${new Date(closeTime).toISOString()}`);
-
-          // Find matching position in database
-          // First try to match by symbol and time window (within 5 minutes of close time)
-          const dbPos = userPositions.find(p => {
-            const normalizedPosSymbol = normalizeSymbol(p.symbol);
-            if (normalizedPosSymbol !== symbol) return false;
-            if (!p.closed_at) return false;
+          // Find matching Bitget position by symbol and approximate time
+          const bitgetPos = bitgetPositions.find((bp: any) => {
+            const bpSymbol = normalizeSymbol(bp.symbol);
+            if (bpSymbol !== symbol) return false;
             
-            const posCloseTime = new Date(p.closed_at).getTime();
-            const timeDiff = Math.abs(posCloseTime - closeTime);
-            const withinWindow = timeDiff < (5 * 60 * 1000); // 5 minutes
+            // Use uTime (update time) as close time, fallback to cTime if needed
+            const bitgetCloseTime = Number(bp.uTime || bp.cTime);
+            if (isNaN(bitgetCloseTime)) return false;
+            
+            const timeDiff = Math.abs(dbCloseTime - bitgetCloseTime);
+            const withinWindow = timeDiff < (5 * 60 * 1000); // 5 minutes tolerance
             
             if (withinWindow) {
-              console.log(`✅ Time match for ${symbol}: DB=${new Date(posCloseTime).toISOString()}, Bitget=${new Date(closeTime).toISOString()}, diff=${Math.round(timeDiff/1000)}s`);
+              console.log(`✅ Time match for ${symbol}: DB=${new Date(dbCloseTime).toISOString()}, Bitget=${new Date(bitgetCloseTime).toISOString()}, diff=${Math.round(timeDiff/1000)}s`);
             }
             
             return withinWindow;
           });
 
-          if (!dbPos) {
-            console.log(`❌ No DB match for Bitget position ${symbol} closed at ${new Date(closeTime).toISOString()}`);
+          if (!bitgetPos) {
+            console.log(`❌ No matching Bitget position found for ${symbol}`);
             continue;
           }
 
-          // Extract real data from Bitget
-          const bitgetEntryPrice = Number(bitgetPos.openPriceAvg);
-          const bitgetClosePrice = Number(bitgetPos.closePriceAvg);
+          console.log(`Found matching Bitget position for ${dbPos.id}`);
+
+          // Extract real data from Bitget using CORRECT field names
+          const bitgetEntryPrice = Number(bitgetPos.openAvgPrice);
+          const bitgetClosePrice = Number(bitgetPos.closeAvgPrice);
           const bitgetRealizedPnl = Number(bitgetPos.netProfit); // netProfit includes fees
-          const bitgetSide = bitgetPos.posSide === 'long' ? 'BUY' : 'SELL';
+          const bitgetSide = bitgetPos.holdSide === 'long' ? 'BUY' : 'SELL';
 
           // Determine close reason
           let closeReason = 'manual_close';
@@ -204,7 +206,6 @@ serve(async (req) => {
                 entry_price: bitgetEntryPrice,
                 close_price: bitgetClosePrice,
                 realized_pnl: bitgetRealizedPnl,
-                closed_at: new Date(closeTime).toISOString(),
                 metadata: {
                   ...dbPos.metadata,
                   synced_from_bitget: true,
