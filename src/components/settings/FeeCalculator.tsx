@@ -14,6 +14,10 @@ interface FeeCalculatorProps {
   margin: number;
   leverage: number;
   maxLoss: number;
+  tp1RrRatio?: number;
+  tp2RrRatio?: number;
+  tp3RrRatio?: number;
+  readOnly?: boolean;
   onFeeRateChange: (value: number) => void;
   onIncludeFeesChange: (value: boolean) => void;
   onMinProfitableTpChange: (value: number) => void;
@@ -26,6 +30,10 @@ export function FeeCalculator({
   margin,
   leverage,
   maxLoss,
+  tp1RrRatio = 1.5,
+  tp2RrRatio = 2.5,
+  tp3RrRatio = 3.5,
+  readOnly = false,
   onFeeRateChange,
   onIncludeFeesChange,
   onMinProfitableTpChange,
@@ -64,9 +72,9 @@ export function FeeCalculator({
 
     // Simulate R:R for TP1, TP2, TP3
     const tpRatios = [
-      { tp: "TP1", mathRR: "1.5:1", ratio: 1.5 },
-      { tp: "TP2", mathRR: "2.5:1", ratio: 2.5 },
-      { tp: "TP3", mathRR: "3.5:1", ratio: 3.5 },
+      { tp: "TP1", mathRR: `${tp1RrRatio.toFixed(1)}:1`, ratio: tp1RrRatio },
+      { tp: "TP2", mathRR: `${tp2RrRatio.toFixed(1)}:1`, ratio: tp2RrRatio },
+      { tp: "TP3", mathRR: `${tp3RrRatio.toFixed(1)}:1`, ratio: tp3RrRatio },
     ];
 
     const simulation = tpRatios.map(({ tp, mathRR, ratio }) => {
@@ -84,9 +92,10 @@ export function FeeCalculator({
     });
 
     setRrSimulation(simulation);
-  }, [margin, leverage, maxLoss, takerFeeRate]);
+  }, [margin, leverage, maxLoss, takerFeeRate, tp1RrRatio, tp2RrRatio, tp3RrRatio]);
 
   const hasLowRR = rrSimulation.some((sim) => sim.realRR < 1);
+  const hasHighFeeImpact = calculations.feeImpactPercent > 50;
 
   return (
     <Card className="border-primary/20">
@@ -94,6 +103,7 @@ export function FeeCalculator({
         <CardTitle className="flex items-center gap-2">
           <Calculator className="h-5 w-5" />
           🧮 Fee Calculator
+          {readOnly && <span className="text-xs text-muted-foreground">(Admin settings)</span>}
         </CardTitle>
       </CardHeader>
       <CardContent className="space-y-6">
@@ -108,6 +118,7 @@ export function FeeCalculator({
               step="0.01"
               value={takerFeeRate}
               onChange={(e) => onFeeRateChange(parseFloat(e.target.value))}
+              disabled={readOnly}
             />
             <p className="text-xs text-muted-foreground">
               Standardowo 0.06% za otwarcie + 0.06% za zamknięcie = 0.12% round-trip
@@ -124,6 +135,7 @@ export function FeeCalculator({
             <Switch
               checked={includeFeesInCalculations}
               onCheckedChange={onIncludeFeesChange}
+              disabled={readOnly}
             />
           </div>
 
@@ -134,6 +146,7 @@ export function FeeCalculator({
               step="0.1"
               value={minProfitableTpPercent}
               onChange={(e) => onMinProfitableTpChange(parseFloat(e.target.value))}
+              disabled={readOnly}
             />
             <p className="text-xs text-muted-foreground">
               Minimalna odległość TP od entry żeby mieć zysk po fees
@@ -248,15 +261,85 @@ export function FeeCalculator({
           </Table>
         </div>
 
-        {/* Warning if any TP has Real R:R < 1 */}
+        {/* Trade Simulation */}
+        <div className="space-y-3 p-4 bg-primary/5 rounded-lg border border-primary/20">
+          <h3 className="font-semibold text-sm">📍 SYMULACJA TRADE (przykład @ $100,000)</h3>
+          
+          <div className="grid grid-cols-2 gap-3 text-sm">
+            <div>
+              <Label className="text-xs text-muted-foreground">Entry Price</Label>
+              <p className="font-mono">$100,000</p>
+            </div>
+            <div>
+              <Label className="text-xs text-muted-foreground">SL Price</Label>
+              <p className="font-mono text-destructive">
+                ${(100000 * (1 - (calculations.realMaxLoss / (margin * leverage)))).toFixed(2)}
+                <span className="text-xs ml-1">
+                  (-{((calculations.realMaxLoss / (margin * leverage)) * 100).toFixed(2)}%)
+                </span>
+              </p>
+            </div>
+            {rrSimulation.map((sim, idx) => (
+              <div key={sim.tp}>
+                <Label className="text-xs text-muted-foreground">{sim.tp} Price</Label>
+                <p className={`font-mono ${sim.realRR >= 1 ? 'text-profit' : 'text-destructive'}`}>
+                  ${(100000 * (1 + (sim.netProfit / (margin * leverage)))).toFixed(2)}
+                  <span className="text-xs ml-1">
+                    (+{((sim.netProfit / (margin * leverage)) * 100).toFixed(3)}%)
+                  </span>
+                </p>
+              </div>
+            ))}
+          </div>
+
+          <div className="pt-3 border-t space-y-2">
+            <div className="flex justify-between text-sm">
+              <span className="text-muted-foreground">Notional Value:</span>
+              <span className="font-mono">{calculations.notional.toFixed(2)} USDT</span>
+            </div>
+            <div className="flex justify-between text-sm">
+              <span className="text-muted-foreground">Round-trip Fees:</span>
+              <span className="font-mono text-destructive">{calculations.roundTripFees.toFixed(4)} USDT</span>
+            </div>
+            <div className="flex justify-between text-sm">
+              <span className="text-muted-foreground">Max Loss (net):</span>
+              <span className="font-mono font-bold text-destructive">{calculations.realMaxLoss.toFixed(4)} USDT</span>
+            </div>
+            <div className="flex justify-between text-sm pt-2 border-t">
+              <span className="text-muted-foreground">TP1 Profit (net):</span>
+              <span className={`font-mono font-bold ${rrSimulation[0]?.netProfit > 0 ? 'text-profit' : 'text-destructive'}`}>
+                +{rrSimulation[0]?.netProfit.toFixed(4)} USDT
+              </span>
+            </div>
+            <div className="flex justify-between text-sm">
+              <span className="text-muted-foreground">TP1 Real R:R:</span>
+              <span className={`font-mono font-bold ${rrSimulation[0]?.realRR >= 1 ? 'text-profit' : 'text-destructive'}`}>
+                {rrSimulation[0]?.realRR.toFixed(2)}:1 {rrSimulation[0]?.realRR < 1 ? '⚠️ STRATA!' : '✅'}
+              </span>
+            </div>
+          </div>
+        </div>
+
+        {/* Warnings */}
         {hasLowRR && (
           <Alert variant="destructive">
             <AlertTriangle className="h-4 w-4" />
             <AlertDescription>
-              <strong>⚠️ OSTRZEŻENIE:</strong> Twój TP1 (R:R {rrSimulation[0].mathRR}) po fees ma realny R:R &lt; 1!
+              <strong>⚠️ OSTRZEŻENIE:</strong> Twój TP1 (R:R {rrSimulation[0]?.mathRR}) po fees ma realny R:R &lt; 1!
               <br />
               <strong>Zalecenie:</strong> Zwiększ R:R ratio do minimum 2.0 lub zwiększ margin 
               żeby zmniejszyć % wpływu fees.
+            </AlertDescription>
+          </Alert>
+        )}
+
+        {hasHighFeeImpact && !hasLowRR && (
+          <Alert>
+            <AlertTriangle className="h-4 w-4" />
+            <AlertDescription>
+              <strong>⚠️ Wysokie opłaty:</strong> Fees stanowią {calculations.feeImpactPercent.toFixed(1)}% Twojej maksymalnej straty!
+              <br />
+              <strong>Zalecenie:</strong> Zwiększ margin lub zmniejsz leverage żeby zredukować wpływ fees.
             </AlertDescription>
           </Alert>
         )}
