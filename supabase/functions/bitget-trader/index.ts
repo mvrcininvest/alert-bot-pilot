@@ -823,6 +823,32 @@ serve(async (req) => {
       });
     }
 
+    // FEE-AWARE VALIDATION: Check if TP1 is too close (fees will eat profit)
+    if (tp1_price && settings.include_fees_in_calculations) {
+      const notional = quantity * alert_data.price;
+      const feeRate = settings.taker_fee_rate || 0.06;
+      const roundTripFees = notional * (feeRate * 2) / 100;
+      const expectedTP1Profit = Math.abs(tp1_price - alert_data.price) * quantity;
+
+      if (expectedTP1Profit < roundTripFees * 1.5) {
+        await log({
+          functionName: 'bitget-trader',
+          message: `⚠️ TP1 too close! Expected profit ${expectedTP1Profit.toFixed(4)} USDT < fees ${roundTripFees.toFixed(4)} USDT × 1.5`,
+          level: 'warn',
+          alertId: alert_id,
+          metadata: {
+            expectedTP1Profit,
+            roundTripFees,
+            ratio: expectedTP1Profit / roundTripFees,
+            tp1_price,
+            entry_price: alert_data.price,
+            notional
+          }
+        });
+        console.warn(`⚠️ TP1 too close! Profit: ${expectedTP1Profit.toFixed(4)}, Fees: ${roundTripFees.toFixed(4)}`);
+      }
+    }
+
     // Call Bitget API to place order
     const side = alert_data.side === 'BUY' ? 'open_long' : 'open_short';
     await log({
