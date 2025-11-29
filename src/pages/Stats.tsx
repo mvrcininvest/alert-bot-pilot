@@ -181,6 +181,7 @@ export default function Stats() {
           )
         `)
         .eq("status", "closed")
+        .like("symbol", "%USDT")
         .neq("close_reason", "error")
         .order("closed_at", { ascending: true });
       
