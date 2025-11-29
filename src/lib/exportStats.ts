@@ -85,7 +85,65 @@ interface StatsExport {
     avgWin: number;
     avgLoss: number;
     maxDrawdown: number;
+    largestWin?: number;
+    largestLoss?: number;
+    avgDurationMinutes?: number;
+    bestWinStreak?: number;
+    worstLossStreak?: number;
   };
+  advancedMetrics?: {
+    sharpeRatio: number;
+    sortinoRatio: number;
+    calmarRatio: number;
+    recoveryFactor: number;
+    payoffRatio: number;
+  };
+  bySession?: Array<{
+    session: string;
+    trades: number;
+    wins: number;
+    winRate: number;
+    avgPnL: number;
+    totalPnL: number;
+  }>;
+  byCloseReason?: Array<{
+    reason: string;
+    count: number;
+    percentage: number;
+  }>;
+  bySignalStrength?: Array<{
+    range: string;
+    trades: number;
+    winRate: number;
+    avgPnL: number;
+    totalPnL: number;
+  }>;
+  byDuration?: Array<{
+    range: string;
+    trades: number;
+    winRate: number;
+    avgPnL: number;
+    totalPnL: number;
+  }>;
+  byHour?: Array<{
+    hour: number;
+    trades: number;
+    winRate: number;
+    avgPnL: number;
+  }>;
+  byDayOfWeek?: Array<{
+    day: string;
+    trades: number;
+    winRate: number;
+    avgPnL: number;
+  }>;
+  byLeverage?: Array<{
+    leverage: number;
+    trades: number;
+    winRate: number;
+    avgPnL: number;
+    totalPnL: number;
+  }>;
   bySymbol?: Array<{
     symbol: string;
     trades: number;
@@ -97,6 +155,12 @@ interface StatsExport {
     trades: number;
     winRate: number;
     pnl: number;
+  }>;
+  monthlyData?: Array<{
+    month: string;
+    totalPnL: number;
+    trades: number;
+    winRate: number;
   }>;
 }
 
@@ -113,7 +177,103 @@ export function exportStatsToCSV(stats: StatsExport, filename: string = "stats-s
   sections.push(`Średni Win,$${stats.summary.avgWin.toFixed(2)}`);
   sections.push(`Średni Loss,$${stats.summary.avgLoss.toFixed(2)}`);
   sections.push(`Max Drawdown,$${stats.summary.maxDrawdown.toFixed(2)}`);
+  if (stats.summary.largestWin !== undefined) {
+    sections.push(`Największy Win,$${stats.summary.largestWin.toFixed(2)}`);
+  }
+  if (stats.summary.largestLoss !== undefined) {
+    sections.push(`Największy Loss,$${stats.summary.largestLoss.toFixed(2)}`);
+  }
+  if (stats.summary.avgDurationMinutes !== undefined) {
+    sections.push(`Średni czas trwania,${stats.summary.avgDurationMinutes.toFixed(0)} min`);
+  }
+  if (stats.summary.bestWinStreak !== undefined) {
+    sections.push(`Najlepsza seria Win,${stats.summary.bestWinStreak}`);
+  }
+  if (stats.summary.worstLossStreak !== undefined) {
+    sections.push(`Najgorsza seria Loss,${stats.summary.worstLossStreak}`);
+  }
   sections.push("");
+
+  // Advanced Metrics
+  if (stats.advancedMetrics) {
+    sections.push("=== ZAAWANSOWANE METRYKI ===");
+    sections.push(`Sharpe Ratio,${stats.advancedMetrics.sharpeRatio.toFixed(2)}`);
+    sections.push(`Sortino Ratio,${stats.advancedMetrics.sortinoRatio.toFixed(2)}`);
+    sections.push(`Calmar Ratio,${stats.advancedMetrics.calmarRatio.toFixed(2)}`);
+    sections.push(`Recovery Factor,${stats.advancedMetrics.recoveryFactor.toFixed(2)}`);
+    sections.push(`Payoff Ratio,${stats.advancedMetrics.payoffRatio.toFixed(2)}`);
+    sections.push("");
+  }
+
+  // By Session
+  if (stats.bySession && stats.bySession.length > 0) {
+    sections.push("=== WEDŁUG SESJI ===");
+    sections.push("Sesja,Trade'y,Winy,Win Rate,Średni PnL,Total PnL");
+    stats.bySession.forEach(s => {
+      sections.push(`${s.session},${s.trades},${s.wins},${s.winRate.toFixed(1)}%,$${s.avgPnL.toFixed(2)},$${s.totalPnL.toFixed(2)}`);
+    });
+    sections.push("");
+  }
+
+  // By Close Reason
+  if (stats.byCloseReason && stats.byCloseReason.length > 0) {
+    sections.push("=== WEDŁUG POWODU ZAMKNIĘCIA ===");
+    sections.push("Powód,Liczba,Procent");
+    stats.byCloseReason.forEach(r => {
+      sections.push(`${r.reason},${r.count},${r.percentage.toFixed(1)}%`);
+    });
+    sections.push("");
+  }
+
+  // By Signal Strength
+  if (stats.bySignalStrength && stats.bySignalStrength.length > 0) {
+    sections.push("=== WEDŁUG SIŁY SYGNAŁU ===");
+    sections.push("Zakres,Trade'y,Win Rate,Średni PnL,Total PnL");
+    stats.bySignalStrength.forEach(s => {
+      sections.push(`${s.range},${s.trades},${s.winRate.toFixed(1)}%,$${s.avgPnL.toFixed(2)},$${s.totalPnL.toFixed(2)}`);
+    });
+    sections.push("");
+  }
+
+  // By Duration
+  if (stats.byDuration && stats.byDuration.length > 0) {
+    sections.push("=== WEDŁUG CZASU TRWANIA ===");
+    sections.push("Zakres,Trade'y,Win Rate,Średni PnL,Total PnL");
+    stats.byDuration.forEach(d => {
+      sections.push(`${d.range},${d.trades},${d.winRate.toFixed(1)}%,$${d.avgPnL.toFixed(2)},$${d.totalPnL.toFixed(2)}`);
+    });
+    sections.push("");
+  }
+
+  // By Hour
+  if (stats.byHour && stats.byHour.length > 0) {
+    sections.push("=== WEDŁUG GODZINY ===");
+    sections.push("Godzina,Trade'y,Win Rate,Średni PnL");
+    stats.byHour.forEach(h => {
+      sections.push(`${h.hour}:00,${h.trades},${h.winRate.toFixed(1)}%,$${h.avgPnL.toFixed(2)}`);
+    });
+    sections.push("");
+  }
+
+  // By Day of Week
+  if (stats.byDayOfWeek && stats.byDayOfWeek.length > 0) {
+    sections.push("=== WEDŁUG DNIA TYGODNIA ===");
+    sections.push("Dzień,Trade'y,Win Rate,Średni PnL");
+    stats.byDayOfWeek.forEach(d => {
+      sections.push(`${d.day},${d.trades},${d.winRate.toFixed(1)}%,$${d.avgPnL.toFixed(2)}`);
+    });
+    sections.push("");
+  }
+
+  // By Leverage
+  if (stats.byLeverage && stats.byLeverage.length > 0) {
+    sections.push("=== WEDŁUG DŹWIGNI ===");
+    sections.push("Leverage,Trade'y,Win Rate,Średni PnL,Total PnL");
+    stats.byLeverage.forEach(l => {
+      sections.push(`${l.leverage}x,${l.trades},${l.winRate.toFixed(1)}%,$${l.avgPnL.toFixed(2)},$${l.totalPnL.toFixed(2)}`);
+    });
+    sections.push("");
+  }
 
   // By Symbol
   if (stats.bySymbol && stats.bySymbol.length > 0) {
@@ -131,6 +291,16 @@ export function exportStatsToCSV(stats: StatsExport, filename: string = "stats-s
     sections.push("Tier,Trade'y,Win Rate,PnL");
     stats.byTier.forEach(t => {
       sections.push(`${t.tier},${t.trades},${t.winRate.toFixed(1)}%,$${t.pnl.toFixed(2)}`);
+    });
+    sections.push("");
+  }
+
+  // Monthly Data
+  if (stats.monthlyData && stats.monthlyData.length > 0) {
+    sections.push("=== MIESIĘCZNE PORÓWNANIE ===");
+    sections.push("Miesiąc,Trade'y,Win Rate,PnL");
+    stats.monthlyData.forEach(m => {
+      sections.push(`${m.month},${m.trades},${m.winRate.toFixed(1)}%,$${m.totalPnL.toFixed(2)}`);
     });
   }
 
