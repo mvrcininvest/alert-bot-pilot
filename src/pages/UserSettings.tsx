@@ -291,6 +291,7 @@ export default function UserSettings() {
         tp3RrRatio={localSettings.tp3_rr_ratio || 3.5}
         tpLevels={localSettings.tp_levels || 1}
         feeAwareBreakeven={localSettings.fee_aware_breakeven ?? true}
+        accountBalance={100}
         onMarginChange={localSettings.money_mode !== 'copy_admin' ? (value) => updateLocal("max_margin_per_trade", value) : undefined}
         onLeverageChange={localSettings.money_mode !== 'copy_admin' ? (value) => updateLocal("default_leverage", value) : undefined}
         onMaxLossChange={localSettings.money_mode !== 'copy_admin' ? (value) => updateLocal("max_loss_per_trade", value) : undefined}
@@ -299,6 +300,7 @@ export default function UserSettings() {
         onTP3RRChange={localSettings.money_mode !== 'copy_admin' ? (value) => updateLocal("tp3_rr_ratio", value) : undefined}
         onTPLevelsChange={localSettings.sltp_mode !== 'copy_admin' ? (value) => updateLocal("tp_levels", value) : undefined}
         onFeeAwareBreakevenChange={localSettings.sltp_mode !== 'copy_admin' ? (value) => updateLocal("fee_aware_breakeven", value) : undefined}
+        onAccountBalanceChange={() => {}}
       />
 
       {/* SL/TP Mode */}

@@ -19,6 +19,7 @@ interface FeeCalculatorProps {
   tp3RrRatio: number;
   tpLevels: number;
   feeAwareBreakeven?: boolean;
+  accountBalance?: number;
   
   // Callbacks for changes
   onMarginChange?: (value: number) => void;
@@ -29,6 +30,7 @@ interface FeeCalculatorProps {
   onTP3RRChange?: (value: number) => void;
   onTPLevelsChange?: (value: number) => void;
   onFeeAwareBreakevenChange?: (value: boolean) => void;
+  onAccountBalanceChange?: (value: number) => void;
 }
 
 interface Calculations {
@@ -77,6 +79,7 @@ export function FeeCalculator({
   tp3RrRatio,
   tpLevels,
   feeAwareBreakeven = true,
+  accountBalance = 100,
   onMarginChange,
   onLeverageChange,
   onMaxLossChange,
@@ -85,6 +88,7 @@ export function FeeCalculator({
   onTP3RRChange,
   onTPLevelsChange,
   onFeeAwareBreakevenChange,
+  onAccountBalanceChange,
 }: FeeCalculatorProps) {
   const [calculations, setCalculations] = useState<Calculations>({
     notional: 0,
@@ -258,6 +262,38 @@ export function FeeCalculator({
   const hasLowRR = rrSimulation.some((sim) => sim.realRR < 1);
   const hasHighFeeImpact = calculations.feeImpactPercent > 50;
 
+  // Calculate dynamic presets based on account balance
+  const calculatePresets = (balance: number) => {
+    return {
+      conservative: {
+        margin: Math.min(balance * 0.02, 5),
+        leverage: 50,
+        maxLoss: Math.min(balance * 0.01, 2),
+        tp1RR: 2.0,
+        description: "2% kapitału na pozycję (max 1% ryzyko)",
+        percentOfCapital: 2,
+      },
+      balanced: {
+        margin: Math.min(balance * 0.03, 10),
+        leverage: 75,
+        maxLoss: Math.min(balance * 0.015, 3),
+        tp1RR: 2.5,
+        description: "3% kapitału na pozycję (max 1.5% ryzyko)",
+        percentOfCapital: 3,
+      },
+      aggressive: {
+        margin: Math.min(balance * 0.05, 15),
+        leverage: 100,
+        maxLoss: Math.min(balance * 0.02, 5),
+        tp1RR: 3.0,
+        description: "5% kapitału na pozycję (max 2% ryzyko)",
+        percentOfCapital: 5,
+      },
+    };
+  };
+
+  const presets = calculatePresets(accountBalance);
+
   return (
     <Card className="border-primary/20">
       <CardHeader>
@@ -341,6 +377,166 @@ export function FeeCalculator({
                 </Label>
               </div>
               {feeAwareBreakeven && <CheckCircle2 className="h-5 w-5 text-primary" />}
+            </div>
+          </div>
+        </div>
+
+        {/* Account Balance Input */}
+        <div className="space-y-3 p-4 bg-gradient-to-br from-primary/10 to-primary/5 rounded-lg border border-primary/30">
+          <h3 className="font-semibold text-sm flex items-center gap-2">
+            💰 SALDO KONTA
+          </h3>
+          <div className="space-y-2">
+            <Label className="text-xs text-muted-foreground">
+              Wpisz swoje saldo aby zobaczyć dopasowane presety
+            </Label>
+            <Input
+              type="number"
+              step="10"
+              min="10"
+              value={accountBalance}
+              onChange={(e) => onAccountBalanceChange?.(parseFloat(e.target.value) || 100)}
+              className="font-mono text-lg font-bold"
+              placeholder="100"
+            />
+            <p className="text-xs text-muted-foreground">
+              💡 Profesjonalni traderzy używają max 1-2% kapitału jako ryzyko na trade
+            </p>
+          </div>
+        </div>
+
+        {/* Quick Presets - ZAWSZE WIDOCZNE */}
+        <div className="space-y-3 p-4 bg-gradient-to-br from-primary/5 to-secondary/5 rounded-lg border border-primary/20">
+          <h3 className="font-semibold text-sm flex items-center gap-2">
+            📊 QUICK PRESETS
+            <Badge variant="secondary" className="text-xs">dla salda: {accountBalance.toFixed(0)} USDT</Badge>
+          </h3>
+          
+          <div className="space-y-3">
+            {/* Conservative */}
+            <div className="p-3 bg-background/50 rounded-lg border border-border hover:border-primary/50 transition-colors">
+              <div className="flex items-start justify-between mb-2">
+                <div>
+                  <p className="font-semibold text-sm flex items-center gap-2">
+                    🛡️ CONSERVATIVE (bezpieczny)
+                  </p>
+                  <p className="text-xs text-muted-foreground mt-1">{presets.conservative.description}</p>
+                </div>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => {
+                    onMarginChange?.(presets.conservative.margin);
+                    onLeverageChange?.(presets.conservative.leverage);
+                    onMaxLossChange?.(presets.conservative.maxLoss);
+                    onTP1RRChange?.(presets.conservative.tp1RR);
+                  }}
+                >
+                  Zastosuj
+                </Button>
+              </div>
+              <div className="grid grid-cols-4 gap-2 text-xs">
+                <div>
+                  <span className="text-muted-foreground">Margin:</span>
+                  <p className="font-mono font-semibold">{presets.conservative.margin.toFixed(2)} USDT</p>
+                </div>
+                <div>
+                  <span className="text-muted-foreground">Leverage:</span>
+                  <p className="font-mono font-semibold">{presets.conservative.leverage}x</p>
+                </div>
+                <div>
+                  <span className="text-muted-foreground">Max Loss:</span>
+                  <p className="font-mono font-semibold">{presets.conservative.maxLoss.toFixed(2)} USDT</p>
+                </div>
+                <div>
+                  <span className="text-muted-foreground">TP1 R:R:</span>
+                  <p className="font-mono font-semibold">{presets.conservative.tp1RR.toFixed(1)}:1</p>
+                </div>
+              </div>
+            </div>
+
+            {/* Balanced */}
+            <div className="p-3 bg-background/50 rounded-lg border border-border hover:border-primary/50 transition-colors">
+              <div className="flex items-start justify-between mb-2">
+                <div>
+                  <p className="font-semibold text-sm flex items-center gap-2">
+                    ⚖️ BALANCED (zbalansowany)
+                  </p>
+                  <p className="text-xs text-muted-foreground mt-1">{presets.balanced.description}</p>
+                </div>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => {
+                    onMarginChange?.(presets.balanced.margin);
+                    onLeverageChange?.(presets.balanced.leverage);
+                    onMaxLossChange?.(presets.balanced.maxLoss);
+                    onTP1RRChange?.(presets.balanced.tp1RR);
+                  }}
+                >
+                  Zastosuj
+                </Button>
+              </div>
+              <div className="grid grid-cols-4 gap-2 text-xs">
+                <div>
+                  <span className="text-muted-foreground">Margin:</span>
+                  <p className="font-mono font-semibold">{presets.balanced.margin.toFixed(2)} USDT</p>
+                </div>
+                <div>
+                  <span className="text-muted-foreground">Leverage:</span>
+                  <p className="font-mono font-semibold">{presets.balanced.leverage}x</p>
+                </div>
+                <div>
+                  <span className="text-muted-foreground">Max Loss:</span>
+                  <p className="font-mono font-semibold">{presets.balanced.maxLoss.toFixed(2)} USDT</p>
+                </div>
+                <div>
+                  <span className="text-muted-foreground">TP1 R:R:</span>
+                  <p className="font-mono font-semibold">{presets.balanced.tp1RR.toFixed(1)}:1</p>
+                </div>
+              </div>
+            </div>
+
+            {/* Aggressive */}
+            <div className="p-3 bg-background/50 rounded-lg border border-border hover:border-primary/50 transition-colors">
+              <div className="flex items-start justify-between mb-2">
+                <div>
+                  <p className="font-semibold text-sm flex items-center gap-2">
+                    🔥 AGGRESSIVE (agresywny)
+                  </p>
+                  <p className="text-xs text-muted-foreground mt-1">{presets.aggressive.description}</p>
+                </div>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => {
+                    onMarginChange?.(presets.aggressive.margin);
+                    onLeverageChange?.(presets.aggressive.leverage);
+                    onMaxLossChange?.(presets.aggressive.maxLoss);
+                    onTP1RRChange?.(presets.aggressive.tp1RR);
+                  }}
+                >
+                  Zastosuj
+                </Button>
+              </div>
+              <div className="grid grid-cols-4 gap-2 text-xs">
+                <div>
+                  <span className="text-muted-foreground">Margin:</span>
+                  <p className="font-mono font-semibold">{presets.aggressive.margin.toFixed(2)} USDT</p>
+                </div>
+                <div>
+                  <span className="text-muted-foreground">Leverage:</span>
+                  <p className="font-mono font-semibold">{presets.aggressive.leverage}x</p>
+                </div>
+                <div>
+                  <span className="text-muted-foreground">Max Loss:</span>
+                  <p className="font-mono font-semibold">{presets.aggressive.maxLoss.toFixed(2)} USDT</p>
+                </div>
+                <div>
+                  <span className="text-muted-foreground">TP1 R:R:</span>
+                  <p className="font-mono font-semibold">{presets.aggressive.tp1RR.toFixed(1)}:1</p>
+                </div>
+              </div>
             </div>
           </div>
         </div>
@@ -577,49 +773,6 @@ export function FeeCalculator({
                   </Button>
                 </div>
               ))}
-            </div>
-
-            {/* Quick presets */}
-            <div className="pt-2 border-t">
-              <h4 className="text-xs font-semibold text-muted-foreground mb-2">Quick Presets:</h4>
-              <div className="flex gap-2">
-                <Button
-                  size="sm"
-                  variant="outline"
-                  onClick={() => {
-                    onMarginChange?.(3);
-                    onLeverageChange?.(50);
-                    onTP1RRChange?.(2.0);
-                  }}
-                >
-                  <Zap className="h-3 w-3 mr-1" />
-                  Conservative
-                </Button>
-                <Button
-                  size="sm"
-                  variant="outline"
-                  onClick={() => {
-                    onMarginChange?.(2);
-                    onLeverageChange?.(75);
-                    onTP1RRChange?.(2.5);
-                  }}
-                >
-                  <TrendingUp className="h-3 w-3 mr-1" />
-                  Balanced
-                </Button>
-                <Button
-                  size="sm"
-                  variant="outline"
-                  onClick={() => {
-                    onMarginChange?.(1.5);
-                    onLeverageChange?.(100);
-                    onTP1RRChange?.(3.0);
-                  }}
-                >
-                  <AlertTriangle className="h-3 w-3 mr-1" />
-                  Aggressive
-                </Button>
-              </div>
             </div>
           </div>
         )}
