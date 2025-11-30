@@ -2221,6 +2221,571 @@ export default function Settings() {
               </Alert>
             </CardContent>
           </Card>
+
+          {/* BTC/ETH Category */}
+          <Card>
+            <CardHeader>
+              <div className="flex items-center gap-3">
+                <Badge variant="default" className="text-lg px-3 py-1">🟠 BTC/ETH</Badge>
+                <div className="text-sm text-muted-foreground">Max Leverage: 150x</div>
+              </div>
+              <CardDescription>BTCUSDT, ETHUSDT</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-6">
+              <div className="flex items-center justify-between p-4 bg-muted/30 rounded-lg">
+                <div className="space-y-0.5">
+                  <Label>Użyj niestandardowych ustawień dla tej kategorii</Label>
+                  <div className="text-sm text-muted-foreground">
+                    Gdy wyłączone, bot użyje głównych ustawień
+                  </div>
+                </div>
+                <Switch
+                  checked={localSettings.category_settings?.BTC_ETH?.enabled ?? false}
+                  onCheckedChange={(checked) => updateCategoryLocal("BTC_ETH", "enabled", checked)}
+                />
+              </div>
+
+              {localSettings.category_settings?.BTC_ETH?.enabled && (
+                <>
+              <div className="grid grid-cols-3 gap-4">
+                <div className="space-y-2">
+                  <Label>Max Leverage</Label>
+                  <Input
+                    type="number"
+                    min="1"
+                    max="150"
+                    value={localSettings.category_settings?.BTC_ETH?.max_leverage ?? ""}
+                    onChange={(e) => updateCategoryLocal("BTC_ETH", "max_leverage", e.target.value ? parseInt(e.target.value) : null)}
+                    placeholder="Użyj głównych"
+                  />
+                  <div className="text-xs text-muted-foreground">Limit: 150x</div>
+                </div>
+
+                <div className="space-y-2">
+                  <Label>Max Margin (USDT)</Label>
+                  <Input
+                    type="number"
+                    step="0.1"
+                    min="0.1"
+                    value={localSettings.category_settings?.BTC_ETH?.max_margin ?? ""}
+                    onChange={(e) => updateCategoryLocal("BTC_ETH", "max_margin", e.target.value ? parseFloat(e.target.value) : null)}
+                    placeholder="Użyj głównych"
+                  />
+                </div>
+
+                <div className="space-y-2">
+                  <Label>Max Loss (USDT)</Label>
+                  <Input
+                    type="number"
+                    step="0.1"
+                    min="0.1"
+                    value={localSettings.category_settings?.BTC_ETH?.max_loss ?? ""}
+                    onChange={(e) => updateCategoryLocal("BTC_ETH", "max_loss", e.target.value ? parseFloat(e.target.value) : null)}
+                    placeholder="Użyj głównych"
+                  />
+                </div>
+              </div>
+
+              <Separator />
+
+              <div className="space-y-4">
+                <div className="flex items-center gap-4">
+                  <Label>Poziomy TP</Label>
+                  <RadioGroup
+                    value={String(localSettings.category_settings?.BTC_ETH?.tp_levels ?? "")}
+                    onValueChange={(value) => updateCategoryLocal("BTC_ETH", "tp_levels", value ? parseInt(value) : null)}
+                    className="flex gap-4"
+                  >
+                    <div className="flex items-center space-x-2">
+                      <RadioGroupItem value="1" id="btc-tp-1" />
+                      <Label htmlFor="btc-tp-1">1</Label>
+                    </div>
+                    <div className="flex items-center space-x-2">
+                      <RadioGroupItem value="2" id="btc-tp-2" />
+                      <Label htmlFor="btc-tp-2">2</Label>
+                    </div>
+                    <div className="flex items-center space-x-2">
+                      <RadioGroupItem value="3" id="btc-tp-3" />
+                      <Label htmlFor="btc-tp-3">3</Label>
+                    </div>
+                  </RadioGroup>
+                </div>
+
+                <div className="overflow-x-auto">
+                  <table className="w-full border-collapse">
+                    <thead>
+                      <tr className="border-b">
+                        <th className="text-left p-2 text-sm font-medium">Poziom</th>
+                        <th className="text-left p-2 text-sm font-medium">Math R:R</th>
+                        <th className="text-left p-2 text-sm font-medium">Close %</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      <tr className="border-b">
+                        <td className="p-2 text-sm font-medium">TP1</td>
+                        <td className="p-2">
+                          <Input
+                            type="number"
+                            step="0.1"
+                            min="0.1"
+                            value={localSettings.category_settings?.BTC_ETH?.tp1_rr ?? ""}
+                            onChange={(e) => updateCategoryLocal("BTC_ETH", "tp1_rr", e.target.value ? parseFloat(e.target.value) : null)}
+                            placeholder="Użyj głównych"
+                            className="w-24"
+                          />
+                        </td>
+                        <td className="p-2">
+                          <Input
+                            type="number"
+                            min="0"
+                            max="100"
+                            value={localSettings.category_settings?.BTC_ETH?.tp1_close_pct ?? ""}
+                            onChange={(e) => handleTPCloseChange("BTC_ETH", 1, e.target.value ? parseFloat(e.target.value) : 0)}
+                            placeholder="Użyj głównych"
+                            className="w-24"
+                          />
+                        </td>
+                      </tr>
+                      {(localSettings.category_settings?.BTC_ETH?.tp_levels ?? 1) >= 2 && (
+                        <tr className="border-b">
+                          <td className="p-2 text-sm font-medium">TP2</td>
+                          <td className="p-2">
+                            <Input
+                              type="number"
+                              step="0.1"
+                              min="0.1"
+                              value={localSettings.category_settings?.BTC_ETH?.tp2_rr ?? ""}
+                              onChange={(e) => updateCategoryLocal("BTC_ETH", "tp2_rr", e.target.value ? parseFloat(e.target.value) : null)}
+                              placeholder="Użyj głównych"
+                              className="w-24"
+                            />
+                          </td>
+                          <td className="p-2">
+                            <Input
+                              type="number"
+                              min="0"
+                              max="100"
+                              value={localSettings.category_settings?.BTC_ETH?.tp2_close_pct ?? ""}
+                              onChange={(e) => handleTPCloseChange("BTC_ETH", 2, e.target.value ? parseFloat(e.target.value) : 0)}
+                              placeholder="Użyj głównych"
+                              className="w-24"
+                            />
+                          </td>
+                        </tr>
+                      )}
+                      {(localSettings.category_settings?.BTC_ETH?.tp_levels ?? 1) >= 3 && (
+                        <tr className="border-b">
+                          <td className="p-2 text-sm font-medium">TP3</td>
+                          <td className="p-2">
+                            <Input
+                              type="number"
+                              step="0.1"
+                              min="0.1"
+                              value={localSettings.category_settings?.BTC_ETH?.tp3_rr ?? ""}
+                              onChange={(e) => updateCategoryLocal("BTC_ETH", "tp3_rr", e.target.value ? parseFloat(e.target.value) : null)}
+                              placeholder="Użyj głównych"
+                              className="w-24"
+                            />
+                          </td>
+                          <td className="p-2">
+                            <Input
+                              type="number"
+                              min="0"
+                              max="100"
+                              value={localSettings.category_settings?.BTC_ETH?.tp3_close_pct ?? ""}
+                              onChange={(e) => handleTPCloseChange("BTC_ETH", 3, e.target.value ? parseFloat(e.target.value) : 0)}
+                              placeholder="Użyj głównych"
+                              className="w-24"
+                            />
+                          </td>
+                        </tr>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+                </>
+              )}
+            </CardContent>
+          </Card>
+
+          {/* MAJOR Category */}
+          <Card>
+            <CardHeader>
+              <div className="flex items-center gap-3">
+                <Badge variant="default" className="text-lg px-3 py-1">🔵 MAJOR</Badge>
+                <div className="text-sm text-muted-foreground">Max Leverage: 100x</div>
+              </div>
+              <CardDescription>XRPUSDT, SOLUSDT, BNBUSDT</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-6">
+              <div className="flex items-center justify-between p-4 bg-muted/30 rounded-lg">
+                <div className="space-y-0.5">
+                  <Label>Użyj niestandardowych ustawień dla tej kategorii</Label>
+                  <div className="text-sm text-muted-foreground">
+                    Gdy wyłączone, bot użyje głównych ustawień
+                  </div>
+                </div>
+                <Switch
+                  checked={localSettings.category_settings?.MAJOR?.enabled ?? false}
+                  onCheckedChange={(checked) => updateCategoryLocal("MAJOR", "enabled", checked)}
+                />
+              </div>
+
+              {localSettings.category_settings?.MAJOR?.enabled && (
+                <>
+              <div className="grid grid-cols-3 gap-4">
+                <div className="space-y-2">
+                  <Label>Max Leverage</Label>
+                  <Input
+                    type="number"
+                    min="1"
+                    max="100"
+                    value={localSettings.category_settings?.MAJOR?.max_leverage ?? ""}
+                    onChange={(e) => updateCategoryLocal("MAJOR", "max_leverage", e.target.value ? parseInt(e.target.value) : null)}
+                    placeholder="Użyj głównych"
+                  />
+                  <div className="text-xs text-muted-foreground">Limit: 100x</div>
+                </div>
+
+                <div className="space-y-2">
+                  <Label>Max Margin (USDT)</Label>
+                  <Input
+                    type="number"
+                    step="0.1"
+                    min="0.1"
+                    value={localSettings.category_settings?.MAJOR?.max_margin ?? ""}
+                    onChange={(e) => updateCategoryLocal("MAJOR", "max_margin", e.target.value ? parseFloat(e.target.value) : null)}
+                    placeholder="Użyj głównych"
+                  />
+                </div>
+
+                <div className="space-y-2">
+                  <Label>Max Loss (USDT)</Label>
+                  <Input
+                    type="number"
+                    step="0.1"
+                    min="0.1"
+                    value={localSettings.category_settings?.MAJOR?.max_loss ?? ""}
+                    onChange={(e) => updateCategoryLocal("MAJOR", "max_loss", e.target.value ? parseFloat(e.target.value) : null)}
+                    placeholder="Użyj głównych"
+                  />
+                </div>
+              </div>
+
+              <Separator />
+
+              <div className="space-y-4">
+                <div className="flex items-center gap-4">
+                  <Label>Poziomy TP</Label>
+                  <RadioGroup
+                    value={String(localSettings.category_settings?.MAJOR?.tp_levels ?? "")}
+                    onValueChange={(value) => updateCategoryLocal("MAJOR", "tp_levels", value ? parseInt(value) : null)}
+                    className="flex gap-4"
+                  >
+                    <div className="flex items-center space-x-2">
+                      <RadioGroupItem value="1" id="major-tp-1" />
+                      <Label htmlFor="major-tp-1">1</Label>
+                    </div>
+                    <div className="flex items-center space-x-2">
+                      <RadioGroupItem value="2" id="major-tp-2" />
+                      <Label htmlFor="major-tp-2">2</Label>
+                    </div>
+                    <div className="flex items-center space-x-2">
+                      <RadioGroupItem value="3" id="major-tp-3" />
+                      <Label htmlFor="major-tp-3">3</Label>
+                    </div>
+                  </RadioGroup>
+                </div>
+
+                <div className="overflow-x-auto">
+                  <table className="w-full border-collapse">
+                    <thead>
+                      <tr className="border-b">
+                        <th className="text-left p-2 text-sm font-medium">Poziom</th>
+                        <th className="text-left p-2 text-sm font-medium">Math R:R</th>
+                        <th className="text-left p-2 text-sm font-medium">Close %</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      <tr className="border-b">
+                        <td className="p-2 text-sm font-medium">TP1</td>
+                        <td className="p-2">
+                          <Input
+                            type="number"
+                            step="0.1"
+                            min="0.1"
+                            value={localSettings.category_settings?.MAJOR?.tp1_rr ?? ""}
+                            onChange={(e) => updateCategoryLocal("MAJOR", "tp1_rr", e.target.value ? parseFloat(e.target.value) : null)}
+                            placeholder="Użyj głównych"
+                            className="w-24"
+                          />
+                        </td>
+                        <td className="p-2">
+                          <Input
+                            type="number"
+                            min="0"
+                            max="100"
+                            value={localSettings.category_settings?.MAJOR?.tp1_close_pct ?? ""}
+                            onChange={(e) => handleTPCloseChange("MAJOR", 1, e.target.value ? parseFloat(e.target.value) : 0)}
+                            placeholder="Użyj głównych"
+                            className="w-24"
+                          />
+                        </td>
+                      </tr>
+                      {(localSettings.category_settings?.MAJOR?.tp_levels ?? 1) >= 2 && (
+                        <tr className="border-b">
+                          <td className="p-2 text-sm font-medium">TP2</td>
+                          <td className="p-2">
+                            <Input
+                              type="number"
+                              step="0.1"
+                              min="0.1"
+                              value={localSettings.category_settings?.MAJOR?.tp2_rr ?? ""}
+                              onChange={(e) => updateCategoryLocal("MAJOR", "tp2_rr", e.target.value ? parseFloat(e.target.value) : null)}
+                              placeholder="Użyj głównych"
+                              className="w-24"
+                            />
+                          </td>
+                          <td className="p-2">
+                            <Input
+                              type="number"
+                              min="0"
+                              max="100"
+                              value={localSettings.category_settings?.MAJOR?.tp2_close_pct ?? ""}
+                              onChange={(e) => handleTPCloseChange("MAJOR", 2, e.target.value ? parseFloat(e.target.value) : 0)}
+                              placeholder="Użyj głównych"
+                              className="w-24"
+                            />
+                          </td>
+                        </tr>
+                      )}
+                      {(localSettings.category_settings?.MAJOR?.tp_levels ?? 1) >= 3 && (
+                        <tr className="border-b">
+                          <td className="p-2 text-sm font-medium">TP3</td>
+                          <td className="p-2">
+                            <Input
+                              type="number"
+                              step="0.1"
+                              min="0.1"
+                              value={localSettings.category_settings?.MAJOR?.tp3_rr ?? ""}
+                              onChange={(e) => updateCategoryLocal("MAJOR", "tp3_rr", e.target.value ? parseFloat(e.target.value) : null)}
+                              placeholder="Użyj głównych"
+                              className="w-24"
+                            />
+                          </td>
+                          <td className="p-2">
+                            <Input
+                              type="number"
+                              min="0"
+                              max="100"
+                              value={localSettings.category_settings?.MAJOR?.tp3_close_pct ?? ""}
+                              onChange={(e) => handleTPCloseChange("MAJOR", 3, e.target.value ? parseFloat(e.target.value) : 0)}
+                              placeholder="Użyj głównych"
+                              className="w-24"
+                            />
+                          </td>
+                        </tr>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+                </>
+              )}
+            </CardContent>
+          </Card>
+
+          {/* ALTCOIN Category */}
+          <Card>
+            <CardHeader>
+              <div className="flex items-center gap-3">
+                <Badge variant="default" className="text-lg px-3 py-1">🟢 ALTCOIN</Badge>
+                <div className="text-sm text-muted-foreground">Max Leverage: 75x</div>
+              </div>
+              <CardDescription>Wszystkie pozostałe symbole</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-6">
+              <div className="flex items-center justify-between p-4 bg-muted/30 rounded-lg">
+                <div className="space-y-0.5">
+                  <Label>Użyj niestandardowych ustawień dla tej kategorii</Label>
+                  <div className="text-sm text-muted-foreground">
+                    Gdy wyłączone, bot użyje głównych ustawień
+                  </div>
+                </div>
+                <Switch
+                  checked={localSettings.category_settings?.ALTCOIN?.enabled ?? false}
+                  onCheckedChange={(checked) => updateCategoryLocal("ALTCOIN", "enabled", checked)}
+                />
+              </div>
+
+              {localSettings.category_settings?.ALTCOIN?.enabled && (
+                <>
+              <div className="grid grid-cols-3 gap-4">
+                <div className="space-y-2">
+                  <Label>Max Leverage</Label>
+                  <Input
+                    type="number"
+                    min="1"
+                    max="75"
+                    value={localSettings.category_settings?.ALTCOIN?.max_leverage ?? ""}
+                    onChange={(e) => updateCategoryLocal("ALTCOIN", "max_leverage", e.target.value ? parseInt(e.target.value) : null)}
+                    placeholder="Użyj głównych"
+                  />
+                  <div className="text-xs text-muted-foreground">Limit: 75x</div>
+                </div>
+
+                <div className="space-y-2">
+                  <Label>Max Margin (USDT)</Label>
+                  <Input
+                    type="number"
+                    step="0.1"
+                    min="0.1"
+                    value={localSettings.category_settings?.ALTCOIN?.max_margin ?? ""}
+                    onChange={(e) => updateCategoryLocal("ALTCOIN", "max_margin", e.target.value ? parseFloat(e.target.value) : null)}
+                    placeholder="Użyj głównych"
+                  />
+                </div>
+
+                <div className="space-y-2">
+                  <Label>Max Loss (USDT)</Label>
+                  <Input
+                    type="number"
+                    step="0.1"
+                    min="0.1"
+                    value={localSettings.category_settings?.ALTCOIN?.max_loss ?? ""}
+                    onChange={(e) => updateCategoryLocal("ALTCOIN", "max_loss", e.target.value ? parseFloat(e.target.value) : null)}
+                    placeholder="Użyj głównych"
+                  />
+                </div>
+              </div>
+
+              <Separator />
+
+              <div className="space-y-4">
+                <div className="flex items-center gap-4">
+                  <Label>Poziomy TP</Label>
+                  <RadioGroup
+                    value={String(localSettings.category_settings?.ALTCOIN?.tp_levels ?? "")}
+                    onValueChange={(value) => updateCategoryLocal("ALTCOIN", "tp_levels", value ? parseInt(value) : null)}
+                    className="flex gap-4"
+                  >
+                    <div className="flex items-center space-x-2">
+                      <RadioGroupItem value="1" id="altcoin-tp-1" />
+                      <Label htmlFor="altcoin-tp-1">1</Label>
+                    </div>
+                    <div className="flex items-center space-x-2">
+                      <RadioGroupItem value="2" id="altcoin-tp-2" />
+                      <Label htmlFor="altcoin-tp-2">2</Label>
+                    </div>
+                    <div className="flex items-center space-x-2">
+                      <RadioGroupItem value="3" id="altcoin-tp-3" />
+                      <Label htmlFor="altcoin-tp-3">3</Label>
+                    </div>
+                  </RadioGroup>
+                </div>
+
+                <div className="overflow-x-auto">
+                  <table className="w-full border-collapse">
+                    <thead>
+                      <tr className="border-b">
+                        <th className="text-left p-2 text-sm font-medium">Poziom</th>
+                        <th className="text-left p-2 text-sm font-medium">Math R:R</th>
+                        <th className="text-left p-2 text-sm font-medium">Close %</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      <tr className="border-b">
+                        <td className="p-2 text-sm font-medium">TP1</td>
+                        <td className="p-2">
+                          <Input
+                            type="number"
+                            step="0.1"
+                            min="0.1"
+                            value={localSettings.category_settings?.ALTCOIN?.tp1_rr ?? ""}
+                            onChange={(e) => updateCategoryLocal("ALTCOIN", "tp1_rr", e.target.value ? parseFloat(e.target.value) : null)}
+                            placeholder="Użyj głównych"
+                            className="w-24"
+                          />
+                        </td>
+                        <td className="p-2">
+                          <Input
+                            type="number"
+                            min="0"
+                            max="100"
+                            value={localSettings.category_settings?.ALTCOIN?.tp1_close_pct ?? ""}
+                            onChange={(e) => handleTPCloseChange("ALTCOIN", 1, e.target.value ? parseFloat(e.target.value) : 0)}
+                            placeholder="Użyj głównych"
+                            className="w-24"
+                          />
+                        </td>
+                      </tr>
+                      {(localSettings.category_settings?.ALTCOIN?.tp_levels ?? 1) >= 2 && (
+                        <tr className="border-b">
+                          <td className="p-2 text-sm font-medium">TP2</td>
+                          <td className="p-2">
+                            <Input
+                              type="number"
+                              step="0.1"
+                              min="0.1"
+                              value={localSettings.category_settings?.ALTCOIN?.tp2_rr ?? ""}
+                              onChange={(e) => updateCategoryLocal("ALTCOIN", "tp2_rr", e.target.value ? parseFloat(e.target.value) : null)}
+                              placeholder="Użyj głównych"
+                              className="w-24"
+                            />
+                          </td>
+                          <td className="p-2">
+                            <Input
+                              type="number"
+                              min="0"
+                              max="100"
+                              value={localSettings.category_settings?.ALTCOIN?.tp2_close_pct ?? ""}
+                              onChange={(e) => handleTPCloseChange("ALTCOIN", 2, e.target.value ? parseFloat(e.target.value) : 0)}
+                              placeholder="Użyj głównych"
+                              className="w-24"
+                            />
+                          </td>
+                        </tr>
+                      )}
+                      {(localSettings.category_settings?.ALTCOIN?.tp_levels ?? 1) >= 3 && (
+                        <tr className="border-b">
+                          <td className="p-2 text-sm font-medium">TP3</td>
+                          <td className="p-2">
+                            <Input
+                              type="number"
+                              step="0.1"
+                              min="0.1"
+                              value={localSettings.category_settings?.ALTCOIN?.tp3_rr ?? ""}
+                              onChange={(e) => updateCategoryLocal("ALTCOIN", "tp3_rr", e.target.value ? parseFloat(e.target.value) : null)}
+                              placeholder="Użyj głównych"
+                              className="w-24"
+                            />
+                          </td>
+                          <td className="p-2">
+                            <Input
+                              type="number"
+                              min="0"
+                              max="100"
+                              value={localSettings.category_settings?.ALTCOIN?.tp3_close_pct ?? ""}
+                              onChange={(e) => handleTPCloseChange("ALTCOIN", 3, e.target.value ? parseFloat(e.target.value) : 0)}
+                              placeholder="Użyj głównych"
+                              className="w-24"
+                            />
+                          </td>
+                        </tr>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+                </>
+              )}
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        {/* RISK & MONITORING TAB */}
+        <TabsContent value="risk" className="space-y-4">
           <Card>
             <CardHeader>
               <CardTitle>Limity Ryzyka</CardTitle>
@@ -2433,7 +2998,6 @@ export default function Settings() {
             </CardContent>
           </Card>
           
-          {/* MONITORING Section (integrated into Risk tab) */}
           <Card>
             <CardHeader>
               <CardTitle>System Monitoringu</CardTitle>
@@ -2455,27 +3019,15 @@ export default function Settings() {
 
               <div className="flex items-center justify-between">
                 <div className="space-y-0.5">
-                  <Label>Auto-naprawianie</Label>
+                  <Label>Automatyczna naprawa pozycji</Label>
                   <div className="text-sm text-muted-foreground">
-                    Automatycznie naprawiaj wykryte problemy
+                    Bot będzie próbował automatycznie naprawić nieprawidłowe pozycje
                   </div>
                 </div>
                 <Switch
                   checked={localSettings.auto_repair}
                   onCheckedChange={(checked) => updateLocal("auto_repair", checked)}
                 />
-              </div>
-
-              <div className="mt-4 p-4 bg-muted rounded-lg">
-                <div className="text-sm space-y-2">
-                  <div className="font-medium">System sprawdza:</div>
-                  <ul className="list-disc list-inside space-y-1 text-muted-foreground">
-                    <li>Czy quantity się zgadza</li>
-                    <li>Czy SL jest ustawiony</li>
-                    <li>Czy TP są ustawione</li>
-                    <li>Czy ceny SL/TP są prawidłowe</li>
-                  </ul>
-                </div>
               </div>
             </CardContent>
           </Card>
