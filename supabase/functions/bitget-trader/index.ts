@@ -65,19 +65,26 @@ serve(async (req) => {
       });
     }
     
+    // Remove .P suffix from TradingView symbol format (XRPUSDT.P -> XRPUSDT)
+    // CRITICAL: Must be done BEFORE getUserSettings to ensure proper category detection!
+    if (alert_data.symbol && alert_data.symbol.endsWith('.P')) {
+      alert_data.symbol = alert_data.symbol.slice(0, -2);
+      console.log(`✂️ Removed .P suffix, clean symbol: ${alert_data.symbol}`);
+    }
+    
     // Load user settings with copy_admin logic, passing symbol for category-specific settings
     const settings = await getUserSettings(user_id, alert_data.symbol);
+    
+    // Log detected symbol category for debugging
+    const { getSymbolCategory } = await import('./minimums.ts');
+    const detectedCategory = getSymbolCategory(alert_data.symbol);
+    console.log(`🏷️ Symbol ${alert_data.symbol} detected as category: ${detectedCategory}`);
     
     const apiCredentials = {
       apiKey: userKeys.apiKey,
       secretKey: userKeys.secretKey,
       passphrase: userKeys.passphrase
     };
-    
-    // Remove .P suffix from TradingView symbol format (XRPUSDT.P -> XRPUSDT)
-    if (alert_data.symbol && alert_data.symbol.endsWith('.P')) {
-      alert_data.symbol = alert_data.symbol.slice(0, -2);
-    }
     
     // Check if symbol is banned
     const { data: bannedSymbol } = await supabase
