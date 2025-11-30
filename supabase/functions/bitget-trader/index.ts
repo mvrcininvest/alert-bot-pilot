@@ -1187,8 +1187,18 @@ serve(async (req) => {
         const tp1Qty = quantity * (adjustedTp1Percent / 100);
         const tp2Qty = quantity * (adjustedTp2Percent / 100);
         
+        // Original check - user percentages work directly
         if (tp1Qty >= minQuantity && tp2Qty >= minQuantity) {
           return 2;
+        }
+        
+        // 🆕 NEW: Check if we can split at all (even with different percentages)
+        // If position can be split into 2 parts where each >= minQuantity
+        const canSplitAtAll = (quantity / 2) >= minQuantity;
+        if (canSplitAtAll) {
+          // Return 2 with a flag that smart redistribution is needed
+          // The main logic will handle adjusting percentages
+          return 2; // Signal: "2 TP possible with redistribution"
         }
       }
       
@@ -1273,8 +1283,34 @@ serve(async (req) => {
       } else if (actualLevels === 2) {
         // Redistribute TP3 quantity to TP1 and TP2
         const redistributed = originalPercentages.tp3 / 2;
-        tp1Percent = originalPercentages.tp1 + redistributed;
-        tp2Percent = originalPercentages.tp2 + redistributed;
+        let adjustedTp1 = originalPercentages.tp1 + redistributed;
+        let adjustedTp2 = originalPercentages.tp2 + redistributed;
+        
+        const tp1QtyRaw = quantity * (adjustedTp1 / 100);
+        const tp2QtyRaw = quantity * (adjustedTp2 / 100);
+        
+        // 🆕 Smart redistribution: if any TP < minQuantity, adjust to minimum
+        if (tp1QtyRaw < minQuantity && tp2QtyRaw >= minQuantity) {
+          // TP1 is too small - give it minQuantity, rest goes to TP2
+          const minPercent = (minQuantity / quantity) * 100;
+          tp1Percent = minPercent;
+          tp2Percent = 100 - minPercent;
+          
+          console.log(`⚠️ Smart redistribution: TP1 was ${adjustedTp1.toFixed(1)}% (${tp1QtyRaw.toFixed(4)} < ${minQuantity})`);
+          console.log(`   Adjusted to: TP1=${tp1Percent.toFixed(1)}% (${minQuantity}), TP2=${tp2Percent.toFixed(1)}%`);
+        } else if (tp2QtyRaw < minQuantity && tp1QtyRaw >= minQuantity) {
+          // TP2 is too small - give it minQuantity, rest goes to TP1
+          const minPercent = (minQuantity / quantity) * 100;
+          tp2Percent = minPercent;
+          tp1Percent = 100 - minPercent;
+          
+          console.log(`⚠️ Smart redistribution: TP2 was ${adjustedTp2.toFixed(1)}% (${tp2QtyRaw.toFixed(4)} < ${minQuantity})`);
+          console.log(`   Adjusted to: TP1=${tp1Percent.toFixed(1)}%, TP2=${tp2Percent.toFixed(1)}% (${minQuantity})`);
+        } else {
+          // Both quantities are valid OR both too small (will fallback to 1 TP)
+          tp1Percent = adjustedTp1;
+          tp2Percent = adjustedTp2;
+        }
         tp3Percent = 0;
         
         // Keep original R:R for TP1 and TP2 (not TP3)
@@ -1290,8 +1326,8 @@ serve(async (req) => {
           console.log(`   TP3: ${originalPercentages.tp3}% → 0% (skipped)`);
         } else {
           // Użytkownik ustawił 2 TP i system może je ustawić
-          console.log(`✅ Using 2 TP as configured`);
-          console.log(`   TP1: ${tp1Percent}%, TP2: ${tp2Percent}%`);
+          console.log(`✅ Using 2 TP as configured (after redistribution if needed)`);
+          console.log(`   TP1: ${tp1Percent.toFixed(1)}%, TP2: ${tp2Percent.toFixed(1)}%`);
         }
         
       } else {
