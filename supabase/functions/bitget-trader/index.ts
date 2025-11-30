@@ -576,16 +576,26 @@ serve(async (req) => {
           latencyMarkers.leverage_check_end = Date.now();
           
           if (symbolInfoResult?.success && symbolInfoResult.data?.[0]?.maxLever) {
-            effectiveLeverage = parseInt(symbolInfoResult.data[0].maxLever);
-            leverageSource = 'global_max';
-            console.log(`✓ Using global MAX leverage for ${alert_data.symbol}: ${effectiveLeverage}x`);
+            const apiMaxLeverage = parseInt(symbolInfoResult.data[0].maxLever);
+            
+            // ✅ FIX: Use the MINIMUM of API max and category-limited default_leverage
+            // settings.default_leverage already has category cap applied from getUserSettings()
+            effectiveLeverage = Math.min(apiMaxLeverage, defaultLeverage);
+            leverageSource = 'global_max_with_category_cap';
+            
+            console.log(`📊 Leverage decision for ${alert_data.symbol}: API_max=${apiMaxLeverage}x, category_cap=${defaultLeverage}x → Using ${effectiveLeverage}x`);
             
             await log({
               functionName: 'bitget-trader',
-              message: `Using global MAX leverage: ${effectiveLeverage}x`,
+              message: `Using global MAX leverage with category cap: ${effectiveLeverage}x`,
               level: 'info',
               alertId: alert_id,
-              metadata: { symbol: alert_data.symbol, maxLever: effectiveLeverage }
+              metadata: { 
+                symbol: alert_data.symbol, 
+                apiMaxLever: apiMaxLeverage,
+                categoryCap: defaultLeverage,
+                effectiveLeverage 
+              }
             });
           } else {
             // Fallback to default if API fails
