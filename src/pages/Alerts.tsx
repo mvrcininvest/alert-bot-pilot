@@ -16,21 +16,36 @@ import { cn } from "@/lib/utils";
 
 export default function Alerts() {
   const [selectedAlert, setSelectedAlert] = useState<any>(null);
+  const [showOnlyMyAlerts, setShowOnlyMyAlerts] = useState(true);
+  const [showErrors, setShowErrors] = useState(false);
   const { toast } = useToast();
   const queryClient = useQueryClient();
-  const { isAdmin } = useAuth();
+  const { isAdmin, user } = useAuth();
   const tableRef = useRef<HTMLTableElement>(null);
   const topScrollRef = useRef<HTMLDivElement>(null);
   const bottomScrollRef = useRef<HTMLDivElement>(null);
   const [tableWidth, setTableWidth] = useState(1800);
   
   const { data: alerts, isLoading } = useQuery({
-    queryKey: ["alerts"],
+    queryKey: ["alerts", showOnlyMyAlerts, showErrors, user?.id],
     queryFn: async () => {
-      const { data, error } = await supabase
+      let query = supabase
         .from("alerts")
-        .select("*")
-        .order("created_at", { ascending: false });
+        .select("*");
+      
+      // Filter by user_id when "only my alerts" is enabled
+      if (showOnlyMyAlerts && user?.id) {
+        query = query.eq("user_id", user.id);
+      }
+      
+      // Hide error status alerts unless showErrors is enabled
+      if (!showErrors) {
+        query = query.neq("status", "error");
+      }
+      
+      query = query.order("created_at", { ascending: false });
+      
+      const { data, error } = await query;
       
       if (error) throw error;
       return data || [];
@@ -219,7 +234,28 @@ export default function Alerts() {
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-3xl font-bold">Historia Alertów</h1>
-          <p className="text-muted-foreground">Wszystkie alerty otrzymane z TradingView</p>
+          <p className="text-muted-foreground">
+            {showOnlyMyAlerts ? "Twoje alerty" : "Wszystkie alerty"} otrzymane z TradingView
+            {!showErrors && " (bez błędów)"}
+          </p>
+        </div>
+        <div className="flex items-center gap-2">
+          {isAdmin && (
+            <Button
+              variant={showOnlyMyAlerts ? "default" : "outline"}
+              size="sm"
+              onClick={() => setShowOnlyMyAlerts(!showOnlyMyAlerts)}
+            >
+              {showOnlyMyAlerts ? "Tylko moje" : "Wszystkie"}
+            </Button>
+          )}
+          <Button
+            variant={showErrors ? "default" : "outline"}
+            size="sm"
+            onClick={() => setShowErrors(!showErrors)}
+          >
+            {showErrors ? "Ukryj błędy" : "Pokaż błędy"}
+          </Button>
         </div>
       </div>
 
