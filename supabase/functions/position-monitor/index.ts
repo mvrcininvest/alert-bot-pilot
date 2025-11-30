@@ -194,6 +194,85 @@ async function executeVerifiedClose(
   return { success: false, actualClosedQty: 0, method: 'failed' };
 }
 
+// ============= MINIMUM QUANTITY HELPERS =============
+function getMinQuantityForSymbol(symbol: string): number {
+  // Minimum quantities from Bitget API (notional values converted to quantity)
+  const minQuantities: Record<string, number> = {
+    'BTCUSDT': 0.001,
+    'ETHUSDT': 0.01,
+    'BNBUSDT': 0.01,
+    'SOLUSDT': 0.1,
+    'XRPUSDT': 1,
+    'ADAUSDT': 1,
+    'DOGEUSDT': 10,
+    'MATICUSDT': 1,
+    'DOTUSDT': 0.1,
+    'AVAXUSDT': 0.1,
+    'LINKUSDT': 0.1,
+    'UNIUSDT': 0.1,
+    'LTCUSDT': 0.01,
+    'ATOMUSDT': 0.1,
+    'ETCUSDT': 0.1,
+    'XLMUSDT': 10,
+    'NEARUSDT': 0.1,
+    'ALGOUSDT': 1,
+    'TRXUSDT': 1,
+    'FILUSDT': 0.1,
+  };
+  return minQuantities[symbol] || 0.1; // Default minimum
+}
+
+// Determine actual TP levels based on quantity constraints
+function determineActualTPLevels(
+  requestedLevels: number,
+  quantity: number,
+  minQuantity: number,
+  percentages: { tp1: number; tp2: number; tp3: number }
+): number {
+  if (requestedLevels === 1) {
+    return 1;
+  }
+  
+  if (requestedLevels >= 2) {
+    // For 3 requested levels, redistribute TP3 to TP1 and TP2
+    if (requestedLevels === 3) {
+      const redistributed = percentages.tp3 / 2;
+      const adjustedTp1Percent = percentages.tp1 + redistributed;
+      const adjustedTp2Percent = percentages.tp2 + redistributed;
+      
+      const tp1Qty = quantity * (adjustedTp1Percent / 100);
+      const tp2Qty = quantity * (adjustedTp2Percent / 100);
+      
+      // Original check - user percentages work directly
+      if (tp1Qty >= minQuantity && tp2Qty >= minQuantity) {
+        return 2;
+      }
+      
+      // Check if we can split at all (even with different percentages)
+      const canSplitAtAll = (quantity / 2) >= minQuantity;
+      if (canSplitAtAll) {
+        return 2; // Signal: "2 TP possible with redistribution"
+      }
+    } else {
+      // Requested exactly 2 levels
+      const tp1Qty = quantity * (percentages.tp1 / 100);
+      const tp2Qty = quantity * (percentages.tp2 / 100);
+      
+      if (tp1Qty >= minQuantity && tp2Qty >= minQuantity) {
+        return 2;
+      }
+      
+      const canSplitAtAll = (quantity / 2) >= minQuantity;
+      if (canSplitAtAll) {
+        return 2;
+      }
+    }
+  }
+  
+  // Fallback to 1 TP if we can't split
+  return 1;
+}
+
 // ============= SL/TP CALCULATION FROM SETTINGS =============
 interface AlertData {
   price: number;
@@ -235,11 +314,66 @@ function calculateExpectedSLTP(position: any, settings: any): ExpectedSLTP {
   if (dbSl && dbTp1) {
     console.log(`📍 Using DB prices: SL=${dbSl}, TP1=${dbTp1}, TP2=${dbTp2}, TP3=${dbTp3}`);
     
-    // Calculate quantities based on settings if not in DB
+    // Calculate quantities with smart redistribution if not in DB
     const totalQty = position.quantity;
-    const tp1Qty = dbTp1Qty || (!position.tp1_filled && settings.tp_levels >= 1 ? totalQty * (settings.tp1_close_percent / 100) : 0);
-    const tp2Qty = dbTp2Qty || (!position.tp2_filled && settings.tp_levels >= 2 ? totalQty * (settings.tp2_close_percent / 100) : 0);
-    const tp3Qty = dbTp3Qty || (!position.tp3_filled && settings.tp_levels >= 3 ? totalQty * (settings.tp3_close_percent / 100) : 0);
+    const minQuantity = getMinQuantityForSymbol(position.symbol);
+    
+    if (dbTp1Qty && dbTp2Qty) {
+      // Use DB quantities as-is
+      return {
+        sl_price: dbSl,
+        tp1_price: !position.tp1_filled ? dbTp1 : undefined,
+        tp2_price: !position.tp2_filled && dbTp2 ? dbTp2 : undefined,
+        tp3_price: !position.tp3_filled && dbTp3 ? dbTp3 : undefined,
+        tp1_quantity: dbTp1Qty > 0 ? dbTp1Qty : undefined,
+        tp2_quantity: dbTp2Qty > 0 ? dbTp2Qty : undefined,
+        tp3_quantity: dbTp3Qty && dbTp3Qty > 0 ? dbTp3Qty : undefined,
+      };
+    }
+    
+    // Calculate with smart redistribution
+    const actualLevels = determineActualTPLevels(
+      settings.tp_levels,
+      totalQty,
+      minQuantity,
+      { 
+        tp1: settings.tp1_close_percent, 
+        tp2: settings.tp2_close_percent || 0, 
+        tp3: settings.tp3_close_percent || 0 
+      }
+    );
+    
+    let tp1Qty = 0, tp2Qty = 0;
+    
+    if (actualLevels === 2 && !position.tp1_filled && !position.tp2_filled) {
+      const redistributed = (settings.tp3_close_percent || 0) / 2;
+      let adjustedTp1 = settings.tp1_close_percent + redistributed;
+      let adjustedTp2 = settings.tp2_close_percent + redistributed;
+      
+      const tp1QtyRaw = totalQty * (adjustedTp1 / 100);
+      const tp2QtyRaw = totalQty * (adjustedTp2 / 100);
+      
+      // Smart redistribution
+      if (tp1QtyRaw < minQuantity && tp2QtyRaw >= minQuantity) {
+        const minPercent = (minQuantity / totalQty) * 100;
+        tp1Qty = minQuantity;
+        tp2Qty = totalQty - minQuantity;
+        console.log(`⚠️ Smart redistribution: TP1=${minPercent.toFixed(1)}% (${minQuantity}), TP2=${(100-minPercent).toFixed(1)}%`);
+      } else if (tp2QtyRaw < minQuantity && tp1QtyRaw >= minQuantity) {
+        const minPercent = (minQuantity / totalQty) * 100;
+        tp2Qty = minQuantity;
+        tp1Qty = totalQty - minQuantity;
+        console.log(`⚠️ Smart redistribution: TP1=${(100-minPercent).toFixed(1)}%, TP2=${minPercent.toFixed(1)}% (${minQuantity})`);
+      } else if (tp1QtyRaw >= minQuantity && tp2QtyRaw >= minQuantity) {
+        tp1Qty = tp1QtyRaw;
+        tp2Qty = tp2QtyRaw;
+      } else {
+        // Both too small - use single TP
+        tp1Qty = totalQty;
+      }
+    } else if (actualLevels === 1 && !position.tp1_filled) {
+      tp1Qty = totalQty;
+    }
     
     return {
       sl_price: dbSl,
@@ -248,7 +382,7 @@ function calculateExpectedSLTP(position: any, settings: any): ExpectedSLTP {
       tp3_price: !position.tp3_filled && dbTp3 ? dbTp3 : undefined,
       tp1_quantity: tp1Qty > 0 ? tp1Qty : undefined,
       tp2_quantity: tp2Qty > 0 ? tp2Qty : undefined,
-      tp3_quantity: tp3Qty > 0 ? tp3Qty : undefined,
+      tp3_quantity: undefined, // Not using 3 TPs with smart redistribution
     };
   }
   
@@ -283,17 +417,46 @@ function calculateExpectedSLTP(position: any, settings: any): ExpectedSLTP {
     
     console.log(`📍 Expected SL at BREAKEVEN: ${slPrice} (entry: ${position.entry_price})`);
     
-    // Still calculate TPs normally - only SL changes
+    // Calculate TPs with smart redistribution
     const totalQty = position.quantity;
-    const tp1Qty = (!position.tp1_filled && settings.tp_levels >= 1) 
-      ? totalQty * (settings.tp1_close_percent / 100) 
-      : 0;
-    const tp2Qty = (!position.tp2_filled && settings.tp_levels >= 2) 
-      ? totalQty * (settings.tp2_close_percent / 100) 
-      : 0;
-    const tp3Qty = (!position.tp3_filled && settings.tp_levels >= 3) 
-      ? totalQty * (settings.tp3_close_percent / 100) 
-      : 0;
+    const minQuantity = getMinQuantityForSymbol(position.symbol);
+    
+    const actualLevels = determineActualTPLevels(
+      settings.tp_levels,
+      totalQty,
+      minQuantity,
+      { 
+        tp1: settings.tp1_close_percent, 
+        tp2: settings.tp2_close_percent || 0, 
+        tp3: settings.tp3_close_percent || 0 
+      }
+    );
+    
+    let tp1Qty = 0, tp2Qty = 0, tp3Qty = 0;
+    
+    if (actualLevels === 2) {
+      const redistributed = (settings.tp3_close_percent || 0) / 2;
+      let adjustedTp1 = settings.tp1_close_percent + redistributed;
+      let adjustedTp2 = settings.tp2_close_percent + redistributed;
+      
+      const tp1QtyRaw = totalQty * (adjustedTp1 / 100);
+      const tp2QtyRaw = totalQty * (adjustedTp2 / 100);
+      
+      if (tp1QtyRaw < minQuantity && tp2QtyRaw >= minQuantity) {
+        tp1Qty = !position.tp1_filled ? minQuantity : 0;
+        tp2Qty = !position.tp2_filled ? (totalQty - minQuantity) : 0;
+      } else if (tp2QtyRaw < minQuantity && tp1QtyRaw >= minQuantity) {
+        tp2Qty = !position.tp2_filled ? minQuantity : 0;
+        tp1Qty = !position.tp1_filled ? (totalQty - minQuantity) : 0;
+      } else if (tp1QtyRaw >= minQuantity && tp2QtyRaw >= minQuantity) {
+        tp1Qty = !position.tp1_filled ? tp1QtyRaw : 0;
+        tp2Qty = !position.tp2_filled ? tp2QtyRaw : 0;
+      } else {
+        tp1Qty = !position.tp1_filled ? totalQty : 0;
+      }
+    } else if (actualLevels === 1) {
+      tp1Qty = !position.tp1_filled ? totalQty : 0;
+    }
     
     // Get TP prices based on calculator type
     let tp1Price, tp2Price, tp3Price;
@@ -324,7 +487,7 @@ function calculateExpectedSLTP(position: any, settings: any): ExpectedSLTP {
       tp3_price: !position.tp3_filled ? tp3Price : undefined,
       tp1_quantity: tp1Qty > 0 ? tp1Qty : undefined,
       tp2_quantity: tp2Qty > 0 ? tp2Qty : undefined,
-      tp3_quantity: tp3Qty > 0 ? tp3Qty : undefined,
+      tp3_quantity: undefined, // Not using 3 TPs with smart redistribution
     };
   }
 
@@ -335,17 +498,46 @@ function calculateExpectedSLTP(position: any, settings: any): ExpectedSLTP {
       alertData, settings, effectiveLeverage
     );
     
-    // Calculate quantities - only for unfilled TPs
+    // Calculate quantities with smart redistribution
     const totalQty = position.quantity;
-    const tp1Qty = (!position.tp1_filled && settings.tp_levels >= 1) 
-      ? totalQty * (settings.tp1_close_percent / 100) 
-      : 0;
-    const tp2Qty = (!position.tp2_filled && settings.tp_levels >= 2) 
-      ? totalQty * (settings.tp2_close_percent / 100) 
-      : 0;
-    const tp3Qty = (!position.tp3_filled && settings.tp_levels >= 3) 
-      ? totalQty * (settings.tp3_close_percent / 100) 
-      : 0;
+    const minQuantity = getMinQuantityForSymbol(position.symbol);
+    
+    const actualLevels = determineActualTPLevels(
+      settings.tp_levels,
+      totalQty,
+      minQuantity,
+      { 
+        tp1: settings.tp1_close_percent, 
+        tp2: settings.tp2_close_percent || 0, 
+        tp3: settings.tp3_close_percent || 0 
+      }
+    );
+    
+    let tp1Qty = 0, tp2Qty = 0, tp3Qty = 0;
+    
+    if (actualLevels === 2) {
+      const redistributed = (settings.tp3_close_percent || 0) / 2;
+      let adjustedTp1 = settings.tp1_close_percent + redistributed;
+      let adjustedTp2 = settings.tp2_close_percent + redistributed;
+      
+      const tp1QtyRaw = totalQty * (adjustedTp1 / 100);
+      const tp2QtyRaw = totalQty * (adjustedTp2 / 100);
+      
+      if (tp1QtyRaw < minQuantity && tp2QtyRaw >= minQuantity) {
+        tp1Qty = !position.tp1_filled ? minQuantity : 0;
+        tp2Qty = !position.tp2_filled ? (totalQty - minQuantity) : 0;
+      } else if (tp2QtyRaw < minQuantity && tp1QtyRaw >= minQuantity) {
+        tp2Qty = !position.tp2_filled ? minQuantity : 0;
+        tp1Qty = !position.tp1_filled ? (totalQty - minQuantity) : 0;
+      } else if (tp1QtyRaw >= minQuantity && tp2QtyRaw >= minQuantity) {
+        tp1Qty = !position.tp1_filled ? tp1QtyRaw : 0;
+        tp2Qty = !position.tp2_filled ? tp2QtyRaw : 0;
+      } else {
+        tp1Qty = !position.tp1_filled ? totalQty : 0;
+      }
+    } else if (actualLevels === 1) {
+      tp1Qty = !position.tp1_filled ? totalQty : 0;
+    }
     
     return {
       sl_price,
@@ -354,7 +546,7 @@ function calculateExpectedSLTP(position: any, settings: any): ExpectedSLTP {
       tp3_price: !position.tp3_filled ? tp3_price : undefined,
       tp1_quantity: tp1Qty > 0 ? tp1Qty : undefined,
       tp2_quantity: tp2Qty > 0 ? tp2Qty : undefined,
-      tp3_quantity: tp3Qty > 0 ? tp3Qty : undefined,
+      tp3_quantity: undefined, // Not using 3 TPs with smart redistribution
     };
   }
 
@@ -392,19 +584,48 @@ function calculateExpectedSLTP(position: any, settings: any): ExpectedSLTP {
       break;
   }
 
-  // Calculate TP quantities based on close percentages - only for unfilled TPs
+  // Calculate TP quantities with smart redistribution
   const totalQty = position.quantity;
+  const minQuantity = getMinQuantityForSymbol(position.symbol);
   
-  // Only calculate TPs that haven't been filled yet
-  const tp1Qty = (!position.tp1_filled && settings.tp_levels >= 1) 
-    ? totalQty * (settings.tp1_close_percent / 100) 
-    : 0;
-  const tp2Qty = (!position.tp2_filled && settings.tp_levels >= 2) 
-    ? totalQty * (settings.tp2_close_percent / 100) 
-    : 0;
-  const tp3Qty = (!position.tp3_filled && settings.tp_levels >= 3) 
-    ? totalQty * (settings.tp3_close_percent / 100) 
-    : 0;
+  const actualLevels = determineActualTPLevels(
+    settings.tp_levels,
+    totalQty,
+    minQuantity,
+    { 
+      tp1: settings.tp1_close_percent, 
+      tp2: settings.tp2_close_percent || 0, 
+      tp3: settings.tp3_close_percent || 0 
+    }
+  );
+  
+  let tp1Qty = 0, tp2Qty = 0, tp3Qty = 0;
+  
+  if (actualLevels === 2) {
+    const redistributed = (settings.tp3_close_percent || 0) / 2;
+    let adjustedTp1 = settings.tp1_close_percent + redistributed;
+    let adjustedTp2 = settings.tp2_close_percent + redistributed;
+    
+    const tp1QtyRaw = totalQty * (adjustedTp1 / 100);
+    const tp2QtyRaw = totalQty * (adjustedTp2 / 100);
+    
+    if (tp1QtyRaw < minQuantity && tp2QtyRaw >= minQuantity) {
+      tp1Qty = !position.tp1_filled ? minQuantity : 0;
+      tp2Qty = !position.tp2_filled ? (totalQty - minQuantity) : 0;
+      console.log(`⚠️ Smart redistribution (monitor): TP1=${minQuantity}, TP2=${totalQty - minQuantity}`);
+    } else if (tp2QtyRaw < minQuantity && tp1QtyRaw >= minQuantity) {
+      tp2Qty = !position.tp2_filled ? minQuantity : 0;
+      tp1Qty = !position.tp1_filled ? (totalQty - minQuantity) : 0;
+      console.log(`⚠️ Smart redistribution (monitor): TP1=${totalQty - minQuantity}, TP2=${minQuantity}`);
+    } else if (tp1QtyRaw >= minQuantity && tp2QtyRaw >= minQuantity) {
+      tp1Qty = !position.tp1_filled ? tp1QtyRaw : 0;
+      tp2Qty = !position.tp2_filled ? tp2QtyRaw : 0;
+    } else {
+      tp1Qty = !position.tp1_filled ? totalQty : 0;
+    }
+  } else if (actualLevels === 1) {
+    tp1Qty = !position.tp1_filled ? totalQty : 0;
+  }
 
   return {
     sl_price: slPrice,
@@ -413,7 +634,7 @@ function calculateExpectedSLTP(position: any, settings: any): ExpectedSLTP {
     tp3_price: !position.tp3_filled ? tp3Price : undefined,
     tp1_quantity: tp1Qty > 0 ? tp1Qty : undefined,
     tp2_quantity: tp2Qty > 0 ? tp2Qty : undefined,
-    tp3_quantity: tp3Qty > 0 ? tp3Qty : undefined,
+    tp3_quantity: undefined, // Not using 3 TPs with smart redistribution
   };
 }
 
