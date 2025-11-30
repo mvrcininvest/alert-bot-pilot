@@ -319,36 +319,46 @@ function calculateExpectedSLTP(position: any, settings: any): ExpectedSLTP {
     const minQuantity = getMinQuantityForSymbol(position.symbol);
     
     if (dbTp1Qty && dbTp2Qty) {
-      // Use DB quantities as-is
-      return {
-        sl_price: dbSl,
-        tp1_price: !position.tp1_filled ? dbTp1 : undefined,
-        tp2_price: !position.tp2_filled && dbTp2 ? dbTp2 : undefined,
-        tp3_price: !position.tp3_filled && dbTp3 ? dbTp3 : undefined,
-        tp1_quantity: dbTp1Qty > 0 ? dbTp1Qty : undefined,
-        tp2_quantity: dbTp2Qty > 0 ? dbTp2Qty : undefined,
-        tp3_quantity: dbTp3Qty && dbTp3Qty > 0 ? dbTp3Qty : undefined,
-      };
+      // ✅ Validate that DB quantities sum to total
+      const sumQty = dbTp1Qty + (dbTp2Qty || 0) + (dbTp3Qty || 0);
+      const tolerance = 0.0001;
+      
+      if (Math.abs(sumQty - totalQty) > tolerance) {
+        console.log(`⚠️ DB quantities mismatch! Sum=${sumQty} vs Total=${totalQty} (diff=${Math.abs(sumQty - totalQty).toFixed(6)}) - RECALCULATING`);
+        // Fall through to recalculate instead of returning DB values
+      } else {
+        // Use DB quantities as-is - they're valid
+        return {
+          sl_price: dbSl,
+          tp1_price: !position.tp1_filled ? dbTp1 : undefined,
+          tp2_price: !position.tp2_filled && dbTp2 ? dbTp2 : undefined,
+          tp3_price: !position.tp3_filled && dbTp3 ? dbTp3 : undefined,
+          tp1_quantity: dbTp1Qty > 0 ? dbTp1Qty : undefined,
+          tp2_quantity: dbTp2Qty > 0 ? dbTp2Qty : undefined,
+          tp3_quantity: dbTp3Qty && dbTp3Qty > 0 ? dbTp3Qty : undefined,
+        };
+      }
     }
     
-    // Calculate with smart redistribution
+    // Calculate with smart redistribution using settings_snapshot if available
+    const snapshot = position.metadata?.settings_snapshot || settings;
     const actualLevels = determineActualTPLevels(
-      settings.tp_levels,
+      snapshot.tp_levels,
       totalQty,
       minQuantity,
       { 
-        tp1: settings.tp1_close_percent, 
-        tp2: settings.tp2_close_percent || 0, 
-        tp3: settings.tp3_close_percent || 0 
+        tp1: snapshot.tp1_close_percent, 
+        tp2: snapshot.tp2_close_percent || 0, 
+        tp3: snapshot.tp3_close_percent || 0 
       }
     );
     
     let tp1Qty = 0, tp2Qty = 0;
     
     if (actualLevels === 2 && !position.tp1_filled && !position.tp2_filled) {
-      const redistributed = (settings.tp3_close_percent || 0) / 2;
-      let adjustedTp1 = settings.tp1_close_percent + redistributed;
-      let adjustedTp2 = settings.tp2_close_percent + redistributed;
+      const redistributed = (snapshot.tp3_close_percent || 0) / 2;
+      let adjustedTp1 = snapshot.tp1_close_percent + redistributed;
+      let adjustedTp2 = snapshot.tp2_close_percent + redistributed;
       
       const tp1QtyRaw = totalQty * (adjustedTp1 / 100);
       const tp2QtyRaw = totalQty * (adjustedTp2 / 100);
@@ -2810,17 +2820,20 @@ async function checkPositionFullVerification(supabase: any, position: any, setti
       }
     };
     
+    // Use settings_snapshot to determine which TP levels were configured at position open
+    const snapshot = position.metadata?.settings_snapshot || settings;
+    
     if (expected.tp1_price) {
       updateData.tp1_price = expected.tp1_price;
       updateData.tp1_quantity = expected.tp1_quantity;
       updateData.tp1_order_id = null;
     }
-    if (expected.tp2_price && settings.tp_levels >= 2) {
+    if (expected.tp2_price && snapshot.tp_levels >= 2) {
       updateData.tp2_price = expected.tp2_price;
       updateData.tp2_quantity = expected.tp2_quantity;
       updateData.tp2_order_id = null;
     }
-    if (expected.tp3_price && settings.tp_levels >= 3) {
+    if (expected.tp3_price && snapshot.tp_levels >= 3) {
       updateData.tp3_price = expected.tp3_price;
       updateData.tp3_quantity = expected.tp3_quantity;
       updateData.tp3_order_id = null;

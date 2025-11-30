@@ -1214,11 +1214,11 @@ serve(async (req) => {
     ): { tp1: number; tp2: number; tp3: number } {
       const precision = Math.pow(10, volumePlace);
       
-      // Round DOWN each quantity to volumePlace precision
+      // Round each quantity to volumePlace precision using Math.round to avoid truncation
       let rounded = {
-        tp1: Math.floor(quantities.tp1 * precision) / precision,
-        tp2: Math.floor(quantities.tp2 * precision) / precision,
-        tp3: Math.floor(quantities.tp3 * precision) / precision
+        tp1: Math.round(quantities.tp1 * precision) / precision,
+        tp2: Math.round(quantities.tp2 * precision) / precision,
+        tp3: Math.round(quantities.tp3 * precision) / precision
       };
       
       // Calculate remainder (what was lost in rounding)
@@ -1556,6 +1556,18 @@ serve(async (req) => {
         leverage: effectiveLeverage
       }
     });
+    
+    // 🐛 DEBUG: Log exact quantities before INSERT
+    console.log(`🐛 PRE-INSERT DEBUG - Quantities to save:`, {
+      symbol: alert_data.symbol,
+      total_quantity: quantity,
+      tp1_quantity: tp1Quantity,
+      tp2_quantity: tp2Quantity,
+      tp3_quantity: tp3Quantity,
+      sum_check: tp1Quantity + tp2Quantity + tp3Quantity,
+      sum_matches: Math.abs((tp1Quantity + tp2Quantity + tp3Quantity) - quantity) < 0.0001
+    });
+    
     const { data: position, error: positionError } = await supabase
       .from('positions')
       .insert({
