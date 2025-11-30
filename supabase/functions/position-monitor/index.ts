@@ -935,15 +935,29 @@ async function cleanupOrphanOrders(supabase: any, userId: string, apiCredentials
     ...(normalPlanOrders?.success && normalPlanOrders.data?.entrustedList || [])
   ].filter((o: any) => o.planStatus === 'live');
   
-  // Get unique symbols from orders
-  const orderSymbols = [...new Set(allOrders.map((o: any) => o.symbol.toUpperCase()))];
+  // 🆕 Get DB positions for this user with their order IDs
+  const { data: dbPositions } = await supabase
+    .from('positions')
+    .select('sl_order_id, tp1_order_id, tp2_order_id, tp3_order_id')
+    .eq('user_id', userId)
+    .eq('status', 'open');
   
-  // Get symbols with open positions
-  const positionSymbols = exchangePositions.map((p: any) => p.symbol.toUpperCase());
+  // Create a Set of all valid order IDs from DB
+  const dbOrderIds = new Set(
+    (dbPositions || []).flatMap((p: any) => [
+      p.sl_order_id, 
+      p.tp1_order_id, 
+      p.tp2_order_id, 
+      p.tp3_order_id
+    ].filter(Boolean))
+  );
   
-  // Find orders for symbols WITHOUT positions
+  console.log(`📋 Found ${dbOrderIds.size} order IDs in DB positions`);
+  console.log(`📋 Found ${allOrders.length} live orders on exchange`);
+  
+  // 🆕 Find orders NOT in our DB (true orphans)
   const orphanOrders = allOrders.filter((order: any) => 
-    !positionSymbols.includes(order.symbol.toUpperCase())
+    !dbOrderIds.has(order.orderId)
   );
   
   if (orphanOrders.length > 0) {
@@ -1476,6 +1490,19 @@ serve(async (req) => {
     // ============= PART B3: ATOMIC LOCKING MECHANISM =============
     // Generate unique instance ID for this run
     const instanceId = crypto.randomUUID();
+    
+    // 🆕 FIRST: Clean up expired locks before attempting to acquire
+    const { error: cleanupError } = await supabase
+      .from('monitor_locks')
+      .delete()
+      .eq('lock_type', 'position_monitor')
+      .lt('expires_at', new Date().toISOString());
+    
+    if (cleanupError) {
+      console.error('⚠️ Failed to cleanup expired locks:', cleanupError);
+    } else {
+      console.log('🧹 Cleaned up any expired locks');
+    }
     
     // Try to acquire lock (atomic upsert)
     await supabase
