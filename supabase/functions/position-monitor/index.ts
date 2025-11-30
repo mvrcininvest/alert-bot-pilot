@@ -1140,7 +1140,7 @@ async function logDeviations(
   }
 }
 
-// Helper function to clean up orphan orders (orders without open positions)
+// ⚡ ENHANCED: Helper function to clean up orphan orders (orders without open positions + closed position orders)
 async function cleanupOrphanOrders(supabase: any, userId: string, apiCredentials: any, exchangePositions: any[]) {
   console.log(`🧹 Checking for orphan orders for user ${userId}`);
   
@@ -1166,36 +1166,55 @@ async function cleanupOrphanOrders(supabase: any, userId: string, apiCredentials
     ...(normalPlanOrders?.success && normalPlanOrders.data?.entrustedList || [])
   ].filter((o: any) => o.planStatus === 'live');
   
-  // 🆕 Get DB positions for this user with their order IDs
-  const { data: dbPositions } = await supabase
+  // ⚡ Get ALL positions (open AND closed) with their order IDs
+  const { data: allPositions } = await supabase
     .from('positions')
-    .select('sl_order_id, tp1_order_id, tp2_order_id, tp3_order_id')
+    .select('sl_order_id, tp1_order_id, tp2_order_id, tp3_order_id, status')
     .eq('user_id', userId)
-    .eq('status', 'open');
+    .in('status', ['open', 'closed']);
   
-  // Create a Set of all valid order IDs from DB
-  const dbOrderIds = new Set(
-    (dbPositions || []).flatMap((p: any) => [
-      p.sl_order_id, 
-      p.tp1_order_id, 
-      p.tp2_order_id, 
-      p.tp3_order_id
-    ].filter(Boolean))
+  // Create a Set of order IDs from OPEN positions only
+  const openOrderIds = new Set(
+    (allPositions || [])
+      .filter((p: any) => p.status === 'open')
+      .flatMap((p: any) => [
+        p.sl_order_id, 
+        p.tp1_order_id, 
+        p.tp2_order_id, 
+        p.tp3_order_id
+      ].filter(Boolean))
   );
   
-  console.log(`📋 Found ${dbOrderIds.size} order IDs in DB positions`);
+  // Get order IDs from CLOSED positions (these should be canceled)
+  const closedPositionOrderIds = new Set(
+    (allPositions || [])
+      .filter((p: any) => p.status === 'closed')
+      .flatMap((p: any) => [
+        p.sl_order_id, 
+        p.tp1_order_id, 
+        p.tp2_order_id, 
+        p.tp3_order_id
+      ].filter(Boolean))
+  );
+  
+  console.log(`📋 Found ${openOrderIds.size} order IDs in open positions`);
+  console.log(`📋 Found ${closedPositionOrderIds.size} order IDs in closed positions`);
   console.log(`📋 Found ${allOrders.length} live orders on exchange`);
   
-  // 🆕 Find orders NOT in our DB (true orphans)
-  const orphanOrders = allOrders.filter((order: any) => 
-    !dbOrderIds.has(order.orderId)
+  // ⚡ Find orders to cancel: NOT in open positions OR in closed positions
+  const ordersToCancel = allOrders.filter((order: any) => 
+    !openOrderIds.has(order.orderId) || closedPositionOrderIds.has(order.orderId)
   );
   
-  if (orphanOrders.length > 0) {
-    console.log(`🚨 Found ${orphanOrders.length} orphan orders to cancel`);
+  if (ordersToCancel.length > 0) {
+    console.log(`🚨 Found ${ordersToCancel.length} orphan/closed orders to cancel`);
     
-    for (const order of orphanOrders) {
+    for (const order of ordersToCancel) {
       try {
+        const reason = closedPositionOrderIds.has(order.orderId) 
+          ? 'position closed' 
+          : 'orphan (no open position)';
+        
         const { data: cancelResult } = await supabase.functions.invoke('bitget-api', {
           body: {
             action: 'cancel_plan_order',
@@ -1209,24 +1228,25 @@ async function cleanupOrphanOrders(supabase: any, userId: string, apiCredentials
         });
         
         if (cancelResult?.success) {
-          console.log(`✅ Canceled orphan order ${order.orderId} for ${order.symbol}`);
+          console.log(`✅ Canceled order ${order.orderId} for ${order.symbol} (${reason})`);
           await log({
             functionName: 'position-monitor',
-            message: `Orphan order canceled`,
+            message: `Order canceled: ${reason}`,
             level: 'info',
             metadata: { 
               orderId: order.orderId, 
               symbol: order.symbol,
-              planType: order.planType 
+              planType: order.planType,
+              reason 
             }
           });
         }
       } catch (error) {
-        console.error(`❌ Failed to cancel orphan order ${order.orderId}:`, error);
+        console.error(`❌ Failed to cancel order ${order.orderId}:`, error);
       }
     }
   } else {
-    console.log(`✅ No orphan orders found`);
+    console.log(`✅ No orphan or closed position orders found`);
   }
 }
 
@@ -1905,12 +1925,12 @@ serve(async (req) => {
           }
         }
 
-        // SAFETY CHECK: If exchange shows 0 positions but DB has many, something is wrong
+        // ⚡ INTELLIGENT SYNC: If exchange shows 0 positions but DB has some, verify each individually
         if (exchangePositions.length === 0 && dbPositionsList.length > 0) {
-          console.warn(`⚠️ SAFETY: Exchange returned 0 positions but DB has ${dbPositionsList.length} - NOT auto-closing to prevent data loss`);
+          console.warn(`⚠️ Exchange returned 0 positions but DB has ${dbPositionsList.length} - verifying each individually`);
           await log({
             functionName: 'position-monitor',
-            message: 'Safety check: Skipping auto-close due to empty exchange response',
+            message: 'Individual position verification started',
             level: 'warn',
             metadata: { 
               userId: user_id, 
@@ -1918,7 +1938,38 @@ serve(async (req) => {
               exchangePositions: 0
             }
           });
-          continue; // Skip closing positions for this user
+          
+          // Verify EACH position individually
+          for (const dbPos of dbPositionsList) {
+            try {
+              const { data: verifyResult } = await supabase.functions.invoke('bitget-api', {
+                body: {
+                  action: 'get_position',
+                  params: { symbol: dbPos.symbol },
+                  apiCredentials
+                }
+              });
+              
+              const isReallyEmpty = verifyResult?.success && 
+                (!verifyResult.data || verifyResult.data.length === 0 ||
+                 !verifyResult.data.some((p: any) => 
+                   parseFloat(p.total || '0') > 0 &&
+                   ((dbPos.side === 'BUY' && p.holdSide === 'long') ||
+                    (dbPos.side === 'SELL' && p.holdSide === 'short'))
+                 ));
+              
+              if (isReallyEmpty) {
+                console.log(`✅ Confirmed: ${dbPos.symbol} is closed on exchange - marking in DB`);
+                await markPositionAsClosed(supabase, dbPos, 'manual_external');
+              } else {
+                console.warn(`⚠️ ${dbPos.symbol} still has position on exchange - NOT closing`);
+              }
+            } catch (error) {
+              console.error(`Error verifying position ${dbPos.symbol}:`, error);
+            }
+          }
+          
+          // DON'T SKIP - continue to orphan cleanup
         }
 
         // STEP 4: SYNC - For each position in DB that's NOT on exchange
