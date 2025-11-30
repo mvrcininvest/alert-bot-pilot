@@ -542,10 +542,31 @@ serve(async (req) => {
     
     // Check if we should use alert leverage or settings leverage
     if (settings.use_alert_leverage !== false && alert_data.leverage) {
-      // Use leverage from alert
-      effectiveLeverage = alert_data.leverage;
-      leverageSource = 'alert';
-      console.log(`Using leverage from alert: ${effectiveLeverage}x`);
+      // Use leverage from alert BUT apply category limit
+      const symbolLeverageOverrides = settings.symbol_leverage_overrides || {};
+      const defaultLeverage = settings.default_leverage || 10;
+      
+      // Apply category limit even for alert leverage
+      effectiveLeverage = Math.min(alert_data.leverage, defaultLeverage);
+      leverageSource = 'alert_with_category_cap';
+      
+      if (alert_data.leverage > defaultLeverage) {
+        console.log(`⚠️ Alert leverage ${alert_data.leverage}x capped to ${effectiveLeverage}x by category limit for ${alert_data.symbol}`);
+        await log({
+          functionName: 'bitget-trader',
+          message: `Alert leverage capped by category limit`,
+          level: 'warn',
+          alertId: alert_id,
+          metadata: { 
+            symbol: alert_data.symbol,
+            requestedLeverage: alert_data.leverage,
+            categoryLimit: defaultLeverage,
+            appliedLeverage: effectiveLeverage
+          }
+        });
+      } else {
+        console.log(`Using leverage from alert: ${effectiveLeverage}x (within category limit)`);
+      }
     } else {
       // Use leverage from settings
       const symbolLeverageOverrides = settings.symbol_leverage_overrides || {};
@@ -647,25 +668,66 @@ serve(async (req) => {
       }
     });
     
+    // Determine holdSide based on order side (hedge mode)
+    const leverageHoldSide = alert_data.side === 'BUY' ? 'long' : 'short';
+    
     await log({
       functionName: 'bitget-trader',
       message: 'Setting leverage on Bitget',
       level: 'info',
       alertId: alert_id,
-      metadata: { symbol: alert_data.symbol, leverage: effectiveLeverage }
+      metadata: { 
+        symbol: alert_data.symbol, 
+        leverage: effectiveLeverage,
+        holdSide: leverageHoldSide,
+        side: alert_data.side
+      }
     });
-    console.log(`Setting leverage on Bitget: ${effectiveLeverage}x for ${alert_data.symbol}`);
+    console.log(`Setting leverage on Bitget: ${effectiveLeverage}x for ${alert_data.symbol} (holdSide: ${leverageHoldSide}, order side: ${alert_data.side})`);
+    
     // Set leverage on Bitget before placing order using user's API credentials
-    await supabase.functions.invoke('bitget-api', {
+    const setLeverageResponse = await supabase.functions.invoke('bitget-api', {
       body: {
         action: 'set_leverage',
         apiCredentials,
         params: {
           symbol: alert_data.symbol,
           leverage: effectiveLeverage,
+          holdSide: leverageHoldSide
         }
       }
     });
+    
+    // Log the response from set_leverage
+    if (setLeverageResponse?.data) {
+      console.log(`✅ Set leverage response:`, JSON.stringify(setLeverageResponse.data));
+      await log({
+        functionName: 'bitget-trader',
+        message: 'Leverage set successfully',
+        level: 'info',
+        alertId: alert_id,
+        metadata: { 
+          symbol: alert_data.symbol,
+          requestedLeverage: effectiveLeverage,
+          holdSide: leverageHoldSide,
+          response: setLeverageResponse.data
+        }
+      });
+    } else if (setLeverageResponse?.error) {
+      console.error(`❌ Set leverage failed:`, setLeverageResponse.error);
+      await log({
+        functionName: 'bitget-trader',
+        message: 'Failed to set leverage',
+        level: 'error',
+        alertId: alert_id,
+        metadata: { 
+          symbol: alert_data.symbol,
+          requestedLeverage: effectiveLeverage,
+          holdSide: leverageHoldSide,
+          error: setLeverageResponse.error
+        }
+      });
+    }
 
     // Calculate position size (pass effective leverage for correct margin calculation)
     let scalpingResult;
