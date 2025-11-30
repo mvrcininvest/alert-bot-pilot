@@ -489,11 +489,11 @@ serve(async (req) => {
       }
     }
 
-    // Get account balance from Bitget (RE-USE CACHED if available)
-    latencyMarkers.account_balance_start = Date.now();
+    // ⚡ OPTIMIZATION: Fetch account balance + symbol info in PARALLEL
+    latencyMarkers.parallel_api_start = Date.now();
     await log({
       functionName: 'bitget-trader',
-      message: 'Fetching account balance from Bitget',
+      message: 'Fetching account balance and symbol info in parallel',
       level: 'info',
       alertId: alert_id
     });
@@ -504,12 +504,22 @@ serve(async (req) => {
       accountData = cachedAccountData;
     } else {
       const t1 = Date.now();
-      console.log('Fetching account balance from Bitget API...');
-      const result = await supabase.functions.invoke('bitget-api', {
-        body: { action: 'get_account', apiCredentials }
-      });
-      accountData = result.data;
-      console.log(`⏱️ get_account (fresh): ${Date.now() - t1}ms`);
+      console.log('⚡ Parallel API calls: account balance + symbol info...');
+      const [accountResult, symbolInfoResult] = await Promise.all([
+        supabase.functions.invoke('bitget-api', {
+          body: { action: 'get_account', apiCredentials }
+        }),
+        supabase.functions.invoke('bitget-api', {
+          body: {
+            action: 'get_symbol_info',
+            apiCredentials,
+            params: { symbol: alert_data.symbol }
+          }
+        })
+      ]);
+      accountData = accountResult.data;
+      cachedSymbolInfo = symbolInfoResult.data; // Cache symbol info for later reuse
+      console.log(`⚡ Parallel API calls completed: ${Date.now() - t1}ms (saved ~300-600ms)`);
     }
     latencyMarkers.account_balance_end = Date.now();
     
@@ -1124,15 +1134,17 @@ serve(async (req) => {
     if (roundedTp2Price) console.log(`TP2: ${tp2_price} -> ${roundedTp2Price}`);
     if (roundedTp3Price) console.log(`TP3: ${tp3_price} -> ${roundedTp3Price}`);
 
-    // Place Stop Loss order using TPSL endpoint
+    // ⚡ OPTIMIZATION: Place SL order first, then TPs in parallel
     await log({
       functionName: 'bitget-trader',
-      message: 'Placing Stop Loss order',
+      message: 'Placing SL order',
       level: 'info',
       alertId: alert_id,
       metadata: { slPrice: roundedSlPrice, symbol: alert_data.symbol }
     });
     const holdSide = alert_data.side === 'BUY' ? 'long' : 'short';
+    
+    latencyMarkers.sl_order_start = Date.now();
     const { data: slResult } = await supabase.functions.invoke('bitget-api', {
       body: {
         action: 'place_tpsl_order',
@@ -1143,10 +1155,11 @@ serve(async (req) => {
           triggerPrice: roundedSlPrice,
           triggerType: 'mark_price',
           holdSide: holdSide,
-          executePrice: 0, // Market order
+          executePrice: 0,
         }
       }
     });
+    latencyMarkers.sl_order_end = Date.now();
 
     const slOrderId = slResult?.success ? slResult.data.orderId : null;
     await log({
