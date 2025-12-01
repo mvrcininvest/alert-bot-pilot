@@ -2323,7 +2323,7 @@ async function checkPositionFullVerification(supabase: any, position: any, setti
       }
     });
     
-    if (fillsResult?.success && fillsResult.data?.fillList?.length > 0) {
+    if (fillsResult?.success && fillsResult.data?.fillList && Array.isArray(fillsResult.data.fillList) && fillsResult.data.fillList.length > 0) {
       const expectedTradeSide = position.side === 'BUY' ? 'close_long' : 'close_short';
       const recentFills = fillsResult.data.fillList.filter((fill: any) => 
         fill.tradeSide === expectedTradeSide
@@ -2735,6 +2735,33 @@ async function checkPositionFullVerification(supabase: any, position: any, setti
   if (resyncCheck.mismatch && (resyncCheck.missingOrders.tp1 || resyncCheck.missingOrders.tp2 || resyncCheck.missingOrders.tp3)) {
     console.log(`🔍 Checking order fill history before resync...`);
     
+    // 🔧 NEW: Check if TP orders exist on exchange first
+    // If TP is missing but was never filled, it means order was canceled/lost
+    const updates: any = {};
+    
+    // Check each TP level
+    if (resyncCheck.missingOrders.tp1 && !position.tp1_filled) {
+      // TP1 order is missing - check if it's in order list
+      const tp1Order = tpOrders.find((o: any) => o.orderId === position.tp1_order_id);
+      if (!tp1Order) {
+        console.log(`⚠️ TP1 order missing from exchange - checking if it was executed...`);
+      }
+    }
+    
+    if (resyncCheck.missingOrders.tp2 && !position.tp2_filled) {
+      const tp2Order = tpOrders.find((o: any) => o.orderId === position.tp2_order_id);
+      if (!tp2Order) {
+        console.log(`⚠️ TP2 order missing from exchange - checking if it was executed...`);
+      }
+    }
+    
+    if (resyncCheck.missingOrders.tp3 && !position.tp3_filled) {
+      const tp3Order = tpOrders.find((o: any) => o.orderId === position.tp3_order_id);
+      if (!tp3Order) {
+        console.log(`⚠️ TP3 order missing from exchange - checking if it was executed...`);
+      }
+    }
+    
     const { data: orderHistory } = await supabase.functions.invoke('bitget-api', {
       body: {
         action: 'get_order_fills',
@@ -2746,35 +2773,66 @@ async function checkPositionFullVerification(supabase: any, position: any, setti
       }
     });
     
-    if (orderHistory?.success && orderHistory.data) {
+    if (orderHistory?.success && orderHistory.data && Array.isArray(orderHistory.data)) {
       const fills = orderHistory.data || [];
-      const closeFills = fills.filter((f: any) => 
+      const closeFills = Array.isArray(fills) ? fills.filter((f: any) => 
         f.side !== position.side && 
         f.tradeSide === 'close'
-      );
+      ) : [];
       
       if (closeFills.length > 0) {
         console.log(`📊 Found ${closeFills.length} close fills in history`);
         
-        // Calculate total filled quantity
-        const totalFilledQty = closeFills.reduce((sum: number, f: any) => 
-          sum + parseFloat(f.size || f.baseVolume || '0'), 0
-        );
-        
-        console.log(`📊 Total filled quantity from history: ${totalFilledQty}`);
-        
-        // Mark TPs as filled based on quantity
+        // 🔧 IMPROVED: Match fills to specific TP orders by orderId
         const updates: any = {};
-        const tp1Qty = Number(position.tp1_quantity || 0);
-        const tp2Qty = Number(position.tp2_quantity || 0);
+        let totalFilledQty = 0;
         
-        if (tp1Qty > 0 && !position.tp1_filled && Math.abs(totalFilledQty - tp1Qty) / tp1Qty < 0.1) {
-          updates.tp1_filled = true;
-          console.log(`✅ TP1 was executed (found in fill history) - marking as filled`);
-        } else if (tp2Qty > 0 && !position.tp2_filled && Math.abs(totalFilledQty - tp2Qty) / tp2Qty < 0.1) {
-          updates.tp2_filled = true;
-          console.log(`✅ TP2 was executed (found in fill history) - marking as filled`);
+        // Check TP1
+        if (!position.tp1_filled && position.tp1_order_id) {
+          const tp1Fills = closeFills.filter((f: any) => f.orderId === position.tp1_order_id);
+          if (tp1Fills.length > 0) {
+            const tp1FilledQty = tp1Fills.reduce((sum: number, f: any) => 
+              sum + parseFloat(f.size || f.baseVolume || '0'), 0
+            );
+            if (tp1FilledQty > 0) {
+              updates.tp1_filled = true;
+              totalFilledQty += tp1FilledQty;
+              console.log(`✅ TP1 was executed (orderId: ${position.tp1_order_id}, qty: ${tp1FilledQty}) - marking as filled`);
+            }
+          }
         }
+        
+        // Check TP2
+        if (!position.tp2_filled && position.tp2_order_id) {
+          const tp2Fills = closeFills.filter((f: any) => f.orderId === position.tp2_order_id);
+          if (tp2Fills.length > 0) {
+            const tp2FilledQty = tp2Fills.reduce((sum: number, f: any) => 
+              sum + parseFloat(f.size || f.baseVolume || '0'), 0
+            );
+            if (tp2FilledQty > 0) {
+              updates.tp2_filled = true;
+              totalFilledQty += tp2FilledQty;
+              console.log(`✅ TP2 was executed (orderId: ${position.tp2_order_id}, qty: ${tp2FilledQty}) - marking as filled`);
+            }
+          }
+        }
+        
+        // Check TP3
+        if (!position.tp3_filled && position.tp3_order_id) {
+          const tp3Fills = closeFills.filter((f: any) => f.orderId === position.tp3_order_id);
+          if (tp3Fills.length > 0) {
+            const tp3FilledQty = tp3Fills.reduce((sum: number, f: any) => 
+              sum + parseFloat(f.size || f.baseVolume || '0'), 0
+            );
+            if (tp3FilledQty > 0) {
+              updates.tp3_filled = true;
+              totalFilledQty += tp3FilledQty;
+              console.log(`✅ TP3 was executed (orderId: ${position.tp3_order_id}, qty: ${tp3FilledQty}) - marking as filled`);
+            }
+          }
+        }
+        
+        console.log(`📊 Total filled quantity from matched TP orders: ${totalFilledQty}`);
         
         if (Object.keys(updates).length > 0) {
           await supabase
@@ -2785,6 +2843,19 @@ async function checkPositionFullVerification(supabase: any, position: any, setti
             })
             .eq('id', position.id);
           
+          // Log which TPs were marked as filled
+          await log({
+            functionName: 'position-monitor',
+            message: `TP orders executed - updated filled status`,
+            level: 'info',
+            positionId: position.id,
+            metadata: { 
+              updates, 
+              totalFilledQty,
+              newQuantity: position.quantity - totalFilledQty
+            }
+          });
+          
           // Cancel resync - orders were actually executed
           console.log(`✅ Orders were executed - canceling resync`);
           resyncCheck.mismatch = false;
@@ -2793,8 +2864,13 @@ async function checkPositionFullVerification(supabase: any, position: any, setti
           // Update position object
           if (updates.tp1_filled) position.tp1_filled = true;
           if (updates.tp2_filled) position.tp2_filled = true;
+          if (updates.tp3_filled) position.tp3_filled = true;
           position.quantity -= totalFilledQty;
+        } else {
+          console.log(`⚠️ No TP fills found in order history - orders may have been canceled, proceeding with resync`);
         }
+      } else {
+        console.log(`⚠️ No close fills found in order history - orders may have been canceled, proceeding with resync`);
       }
     }
   }
