@@ -99,7 +99,17 @@ serve(async (req) => {
   }
 
   try {
-    const { action, params, apiCredentials } = await req.json();
+    const bodyText = await req.text();
+    const body = bodyText ? JSON.parse(bodyText) : {};
+    
+    // Handle ping request
+    if (body.ping) {
+      return new Response(JSON.stringify({ pong: true }), { 
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' } 
+      });
+    }
+    
+    const { action, params, apiCredentials } = body;
     
     // Use provided API credentials or fall back to env vars (for backward compatibility)
     const config: BitgetConfig = {

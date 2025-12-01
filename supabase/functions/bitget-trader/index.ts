@@ -16,6 +16,16 @@ serve(async (req) => {
     return new Response(null, { headers: corsHeaders });
   }
 
+  const bodyText = await req.text();
+  const body = bodyText ? JSON.parse(bodyText) : {};
+  
+  // Handle ping request
+  if (body.ping) {
+    return new Response(JSON.stringify({ pong: true }), { 
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' } 
+    });
+  }
+
   const startTime = Date.now();
   
   // Latency tracking
@@ -33,7 +43,7 @@ serve(async (req) => {
     let cachedAccountData: any = null;
     let cachedSymbolInfo: any = null;
 
-    const { alert_id, alert_data, user_id, webhook_received_at, tv_timestamp } = await req.json();
+    const { alert_id, alert_data, user_id, webhook_received_at, tv_timestamp } = body;
     latencyMarkers.request_parsed = Date.now();
     
     if (!user_id) {
@@ -708,7 +718,7 @@ serve(async (req) => {
     
     await log({
       functionName: 'bitget-trader',
-      message: 'Setting leverage on Bitget',
+      message: 'Preparing leverage and position size calculation',
       level: 'info',
       alertId: alert_id,
       metadata: { 
@@ -718,20 +728,71 @@ serve(async (req) => {
         side: alert_data.side
       }
     });
-    console.log(`Setting leverage on Bitget: ${effectiveLeverage}x for ${alert_data.symbol} (holdSide: ${leverageHoldSide}, order side: ${alert_data.side})`);
     
-    // Set leverage on Bitget before placing order using user's API credentials
-    const setLeverageResponse = await supabase.functions.invoke('bitget-api', {
-      body: {
-        action: 'set_leverage',
-        apiCredentials,
-        params: {
+    // Calculate scalpingResult synchronously if needed (before parallel calls)
+    let scalpingResult;
+    if (settings.position_sizing_type === 'scalping_mode') {
+      scalpingResult = calculateScalpingSLTP(alert_data, settings as any, effectiveLeverage);
+      
+      await log({
+        functionName: 'bitget-trader',
+        message: 'Scalping mode SL/TP calculated',
+        level: scalpingResult.adjustment === 'none' ? 'info' : 'warn',
+        alertId: alert_id,
+        metadata: {
           symbol: alert_data.symbol,
-          leverage: effectiveLeverage,
-          holdSide: leverageHoldSide
+          slPercent: scalpingResult.slPercent,
+          actualMargin: scalpingResult.actualMargin,
+          actualLoss: scalpingResult.actualLoss,
+          adjustment: scalpingResult.adjustment,
+          adjustmentReason: scalpingResult.adjustmentReason
         }
+      });
+      
+      if (scalpingResult.adjustment !== 'none') {
+        console.log(`⚠️ SCALPING MODE ADJUSTMENT: ${scalpingResult.adjustment}`);
+        console.log(`   ${scalpingResult.adjustmentReason}`);
+      } else {
+        console.log(`✓ Scalping mode: SL=${scalpingResult.slPercent.toFixed(3)}%, Margin=${scalpingResult.actualMargin} USDT, Loss=${scalpingResult.actualLoss} USDT`);
       }
-    });
+    }
+    
+    // ✅ PHASE 3 OPTIMIZATION: Parallel execution of set_leverage and get_symbol_info
+    console.log('🔄 Starting parallel leverage + minimums check...');
+    const parallelLeverageStartTime = Date.now();
+    latencyMarkers.minimums_check_start = Date.now();
+    
+    const [setLeverageResponse, symbolInfoData] = await Promise.all([
+      // 1. Set leverage on Bitget
+      supabase.functions.invoke('bitget-api', {
+        body: {
+          action: 'set_leverage',
+          apiCredentials,
+          params: {
+            symbol: alert_data.symbol,
+            leverage: effectiveLeverage,
+            holdSide: leverageHoldSide
+          }
+        }
+      }),
+      
+      // 2. Get symbol info (use cache if available)
+      cachedSymbolInfo 
+        ? Promise.resolve({ success: true, data: cachedSymbolInfo })
+        : supabase.functions.invoke('bitget-api', {
+            body: {
+              action: 'get_symbol_info',
+              apiCredentials,
+              params: { symbol: alert_data.symbol }
+            }
+          }).then(result => {
+            cachedSymbolInfo = result.data; // Cache for later reuse
+            return result.data;
+          })
+    ]);
+    
+    console.log(`✅ Parallel leverage + minimums completed in ${Date.now() - parallelLeverageStartTime}ms`);
+    latencyMarkers.minimums_check_end = Date.now();
     
     // Log the response from set_leverage
     if (setLeverageResponse?.data) {
@@ -764,35 +825,7 @@ serve(async (req) => {
       });
     }
 
-    // Calculate position size (pass effective leverage for correct margin calculation)
-    let scalpingResult;
-    if (settings.position_sizing_type === 'scalping_mode') {
-      // For scalping mode, calculate SL/TP first to get actualMargin
-      scalpingResult = calculateScalpingSLTP(alert_data, settings as any, effectiveLeverage);
-      
-      await log({
-        functionName: 'bitget-trader',
-        message: 'Scalping mode SL/TP calculated',
-        level: scalpingResult.adjustment === 'none' ? 'info' : 'warn',
-        alertId: alert_id,
-        metadata: {
-          symbol: alert_data.symbol,
-          slPercent: scalpingResult.slPercent,
-          actualMargin: scalpingResult.actualMargin,
-          actualLoss: scalpingResult.actualLoss,
-          adjustment: scalpingResult.adjustment,
-          adjustmentReason: scalpingResult.adjustmentReason
-        }
-      });
-      
-      if (scalpingResult.adjustment !== 'none') {
-        console.log(`⚠️ SCALPING MODE ADJUSTMENT: ${scalpingResult.adjustment}`);
-        console.log(`   ${scalpingResult.adjustmentReason}`);
-      } else {
-        console.log(`✓ Scalping mode: SL=${scalpingResult.slPercent.toFixed(3)}%, Margin=${scalpingResult.actualMargin} USDT, Loss=${scalpingResult.actualLoss} USDT`);
-      }
-    }
-    
+    // Calculate position size
     let quantity = calculatePositionSize(settings, alert_data, accountBalance, effectiveLeverage, scalpingResult);
     await log({
       functionName: 'bitget-trader',
@@ -808,36 +841,13 @@ serve(async (req) => {
     });
     console.log('Initial calculated quantity:', quantity);
     
-    // Get REAL minimum requirements from Bitget API before placing order (RE-USE CACHED if available)
-    latencyMarkers.minimums_check_start = Date.now();
-    let symbolInfoResult;
-    if (cachedSymbolInfo) {
-      console.log('✓ Using cached symbol info for minimums (saved ~200-400ms)');
-      symbolInfoResult = cachedSymbolInfo;
-    } else {
-      const t1 = Date.now();
-      console.log(`🔍 Fetching minimum requirements for ${alert_data.symbol} from Bitget API...`);
-      const result = await supabase.functions.invoke('bitget-api', {
-        body: {
-          action: 'get_symbol_info',
-          apiCredentials,
-          params: {
-            symbol: alert_data.symbol
-          }
-        }
-      });
-      symbolInfoResult = result.data;
-      cachedSymbolInfo = symbolInfoResult; // Cache for later reuse
-      console.log(`⏱️ get_symbol_info (minimums): ${Date.now() - t1}ms`);
-    }
-    latencyMarkers.minimums_check_end = Date.now();
-    
+    // Extract minimum requirements from symbol info
     let minQuantity = 0.001; // Default fallback
     let minNotionalValue = 5; // Default fallback
     let volumePlace = 4; // Default precision (4 decimal places)
     
-    if (symbolInfoResult?.success && symbolInfoResult.data?.length > 0) {
-      const contractInfo = symbolInfoResult.data[0];
+    if (symbolInfoData?.success && symbolInfoData.data?.length > 0) {
+      const contractInfo = symbolInfoData.data[0];
       minQuantity = parseFloat(contractInfo.minTradeNum || '0.001');
       minNotionalValue = parseFloat(contractInfo.minTradeUSDT || '5');
       volumePlace = parseInt(contractInfo.volumePlace || '4', 10);
