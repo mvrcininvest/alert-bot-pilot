@@ -1773,6 +1773,16 @@ serve(async (req) => {
   }
 
   try {
+    const bodyText = await req.text();
+    const body = bodyText ? JSON.parse(bodyText) : {};
+    
+    // Handle ping request
+    if (body.ping) {
+      return new Response(JSON.stringify({ pong: true }), { 
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' } 
+      });
+    }
+
     const supabase = createClient(
       Deno.env.get('SUPABASE_URL') ?? '',
       Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''

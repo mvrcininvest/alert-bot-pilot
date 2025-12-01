@@ -14,6 +14,16 @@ serve(async (req) => {
   }
 
   try {
+    const bodyText = await req.text();
+    const body = bodyText ? JSON.parse(bodyText) : {};
+    
+    // Handle ping request
+    if (body.ping) {
+      return new Response(JSON.stringify({ pong: true }), { 
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' } 
+      });
+    }
+    
     await log({
       functionName: 'tradingview-webhook',
       message: 'Webhook received',
@@ -31,12 +41,11 @@ serve(async (req) => {
 
     // Capture webhook received timestamp
     const webhookReceivedAt = Date.now();
-
-    const bodyText = await req.text();
+    
     console.log('Request body:', bodyText);
     
     // Secret authorization disabled - accepting all webhook requests
-    const alertData = JSON.parse(bodyText);
+    const alertData = body;
     console.log('Received alert data:', JSON.stringify(alertData, null, 2));
     
     await log({
@@ -66,10 +75,11 @@ serve(async (req) => {
 
     console.log(`Broadcasting alert to ${allUsers.length} users`);
 
+    // ✅ PHASE 3 OPTIMIZATION: Parallel user processing with concurrency limit
+    const CONCURRENT_LIMIT = 10;
     const results = [];
-
-    // Process alert for each user
-    for (const userRow of allUsers) {
+    
+    const processUser = async (userRow: any) => {
       const userId = userRow.user_id;
       console.log(`\n=== Processing for user: ${userId} ===`);
 
@@ -115,8 +125,7 @@ serve(async (req) => {
 
         if (alertError) {
           console.error(`Failed to save alert for user ${userId}:`, alertError);
-          results.push({ userId, status: 'error', reason: 'Failed to save alert' });
-          continue;
+          return { userId, status: 'error', reason: 'Failed to save alert' };
         }
 
         console.log(`Alert saved for user ${userId}, ID: ${alert.id}`);
@@ -138,8 +147,7 @@ serve(async (req) => {
             .from('alerts')
             .update({ status: 'error', error_message: 'User settings not configured' })
             .eq('id', alert.id);
-          results.push({ userId, alertId: alert.id, status: 'error', reason: 'Settings not configured' });
-          continue;
+          return { userId, alertId: alert.id, status: 'error', reason: 'Settings not configured' };
         }
 
         // Check if bot is active
@@ -155,8 +163,7 @@ serve(async (req) => {
             .from('alerts')
             .update({ status: 'ignored', error_message: 'Bot not active' })
             .eq('id', alert.id);
-          results.push({ userId, alertId: alert.id, status: 'ignored', reason: 'Bot not active' });
-          continue;
+          return { userId, alertId: alert.id, status: 'ignored', reason: 'Bot not active' };
         }
 
         // Check tier filtering
@@ -172,8 +179,7 @@ serve(async (req) => {
             .from('alerts')
             .update({ status: 'ignored', error_message: 'Tier excluded from trading' })
             .eq('id', alert.id);
-          results.push({ userId, alertId: alert.id, status: 'ignored', reason: `Tier ${alertData.tier} excluded` });
-          continue;
+          return { userId, alertId: alert.id, status: 'ignored', reason: `Tier ${alertData.tier} excluded` };
         }
 
         // All validation passed, invoke trader
@@ -207,7 +213,7 @@ serve(async (req) => {
             .from('alerts')
             .update({ status: 'error', error_message: tradeError.message })
             .eq('id', alert.id);
-          results.push({ userId, alertId: alert.id, status: 'error', reason: tradeError.message });
+          return { userId, alertId: alert.id, status: 'error', reason: tradeError.message };
         } else {
           await log({
             functionName: 'tradingview-webhook',
@@ -216,14 +222,21 @@ serve(async (req) => {
             alertId: alert.id,
             metadata: { tradeResult, userId }
           });
-          results.push({ userId, alertId: alert.id, status: 'executed', tradeResult });
+          return { userId, alertId: alert.id, status: 'executed', tradeResult };
         }
 
       } catch (error) {
         const errorMessage = error instanceof Error ? error.message : 'Unknown error';
         console.error(`Error processing user ${userId}:`, error);
-        results.push({ userId, status: 'error', reason: errorMessage });
+        return { userId, status: 'error', reason: errorMessage };
       }
+    };
+
+    // Process users in batches with concurrency limit
+    for (let i = 0; i < allUsers.length; i += CONCURRENT_LIMIT) {
+      const batch = allUsers.slice(i, i + CONCURRENT_LIMIT);
+      const batchResults = await Promise.all(batch.map(processUser));
+      results.push(...batchResults);
     }
 
     await log({
