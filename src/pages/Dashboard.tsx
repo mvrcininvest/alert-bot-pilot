@@ -794,11 +794,7 @@ export default function Dashboard() {
                                         <Badge variant="destructive" className="text-[10px] px-1 py-0 h-4 animate-pulse">
                                           ⚠️ BRAK
                                         </Badge>
-                                      ) : (
-                                        <Badge variant="outline" className="text-[10px] px-1.5 py-0 h-4 text-yellow-500 border-yellow-500/50">
-                                          ⏳ PENDING
-                                        </Badge>
-                                      )}
+                                      ) : null}
                                       <span className="text-xs font-semibold text-profit">
                                         TP{i+1} ({tp.percentage.toFixed(0)}%):
                                       </span>
