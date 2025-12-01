@@ -135,8 +135,8 @@ serve(async (req) => {
 
     switch (action) {
       case 'batch_actions':
-        // Execute multiple actions in sequence and return all results
-        // This reduces edge function invocation overhead
+        // Execute multiple actions in sequence with rate limiting
+        // This reduces edge function invocation overhead and prevents 429 errors
         console.log(`📦 batch_actions: ${params.actions?.length || 0} actions`);
         const batchResults: Record<string, any> = {};
         
@@ -144,8 +144,14 @@ serve(async (req) => {
           throw new Error('batch_actions requires an array of actions');
         }
         
-        for (const batchAction of params.actions) {
+        for (let i = 0; i < params.actions.length; i++) {
+          const batchAction = params.actions[i];
           const { id, type, params: actionParams } = batchAction;
+          
+          // Add delay between requests to prevent rate limiting (150ms)
+          if (i > 0) {
+            await new Promise(resolve => setTimeout(resolve, 150));
+          }
           
           try {
             console.log(`  ➡️ Executing batch action ${id}: ${type}`);
@@ -172,6 +178,16 @@ serve(async (req) => {
                 
               case 'get_ticker':
                 batchResults[id] = await bitgetRequest(config, 'GET', `/api/v2/mix/market/ticker?symbol=${actionParams.symbol}&productType=USDT-FUTURES`);
+                break;
+              
+              case 'get_position':
+                batchResults[id] = await bitgetRequest(config, 'GET', 
+                  `/api/v2/mix/position/single-position?symbol=${actionParams.symbol}&productType=USDT-FUTURES&marginCoin=USDT`);
+                break;
+              
+              case 'get_plan_orders':
+                batchResults[id] = await bitgetRequest(config, 'GET', 
+                  `/api/v2/mix/order/orders-plan-pending?productType=USDT-FUTURES&planType=${actionParams.planType}&symbol=${actionParams.symbol}`);
                 break;
                 
               default:

@@ -94,142 +94,150 @@ export default function Dashboard() {
     queryFn: async () => {
       if (!positions || positions.length === 0) return {};
       
-      console.log('🚀 Fetching live data for', positions.length, 'positions in parallel');
+      console.log('🚀 Fetching live data for', positions.length, 'positions using batch_actions');
       const startTime = Date.now();
       
-      // Parallel data fetching for all positions
-      const results = await Promise.allSettled(
-        positions.map(async (pos) => {
-          try {
-            // Fetch all data for this position in parallel
-            const [tickerResponse, profitLossResponse, normalPlanResponse, positionResponse] = await Promise.all([
-              supabase.functions.invoke('bitget-api', {
-                body: { action: 'get_ticker', params: { symbol: pos.symbol } }
-              }),
-              supabase.functions.invoke('bitget-api', {
-                body: { action: 'get_plan_orders', params: { symbol: pos.symbol, planType: 'profit_loss' } }
-              }),
-              supabase.functions.invoke('bitget-api', {
-                body: { action: 'get_plan_orders', params: { symbol: pos.symbol, planType: 'normal_plan' } }
-              }),
-              supabase.functions.invoke('bitget-api', {
-                body: { action: 'get_position', params: { symbol: pos.symbol } }
-              }),
-            ]);
-
-            const tickerData = tickerResponse.data;
-            const profitLossOrders = profitLossResponse.data;
-            const normalPlanOrders = normalPlanResponse.data;
-            const positionData = positionResponse.data;
-
-            // Combine all orders into one list
-            const allOrders = [
-              ...(profitLossOrders?.success && profitLossOrders.data?.entrustedList || []),
-              ...(normalPlanOrders?.success && normalPlanOrders.data?.entrustedList || [])
-            ];
-            
-            const exchangePosition = positionData?.success && positionData.data?.[0] 
-              ? positionData.data[0] 
-              : null;
-            
-            // Update DB entry_price if exchange openPriceAvg differs
-            if (exchangePosition?.openPriceAvg) {
-              const dbEntryPrice = Number(pos.entry_price);
-              const exchangeEntryPrice = Number(exchangePosition.openPriceAvg);
-              
-              if (Math.abs(dbEntryPrice - exchangeEntryPrice) > 0.0001) {
-                console.log(`📝 Updating entry_price for ${pos.symbol}: ${dbEntryPrice} → ${exchangeEntryPrice}`);
-                await supabase
-                  .from('positions')
-                  .update({ entry_price: exchangeEntryPrice })
-                  .eq('id', pos.id);
-              }
-            }
-            
-            return {
-              symbol: pos.symbol,
-              data: {
-                currentPrice: tickerData?.success && tickerData.data?.[0]?.lastPr 
-                  ? Number(tickerData.data[0].lastPr) 
-                  : null,
-                markPrice: tickerData?.success && tickerData.data?.[0]?.markPrice
-                  ? Number(tickerData.data[0].markPrice)
-                  : null,
-                fundingRate: tickerData?.success && tickerData.data?.[0]?.fundingRate
-                  ? Number(tickerData.data[0].fundingRate)
-                  : null,
-                liquidationPrice: exchangePosition?.liquidationPrice 
-                  ? Number(exchangePosition.liquidationPrice) 
-                  : null,
-                unrealizedPL: exchangePosition?.unrealizedPL 
-                  ? Number(exchangePosition.unrealizedPL) 
-                  : null,
-                margin: exchangePosition?.margin 
-                  ? Number(exchangePosition.margin) 
-                  : null,
-                achievedProfits: exchangePosition?.achievedProfits 
-                  ? Number(exchangePosition.achievedProfits) 
-                  : null,
-                breakEvenPrice: exchangePosition?.breakEvenPrice 
-                  ? Number(exchangePosition.breakEvenPrice) 
-                  : null,
-                openPriceAvg: exchangePosition?.openPriceAvg 
-                  ? Number(exchangePosition.openPriceAvg) 
-                  : null,
-                slOrders: allOrders
-                  .filter((o: any) => 
-                    o.symbol.toLowerCase() === pos.symbol.toLowerCase() &&
-                    (o.planType === 'pos_loss' || o.planType === 'loss_plan' || 
-                     (o.planType === 'profit_loss' && o.stopLossTriggerPrice)) && 
-                    o.planStatus === 'live'
-                  ),
-                tpOrders: allOrders
-                  .filter((o: any) => 
-                    o.symbol.toLowerCase() === pos.symbol.toLowerCase() &&
-                    (o.planType === 'pos_profit' || o.planType === 'profit_plan' || 
-                     o.planType === 'normal_plan' ||
-                     (o.planType === 'profit_loss' && o.stopSurplusTriggerPrice)) && 
-                    o.planStatus === 'live'
-                  )
-              }
-            };
-          } catch (err) {
-            console.error(`Failed to fetch data for ${pos.symbol}:`, err);
-            return {
-              symbol: pos.symbol,
-              data: { 
-                currentPrice: null, 
-                markPrice: null,
-                fundingRate: null,
-                liquidationPrice: null,
-                unrealizedPL: null,
-                margin: null,
-                achievedProfits: null,
-                breakEvenPrice: null,
-                openPriceAvg: null,
-                slOrders: [], 
-                tpOrders: [] 
-              }
-            };
-          }
-        })
-      );
-
-      // Convert results to dataMap
-      const dataMap: Record<string, any> = {};
-      results.forEach((result) => {
-        if (result.status === 'fulfilled' && result.value) {
-          dataMap[result.value.symbol] = result.value.data;
-        }
+      // Build batch actions for all positions
+      // This reduces API calls from ~24 to 1 batch request
+      const batchActions: { id: string; type: string; params: any }[] = [];
+      
+      positions.forEach((pos) => {
+        // Ticker for each symbol
+        batchActions.push({
+          id: `ticker_${pos.symbol}`,
+          type: 'get_ticker',
+          params: { symbol: pos.symbol }
+        });
+        // Position data
+        batchActions.push({
+          id: `position_${pos.symbol}`,
+          type: 'get_position',
+          params: { symbol: pos.symbol }
+        });
+        // Plan orders (profit_loss for SL)
+        batchActions.push({
+          id: `pl_orders_${pos.symbol}`,
+          type: 'get_plan_orders',
+          params: { symbol: pos.symbol, planType: 'profit_loss' }
+        });
+        // Plan orders (normal_plan for TP)
+        batchActions.push({
+          id: `np_orders_${pos.symbol}`,
+          type: 'get_plan_orders',
+          params: { symbol: pos.symbol, planType: 'normal_plan' }
+        });
       });
       
-      const elapsed = Date.now() - startTime;
-      console.log(`✅ Fetched live data for ${positions.length} positions in ${elapsed}ms`);
+      console.log(`📦 Sending batch request with ${batchActions.length} actions`);
       
-      return dataMap;
+      try {
+        const batchResponse = await supabase.functions.invoke('bitget-api', {
+          body: { 
+            action: 'batch_actions', 
+            params: { actions: batchActions } 
+          }
+        });
+        
+        if (batchResponse.error) {
+          console.error('Batch request failed:', batchResponse.error);
+          throw batchResponse.error;
+        }
+        
+        const batchResults = batchResponse.data?.success ? batchResponse.data.data : batchResponse.data;
+        
+        // Process batch results into dataMap
+        const dataMap: Record<string, any> = {};
+        
+        for (const pos of positions) {
+          const tickerData = batchResults[`ticker_${pos.symbol}`];
+          const positionData = batchResults[`position_${pos.symbol}`];
+          const profitLossOrders = batchResults[`pl_orders_${pos.symbol}`];
+          const normalPlanOrders = batchResults[`np_orders_${pos.symbol}`];
+          
+          // Check for errors in individual results
+          if (tickerData?.error || positionData?.error) {
+            console.warn(`⚠️ Error fetching data for ${pos.symbol}:`, tickerData?.error || positionData?.error);
+          }
+          
+          // Combine all orders into one list
+          const allOrders = [
+            ...(profitLossOrders?.entrustedList || []),
+            ...(normalPlanOrders?.entrustedList || [])
+          ];
+          
+          const exchangePosition = positionData?.[0] || null;
+          
+          // Update DB entry_price if exchange openPriceAvg differs
+          if (exchangePosition?.openPriceAvg) {
+            const dbEntryPrice = Number(pos.entry_price);
+            const exchangeEntryPrice = Number(exchangePosition.openPriceAvg);
+            
+            if (Math.abs(dbEntryPrice - exchangeEntryPrice) > 0.0001) {
+              console.log(`📝 Updating entry_price for ${pos.symbol}: ${dbEntryPrice} → ${exchangeEntryPrice}`);
+              await supabase
+                .from('positions')
+                .update({ entry_price: exchangeEntryPrice })
+                .eq('id', pos.id);
+            }
+          }
+          
+          dataMap[pos.symbol] = {
+            currentPrice: tickerData?.[0]?.lastPr 
+              ? Number(tickerData[0].lastPr) 
+              : null,
+            markPrice: tickerData?.[0]?.markPrice
+              ? Number(tickerData[0].markPrice)
+              : null,
+            fundingRate: tickerData?.[0]?.fundingRate
+              ? Number(tickerData[0].fundingRate)
+              : null,
+            liquidationPrice: exchangePosition?.liquidationPrice 
+              ? Number(exchangePosition.liquidationPrice) 
+              : null,
+            unrealizedPL: exchangePosition?.unrealizedPL 
+              ? Number(exchangePosition.unrealizedPL) 
+              : null,
+            margin: exchangePosition?.margin 
+              ? Number(exchangePosition.margin) 
+              : null,
+            achievedProfits: exchangePosition?.achievedProfits 
+              ? Number(exchangePosition.achievedProfits) 
+              : null,
+            breakEvenPrice: exchangePosition?.breakEvenPrice 
+              ? Number(exchangePosition.breakEvenPrice) 
+              : null,
+            openPriceAvg: exchangePosition?.openPriceAvg 
+              ? Number(exchangePosition.openPriceAvg) 
+              : null,
+            slOrders: allOrders
+              .filter((o: any) => 
+                o.symbol.toLowerCase() === pos.symbol.toLowerCase() &&
+                (o.planType === 'pos_loss' || o.planType === 'loss_plan' || 
+                 (o.planType === 'profit_loss' && o.stopLossTriggerPrice)) && 
+                o.planStatus === 'live'
+              ),
+            tpOrders: allOrders
+              .filter((o: any) => 
+                o.symbol.toLowerCase() === pos.symbol.toLowerCase() &&
+                (o.planType === 'pos_profit' || o.planType === 'profit_plan' || 
+                 o.planType === 'normal_plan' ||
+                 (o.planType === 'profit_loss' && o.stopSurplusTriggerPrice)) && 
+                o.planStatus === 'live'
+              )
+          };
+        }
+        
+        const elapsed = Date.now() - startTime;
+        console.log(`✅ Fetched live data for ${positions.length} positions in ${elapsed}ms (batch mode)`);
+        
+        return dataMap;
+      } catch (err) {
+        console.error('Failed to fetch batch data:', err);
+        return {};
+      }
     },
     enabled: !!positions && positions.length > 0,
-    refetchInterval: 3000,
+    refetchInterval: 10000, // Increased from 3s to 10s for rate limiting
     staleTime: 0,
     refetchOnWindowFocus: true,
     refetchIntervalInBackground: true,
