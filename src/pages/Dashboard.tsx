@@ -56,6 +56,20 @@ export default function Dashboard() {
       supabase.removeChannel(channel);
     };
   }, [queryClient, toast]);
+
+  // Auto-refresh when tab becomes visible
+  useEffect(() => {
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        console.log('👁️ Tab visible - immediate refresh');
+        queryClient.invalidateQueries({ queryKey: ['open-positions'] });
+        queryClient.invalidateQueries({ queryKey: ['live-data'] });
+      }
+    };
+    
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
+  }, [queryClient]);
   
   const { data: positions, refetch: refetchPositions } = useQuery({
     queryKey: ["open-positions"],
@@ -80,126 +94,137 @@ export default function Dashboard() {
     queryFn: async () => {
       if (!positions || positions.length === 0) return {};
       
-      const dataMap: Record<string, any> = {};
+      console.log('🚀 Fetching live data for', positions.length, 'positions in parallel');
+      const startTime = Date.now();
       
-      for (const pos of positions) {
-        try {
-          const { data: tickerData } = await supabase.functions.invoke('bitget-api', {
-            body: { 
-              action: 'get_ticker',
-              params: { symbol: pos.symbol }
-            }
-          });
-          
-          // Fetch BOTH order types - profit_loss (SL) and normal_plan (TP)
-          const { data: profitLossOrders } = await supabase.functions.invoke('bitget-api', {
-            body: { 
-              action: 'get_plan_orders',
-              params: { symbol: pos.symbol, planType: 'profit_loss' }
-            }
-          });
+      // Parallel data fetching for all positions
+      const results = await Promise.allSettled(
+        positions.map(async (pos) => {
+          try {
+            // Fetch all data for this position in parallel
+            const [tickerResponse, profitLossResponse, normalPlanResponse, positionResponse] = await Promise.all([
+              supabase.functions.invoke('bitget-api', {
+                body: { action: 'get_ticker', params: { symbol: pos.symbol } }
+              }),
+              supabase.functions.invoke('bitget-api', {
+                body: { action: 'get_plan_orders', params: { symbol: pos.symbol, planType: 'profit_loss' } }
+              }),
+              supabase.functions.invoke('bitget-api', {
+                body: { action: 'get_plan_orders', params: { symbol: pos.symbol, planType: 'normal_plan' } }
+              }),
+              supabase.functions.invoke('bitget-api', {
+                body: { action: 'get_position', params: { symbol: pos.symbol } }
+              }),
+            ]);
 
-          const { data: normalPlanOrders } = await supabase.functions.invoke('bitget-api', {
-            body: { 
-              action: 'get_plan_orders',
-              params: { symbol: pos.symbol, planType: 'normal_plan' }
-            }
-          });
+            const tickerData = tickerResponse.data;
+            const profitLossOrders = profitLossResponse.data;
+            const normalPlanOrders = normalPlanResponse.data;
+            const positionData = positionResponse.data;
 
-          // Combine all orders into one list
-          const allOrders = [
-            ...(profitLossOrders?.success && profitLossOrders.data?.entrustedList || []),
-            ...(normalPlanOrders?.success && normalPlanOrders.data?.entrustedList || [])
-          ];
-          
-          // Get accurate position data from exchange
-          const { data: positionData } = await supabase.functions.invoke('bitget-api', {
-            body: { 
-              action: 'get_position',
-              params: { symbol: pos.symbol }
-            }
-          });
-          
-          const exchangePosition = positionData?.success && positionData.data?.[0] 
-            ? positionData.data[0] 
-            : null;
-          
-          // Update DB entry_price if exchange openPriceAvg differs
-          if (exchangePosition?.openPriceAvg) {
-            const dbEntryPrice = Number(pos.entry_price);
-            const exchangeEntryPrice = Number(exchangePosition.openPriceAvg);
+            // Combine all orders into one list
+            const allOrders = [
+              ...(profitLossOrders?.success && profitLossOrders.data?.entrustedList || []),
+              ...(normalPlanOrders?.success && normalPlanOrders.data?.entrustedList || [])
+            ];
             
-            if (Math.abs(dbEntryPrice - exchangeEntryPrice) > 0.0001) {
-              console.log(`📝 Updating entry_price for ${pos.symbol}: ${dbEntryPrice} → ${exchangeEntryPrice}`);
-              await supabase
-                .from('positions')
-                .update({ entry_price: exchangeEntryPrice })
-                .eq('id', pos.id);
+            const exchangePosition = positionData?.success && positionData.data?.[0] 
+              ? positionData.data[0] 
+              : null;
+            
+            // Update DB entry_price if exchange openPriceAvg differs
+            if (exchangePosition?.openPriceAvg) {
+              const dbEntryPrice = Number(pos.entry_price);
+              const exchangeEntryPrice = Number(exchangePosition.openPriceAvg);
+              
+              if (Math.abs(dbEntryPrice - exchangeEntryPrice) > 0.0001) {
+                console.log(`📝 Updating entry_price for ${pos.symbol}: ${dbEntryPrice} → ${exchangeEntryPrice}`);
+                await supabase
+                  .from('positions')
+                  .update({ entry_price: exchangeEntryPrice })
+                  .eq('id', pos.id);
+              }
             }
+            
+            return {
+              symbol: pos.symbol,
+              data: {
+                currentPrice: tickerData?.success && tickerData.data?.[0]?.lastPr 
+                  ? Number(tickerData.data[0].lastPr) 
+                  : null,
+                markPrice: tickerData?.success && tickerData.data?.[0]?.markPrice
+                  ? Number(tickerData.data[0].markPrice)
+                  : null,
+                fundingRate: tickerData?.success && tickerData.data?.[0]?.fundingRate
+                  ? Number(tickerData.data[0].fundingRate)
+                  : null,
+                liquidationPrice: exchangePosition?.liquidationPrice 
+                  ? Number(exchangePosition.liquidationPrice) 
+                  : null,
+                unrealizedPL: exchangePosition?.unrealizedPL 
+                  ? Number(exchangePosition.unrealizedPL) 
+                  : null,
+                margin: exchangePosition?.margin 
+                  ? Number(exchangePosition.margin) 
+                  : null,
+                achievedProfits: exchangePosition?.achievedProfits 
+                  ? Number(exchangePosition.achievedProfits) 
+                  : null,
+                breakEvenPrice: exchangePosition?.breakEvenPrice 
+                  ? Number(exchangePosition.breakEvenPrice) 
+                  : null,
+                openPriceAvg: exchangePosition?.openPriceAvg 
+                  ? Number(exchangePosition.openPriceAvg) 
+                  : null,
+                slOrders: allOrders
+                  .filter((o: any) => 
+                    o.symbol.toLowerCase() === pos.symbol.toLowerCase() &&
+                    (o.planType === 'pos_loss' || o.planType === 'loss_plan' || 
+                     (o.planType === 'profit_loss' && o.stopLossTriggerPrice)) && 
+                    o.planStatus === 'live'
+                  ),
+                tpOrders: allOrders
+                  .filter((o: any) => 
+                    o.symbol.toLowerCase() === pos.symbol.toLowerCase() &&
+                    (o.planType === 'pos_profit' || o.planType === 'profit_plan' || 
+                     o.planType === 'normal_plan' ||
+                     (o.planType === 'profit_loss' && o.stopSurplusTriggerPrice)) && 
+                    o.planStatus === 'live'
+                  )
+              }
+            };
+          } catch (err) {
+            console.error(`Failed to fetch data for ${pos.symbol}:`, err);
+            return {
+              symbol: pos.symbol,
+              data: { 
+                currentPrice: null, 
+                markPrice: null,
+                fundingRate: null,
+                liquidationPrice: null,
+                unrealizedPL: null,
+                margin: null,
+                achievedProfits: null,
+                breakEvenPrice: null,
+                openPriceAvg: null,
+                slOrders: [], 
+                tpOrders: [] 
+              }
+            };
           }
-          
-          dataMap[pos.symbol] = {
-            currentPrice: tickerData?.success && tickerData.data?.[0]?.lastPr 
-              ? Number(tickerData.data[0].lastPr) 
-              : null,
-            markPrice: tickerData?.success && tickerData.data?.[0]?.markPrice
-              ? Number(tickerData.data[0].markPrice)
-              : null,
-            fundingRate: tickerData?.success && tickerData.data?.[0]?.fundingRate
-              ? Number(tickerData.data[0].fundingRate)
-              : null,
-            // Exchange position data
-            liquidationPrice: exchangePosition?.liquidationPrice 
-              ? Number(exchangePosition.liquidationPrice) 
-              : null,
-            unrealizedPL: exchangePosition?.unrealizedPL 
-              ? Number(exchangePosition.unrealizedPL) 
-              : null,
-            margin: exchangePosition?.margin 
-              ? Number(exchangePosition.margin) 
-              : null,
-            achievedProfits: exchangePosition?.achievedProfits 
-              ? Number(exchangePosition.achievedProfits) 
-              : null,
-            breakEvenPrice: exchangePosition?.breakEvenPrice 
-              ? Number(exchangePosition.breakEvenPrice) 
-              : null,
-            openPriceAvg: exchangePosition?.openPriceAvg 
-              ? Number(exchangePosition.openPriceAvg) 
-              : null,
-            slOrders: allOrders
-              .filter((o: any) => 
-                o.symbol.toLowerCase() === pos.symbol.toLowerCase() &&
-                (o.planType === 'pos_loss' || o.planType === 'loss_plan' || 
-                 (o.planType === 'profit_loss' && o.stopLossTriggerPrice)) && 
-                o.planStatus === 'live'
-              ),
-            tpOrders: allOrders
-              .filter((o: any) => 
-                o.symbol.toLowerCase() === pos.symbol.toLowerCase() &&
-                (o.planType === 'pos_profit' || o.planType === 'profit_plan' || 
-                 o.planType === 'normal_plan' ||
-                 (o.planType === 'profit_loss' && o.stopSurplusTriggerPrice)) && 
-                o.planStatus === 'live'
-              )
-          };
-        } catch (err) {
-          console.error(`Failed to fetch data for ${pos.symbol}:`, err);
-          dataMap[pos.symbol] = { 
-            currentPrice: null, 
-            markPrice: null,
-            fundingRate: null,
-            liquidationPrice: null,
-            unrealizedPL: null,
-            margin: null,
-            achievedProfits: null,
-            breakEvenPrice: null,
-            openPriceAvg: null,
-            slOrders: [], 
-            tpOrders: [] 
-          };
+        })
+      );
+
+      // Convert results to dataMap
+      const dataMap: Record<string, any> = {};
+      results.forEach((result) => {
+        if (result.status === 'fulfilled' && result.value) {
+          dataMap[result.value.symbol] = result.value.data;
         }
-      }
+      });
+      
+      const elapsed = Date.now() - startTime;
+      console.log(`✅ Fetched live data for ${positions.length} positions in ${elapsed}ms`);
       
       return dataMap;
     },
@@ -498,17 +523,35 @@ export default function Dashboard() {
                     ? pos.real_tp_prices 
                     : [pos.tp1_price, pos.tp2_price, pos.tp3_price].filter(Boolean).map(Number);
                   
-                  // Calculate progress to TP/SL
+                  // Calculate progress to NEXT active TP (skip filled ones)
                   const currentPrice = Number(pos.current_price);
                   const entryPrice = Number(pos.entry_price);
                   const slPrice = displaySlPrice;
-                  const tpPrice = displayTpPrices[0] || 0;
+                  
+                  // Find the next unfilled TP level
+                  const getNextActiveTP = () => {
+                    if (!pos.tp1_filled && displayTpPrices[0]) {
+                      return { level: 1, price: displayTpPrices[0], basePrice: entryPrice };
+                    }
+                    if (!pos.tp2_filled && displayTpPrices[1]) {
+                      return { level: 2, price: displayTpPrices[1], basePrice: displayTpPrices[0] || entryPrice };
+                    }
+                    if (!pos.tp3_filled && displayTpPrices[2]) {
+                      return { level: 3, price: displayTpPrices[2], basePrice: displayTpPrices[1] || entryPrice };
+                    }
+                    return null;
+                  };
+
+                  const nextTP = getNextActiveTP();
+                  const tpPrice = nextTP?.price || 0;
+                  const tpLevel = nextTP?.level || 1;
+                  const basePrice = nextTP?.basePrice || entryPrice;
                   
                   let progressToTP = 0;
-                  if (pos.side === 'BUY' && tpPrice > entryPrice) {
-                    progressToTP = ((currentPrice - entryPrice) / (tpPrice - entryPrice)) * 100;
-                  } else if (pos.side === 'SELL' && tpPrice < entryPrice) {
-                    progressToTP = ((entryPrice - currentPrice) / (entryPrice - tpPrice)) * 100;
+                  if (pos.side === 'BUY' && tpPrice > basePrice) {
+                    progressToTP = ((currentPrice - basePrice) / (tpPrice - basePrice)) * 100;
+                  } else if (pos.side === 'SELL' && tpPrice < basePrice) {
+                    progressToTP = ((basePrice - currentPrice) / (basePrice - tpPrice)) * 100;
                   }
                   progressToTP = Math.max(0, Math.min(100, progressToTP));
                   
@@ -737,31 +780,43 @@ export default function Dashboard() {
                           <p className="text-xs text-muted-foreground">Take Profit</p>
                           {pos.tp_gains && pos.tp_gains.length > 0 ? (
                             <div className="space-y-1.5">
-                              {pos.tp_gains.map((tp, i) => (
-                                <div key={i} className="space-y-0.5">
-                                  <div className="flex items-center gap-2">
-                                    <span className="text-xs font-semibold text-profit">
-                                      TP{i+1} ({tp.percentage.toFixed(0)}%):
-                                    </span>
-                                    <span className="text-xs text-profit">
-                                      ${tp.price.toFixed(4)}
-                                    </span>
-                                    {!tp.hasOrder && (
-                                      <Badge variant="destructive" className="text-[10px] px-1 py-0 h-4 animate-pulse">
-                                        ⚠️ BRAK ZLECENIA
+                              {pos.tp_gains.map((tp, i) => {
+                                const isFilled = i === 0 ? pos.tp1_filled : i === 1 ? pos.tp2_filled : pos.tp3_filled;
+                                
+                                return (
+                                  <div key={i} className="space-y-0.5">
+                                    <div className="flex items-center gap-2">
+                                      {isFilled ? (
+                                        <Badge variant="default" className="bg-profit text-white text-[10px] px-1.5 py-0 h-4">
+                                          ✅ FILLED
+                                        </Badge>
+                                      ) : !tp.hasOrder ? (
+                                        <Badge variant="destructive" className="text-[10px] px-1 py-0 h-4 animate-pulse">
+                                          ⚠️ BRAK
+                                        </Badge>
+                                      ) : (
+                                        <Badge variant="outline" className="text-[10px] px-1.5 py-0 h-4 text-yellow-500 border-yellow-500/50">
+                                          ⏳ PENDING
+                                        </Badge>
+                                      )}
+                                      <span className="text-xs font-semibold text-profit">
+                                        TP{i+1} ({tp.percentage.toFixed(0)}%):
+                                      </span>
+                                      <span className="text-xs text-profit">
+                                        ${tp.price.toFixed(4)}
+                                      </span>
+                                    </div>
+                                    <div className="flex items-center gap-2">
+                                      <Badge variant="outline" className="text-[10px] px-1.5 py-0 h-4 bg-profit/10 text-profit border-profit/30">
+                                        {tp.rr.toFixed(1)}:1 RR
                                       </Badge>
-                                    )}
+                                      <span className="text-xs text-profit/70">
+                                        +${tp.gain.toFixed(2)}
+                                      </span>
+                                    </div>
                                   </div>
-                                  <div className="flex items-center gap-2">
-                                    <Badge variant="outline" className="text-[10px] px-1.5 py-0 h-4 bg-profit/10 text-profit border-profit/30">
-                                      {tp.rr.toFixed(1)}:1 RR
-                                    </Badge>
-                                    <span className="text-xs text-profit/70">
-                                      +${tp.gain.toFixed(2)}
-                                    </span>
-                                  </div>
-                                </div>
-                              ))}
+                                );
+                              })}
                               {/* Total Potential Summary */}
                               {pos.tp_gains.length > 1 && pos.total_potential_gain !== undefined && (
                                 <div className="pt-1.5 mt-1.5 border-t border-profit/20">
@@ -798,11 +853,14 @@ export default function Dashboard() {
                         </div>
                       </div>
 
-                      {/* Progress bar to TP */}
-                      {tpPrice > 0 && (
+                      {/* Progress bar to NEXT TP */}
+                      {tpPrice > 0 && nextTP && (
                         <div className="space-y-2 mb-4 pl-3">
                           <div className="flex items-center justify-between text-xs">
-                            <span className="text-muted-foreground">Postęp do TP1</span>
+                            <span className="text-muted-foreground">
+                              Postęp do TP{tpLevel}
+                              {tpLevel > 1 && <span className="text-profit ml-1">(TP{tpLevel-1} ✅)</span>}
+                            </span>
                             <span className="font-medium">{progressToTP.toFixed(1)}%</span>
                           </div>
                           <Progress 
