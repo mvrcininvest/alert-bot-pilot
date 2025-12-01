@@ -285,51 +285,91 @@ export default function Dashboard() {
     }
 
     // Calculate potential TP gains (per TP level with quantities)
-    const tpGains: { price: number; quantity: number; gain: number; rr: number; percentage: number; hasOrder: boolean; orderId: string | null }[] = [];
+    const tpGains: { price: number; quantity: number; gain: number; rr: number; percentage: number; hasOrder: boolean; orderId: string | null; isFilled: boolean }[] = [];
     
     // Calculate SL distance for RR calculations
     const slDistance = Math.abs(entryPrice - slPrice);
 
+    // Helper: find live order by orderId (not by array index!)
+    const findOrderById = (orderId: string | null) => {
+      if (!orderId) return null;
+      return tpOrders.find((o: any) => o.orderId === orderId);
+    };
+
     // TP1
     if (Number(pos.tp1_price) && Number(pos.tp1_quantity)) {
-      const tp1Price = realTpPrices[0] || Number(pos.tp1_price);
       const tp1Qty = Number(pos.tp1_quantity);
+      const isFilled = !!pos.tp1_filled;
+      
+      // If filled, use DB price (historical). If not, try to find live order by orderId.
+      let tp1Price = Number(pos.tp1_price);
+      let hasOrder = false;
+      
+      if (!isFilled) {
+        const liveOrder = findOrderById(pos.tp1_order_id);
+        if (liveOrder) {
+          tp1Price = Number(liveOrder.stopSurplusTriggerPrice || liveOrder.triggerPrice) || tp1Price;
+          hasOrder = true;
+        }
+      }
+      
       const gain = pos.side === 'BUY' 
         ? (tp1Price - entryPrice) * tp1Qty 
         : (entryPrice - tp1Price) * tp1Qty;
       const tp1Distance = Math.abs(tp1Price - entryPrice);
       const rr = slDistance > 0 ? tp1Distance / slDistance : 0;
       const percentage = quantity > 0 ? (tp1Qty / quantity) * 100 : 0;
-      const hasOrder = !!pos.tp1_order_id && realTpPrices.length >= 1;
-      tpGains.push({ price: tp1Price, quantity: tp1Qty, gain, rr, percentage, hasOrder, orderId: pos.tp1_order_id });
+      tpGains.push({ price: tp1Price, quantity: tp1Qty, gain, rr, percentage, hasOrder, orderId: pos.tp1_order_id, isFilled });
     }
 
     // TP2
     if (Number(pos.tp2_price) && Number(pos.tp2_quantity)) {
-      const tp2Price = realTpPrices[1] || Number(pos.tp2_price);
       const tp2Qty = Number(pos.tp2_quantity);
+      const isFilled = !!pos.tp2_filled;
+      
+      let tp2Price = Number(pos.tp2_price);
+      let hasOrder = false;
+      
+      if (!isFilled) {
+        const liveOrder = findOrderById(pos.tp2_order_id);
+        if (liveOrder) {
+          tp2Price = Number(liveOrder.stopSurplusTriggerPrice || liveOrder.triggerPrice) || tp2Price;
+          hasOrder = true;
+        }
+      }
+      
       const gain = pos.side === 'BUY' 
         ? (tp2Price - entryPrice) * tp2Qty 
         : (entryPrice - tp2Price) * tp2Qty;
       const tp2Distance = Math.abs(tp2Price - entryPrice);
       const rr = slDistance > 0 ? tp2Distance / slDistance : 0;
       const percentage = quantity > 0 ? (tp2Qty / quantity) * 100 : 0;
-      const hasOrder = !!pos.tp2_order_id && realTpPrices.length >= 2;
-      tpGains.push({ price: tp2Price, quantity: tp2Qty, gain, rr, percentage, hasOrder, orderId: pos.tp2_order_id });
+      tpGains.push({ price: tp2Price, quantity: tp2Qty, gain, rr, percentage, hasOrder, orderId: pos.tp2_order_id, isFilled });
     }
 
     // TP3
     if (Number(pos.tp3_price) && Number(pos.tp3_quantity)) {
-      const tp3Price = realTpPrices[2] || Number(pos.tp3_price);
       const tp3Qty = Number(pos.tp3_quantity);
+      const isFilled = !!pos.tp3_filled;
+      
+      let tp3Price = Number(pos.tp3_price);
+      let hasOrder = false;
+      
+      if (!isFilled) {
+        const liveOrder = findOrderById(pos.tp3_order_id);
+        if (liveOrder) {
+          tp3Price = Number(liveOrder.stopSurplusTriggerPrice || liveOrder.triggerPrice) || tp3Price;
+          hasOrder = true;
+        }
+      }
+      
       const gain = pos.side === 'BUY' 
         ? (tp3Price - entryPrice) * tp3Qty 
         : (entryPrice - tp3Price) * tp3Qty;
       const tp3Distance = Math.abs(tp3Price - entryPrice);
       const rr = slDistance > 0 ? tp3Distance / slDistance : 0;
       const percentage = quantity > 0 ? (tp3Qty / quantity) * 100 : 0;
-      const hasOrder = !!pos.tp3_order_id && realTpPrices.length >= 3;
-      tpGains.push({ price: tp3Price, quantity: tp3Qty, gain, rr, percentage, hasOrder, orderId: pos.tp3_order_id });
+      tpGains.push({ price: tp3Price, quantity: tp3Qty, gain, rr, percentage, hasOrder, orderId: pos.tp3_order_id, isFilled });
     }
     
     // Calculate total potential gain and effective RR
@@ -788,13 +828,10 @@ export default function Dashboard() {
                           <p className="text-xs text-muted-foreground">Take Profit</p>
                           {pos.tp_gains && pos.tp_gains.length > 0 ? (
                             <div className="space-y-1.5">
-                              {pos.tp_gains.map((tp, i) => {
-                                const isFilled = i === 0 ? pos.tp1_filled : i === 1 ? pos.tp2_filled : pos.tp3_filled;
-                                
-                                return (
+                              {pos.tp_gains.map((tp, i) => (
                                   <div key={i} className="space-y-0.5">
                                     <div className="flex items-center gap-2">
-                                      {isFilled ? (
+                                      {tp.isFilled ? (
                                         <Badge variant="default" className="bg-profit text-white text-[10px] px-1.5 py-0 h-4">
                                           ✅ FILLED
                                         </Badge>
@@ -819,8 +856,7 @@ export default function Dashboard() {
                                       </span>
                                     </div>
                                   </div>
-                                );
-                              })}
+                              ))}
                               {/* Total Potential Summary */}
                               {pos.tp_gains.length > 1 && pos.total_potential_gain !== undefined && (
                                 <div className="pt-1.5 mt-1.5 border-t border-profit/20">
