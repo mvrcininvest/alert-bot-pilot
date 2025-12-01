@@ -3009,14 +3009,15 @@ async function checkPositionFullVerification(supabase: any, position: any, setti
         
         const { data: tpResult } = await supabase.functions.invoke('bitget-api', {
           body: {
-            action: 'place_order',
+            action: 'place_plan_order',
             params: {
               symbol: position.symbol,
+              planType: 'normal_plan',
               side: holdSide === 'long' ? 'close_long' : 'close_short',
               size: roundedQty.toString(),
-              price: roundedTpPrice,
-              orderType: 'limit',
-              reduceOnly: 'YES',
+              triggerPrice: roundedTpPrice,
+              triggerType: 'mark_price',
+              orderType: 'market',
             },
             apiCredentials
           }
