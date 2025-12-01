@@ -75,6 +75,7 @@ async function getPositionSizeFromExchange(
 }
 
 // ✅ PART 2: executeVerifiedClose - Close with position size verification
+// ✅ FIX: Use close_position FIRST (flash_close may ignore size parameter)
 async function executeVerifiedClose(
   supabase: any, 
   position: any, 
@@ -94,7 +95,39 @@ async function executeVerifiedClose(
     return { success: true, actualClosedQty: quantity, method: 'already_closed' };
   }
   
-  // 2. Try flash_close (3 attempts with verification)
+  // 2. Try close_position FIRST with explicit size (more reliable for partial closes)
+  console.log(`⚡ Attempting close_position with explicit size=${quantity}`);
+  for (let attempt = 1; attempt <= 3; attempt++) {
+    const { data: closeResult } = await supabase.functions.invoke('bitget-api', {
+      body: {
+        action: 'close_position',
+        params: { 
+          symbol: position.symbol, 
+          side: holdSide === 'long' ? 'close_long' : 'close_short',
+          size: quantity.toString() 
+        },
+        apiCredentials
+      }
+    });
+    
+    if (closeResult?.success) {
+      await new Promise(r => setTimeout(r, 500));
+      
+      const afterSize = await getPositionSizeFromExchange(supabase, position.symbol, holdSide, apiCredentials);
+      console.log(`📊 Position size AFTER close_position: ${afterSize} (was: ${beforeSize})`);
+      
+      if (afterSize < beforeSize * 0.99) {
+        const closedQty = beforeSize - afterSize;
+        console.log(`✅ Verified close: ${closedQty} units closed via close_position`);
+        return { success: true, actualClosedQty: closedQty, method: 'close_position' };
+      }
+    }
+    
+    if (attempt < 3) await new Promise(r => setTimeout(r, 500));
+  }
+  
+  // 3. Try flash_close as fallback (may close entire position - use with caution)
+  console.warn(`⚠️ close_position failed, trying flash_close (may close more than requested)`);
   for (let attempt = 1; attempt <= 3; attempt++) {
     const { data: flashResult } = await supabase.functions.invoke('bitget-api', {
       body: {
@@ -107,9 +140,8 @@ async function executeVerifiedClose(
     const wasExecuted = flashResult?.wasExecuted || flashResult?.data?.wasExecuted;
     
     if (wasExecuted || flashResult?.success) {
-      await new Promise(r => setTimeout(r, 500)); // Wait for propagation
+      await new Promise(r => setTimeout(r, 500));
       
-      // VERIFY: Check actual position size after close
       const afterSize = await getPositionSizeFromExchange(supabase, position.symbol, holdSide, apiCredentials);
       console.log(`📊 Position size AFTER flash close: ${afterSize} (was: ${beforeSize})`);
       
@@ -123,36 +155,6 @@ async function executeVerifiedClose(
     }
     
     console.warn(`⚠️ Flash close attempt ${attempt}/3 - not verified`);
-    if (attempt < 3) await new Promise(r => setTimeout(r, 500));
-  }
-  
-  // 3. Try market close (3 attempts with verification)
-  for (let attempt = 1; attempt <= 3; attempt++) {
-    const { data: closeResult } = await supabase.functions.invoke('bitget-api', {
-      body: {
-        action: 'close_position',
-        params: { 
-          symbol: position.symbol, 
-          side: holdSide === 'long' ? 'close_long' : 'close_short',  // ✅ Explicit format
-          size: quantity.toString() 
-        },
-        apiCredentials
-      }
-    });
-    
-    if (closeResult?.success) {
-      await new Promise(r => setTimeout(r, 500));
-      
-      const afterSize = await getPositionSizeFromExchange(supabase, position.symbol, holdSide, apiCredentials);
-      console.log(`📊 Position size AFTER market close: ${afterSize} (was: ${beforeSize})`);
-      
-      if (afterSize < beforeSize * 0.99) {
-        const closedQty = beforeSize - afterSize;
-        console.log(`✅ Verified close: ${closedQty} units closed via market_close`);
-        return { success: true, actualClosedQty: closedQty, method: 'market_close' };
-      }
-    }
-    
     if (attempt < 3) await new Promise(r => setTimeout(r, 500));
   }
   
@@ -295,6 +297,23 @@ interface ExpectedSLTP {
   tp1_quantity?: number;
   tp2_quantity?: number;
   tp3_quantity?: number;
+}
+
+interface ResyncResult {
+  mismatch: boolean;
+  reason: string;
+  missingOrders: {
+    sl: boolean;
+    tp1: boolean;
+    tp2: boolean;
+    tp3: boolean;
+  };
+  priceIssues: {
+    sl: boolean;
+    tp1: boolean;
+    tp2: boolean;
+    tp3: boolean;
+  };
 }
 
 function calculateExpectedSLTP(position: any, settings: any): ExpectedSLTP {
@@ -791,20 +810,34 @@ function calculateScalpingSLTP(
   return { sl_price: slPrice, tp1_price: tp1Price, tp2_price: tp2Price, tp3_price: tp3Price };
 }
 
-// Check if resync is needed
+// Check if resync is needed - returns detailed information about what needs fixing
 function checkIfResyncNeeded(
   slOrders: any[],
   tpOrders: any[],
   expected: ExpectedSLTP,
   settings: any,
   position: any
-): { mismatch: boolean; reason: string } {
+): ResyncResult {
+  const result: ResyncResult = {
+    mismatch: false,
+    reason: '',
+    missingOrders: { sl: false, tp1: false, tp2: false, tp3: false },
+    priceIssues: { sl: false, tp1: false, tp2: false, tp3: false }
+  };
+  
   // Check SL - must have exactly 1
   if (slOrders.length !== 1) {
-    return { mismatch: true, reason: `Expected 1 SL order, found ${slOrders.length}` };
+    result.mismatch = true;
+    result.missingOrders.sl = true;
+    result.reason = `Expected 1 SL order, found ${slOrders.length}`;
+    
+    // Early return - can't check prices if order doesn't exist
+    if (slOrders.length === 0) {
+      return result;
+    }
   }
   
-  const actualSlPrice = Number(slOrders[0].triggerPrice);
+  const actualSlPrice = Number(slOrders[0]?.triggerPrice || 0);
   const isBuy = position.side === 'BUY';
   
   // SPECIAL CASE: If position has tp filled and sl_to_breakeven enabled, allow SL at entry price
@@ -827,19 +860,17 @@ function checkIfResyncNeeded(
       // Continue to check TPs...
     } else {
       // SL should be at BE but it's not - flag for correction
-      return { 
-        mismatch: true, 
-        reason: `SL should be at breakeven (${position.entry_price.toFixed(4)}) but is at ${actualSlPrice}` 
-      };
+      result.mismatch = true;
+      result.priceIssues.sl = true;
+      result.reason = `SL should be at breakeven (${position.entry_price.toFixed(4)}) but is at ${actualSlPrice}`;
     }
-  } else {
+  } else if (slOrders.length === 1) {
     // Normal SL check when not at breakeven
     const slPriceDiff = Math.abs(actualSlPrice - expected.sl_price) / expected.sl_price;
     if (slPriceDiff > 0.005) { // ✅ PART 5: Increased from 0.001 (0.1%) to 0.005 (0.5%) tolerance
-      return { 
-        mismatch: true, 
-        reason: `SL price mismatch: expected=${expected.sl_price.toFixed(4)}, actual=${actualSlPrice}, diff=${(slPriceDiff * 100).toFixed(4)}%` 
-      };
+      result.mismatch = true;
+      result.priceIssues.sl = true;
+      result.reason = `SL price mismatch: expected=${expected.sl_price.toFixed(4)}, actual=${actualSlPrice}, diff=${(slPriceDiff * 100).toFixed(4)}%`;
     }
   }
   
@@ -849,9 +880,9 @@ function checkIfResyncNeeded(
   const tp2OrderExists = !position.tp2_price || position.tp2_filled || (position.tp2_order_id && tpOrders.some((o: any) => o.orderId === position.tp2_order_id));
   const tp3OrderExists = !position.tp3_price || position.tp3_filled || (position.tp3_order_id && tpOrders.some((o: any) => o.orderId === position.tp3_order_id));
   
-  if (slOrderExists && tp1OrderExists && tp2OrderExists && tp3OrderExists) {
+  if (slOrderExists && tp1OrderExists && tp2OrderExists && tp3OrderExists && !result.mismatch) {
     console.log(`✅ All orders from DB exist on exchange by order_id - skipping resync`);
-    return { mismatch: false, reason: '' };
+    return result;
   }
   
   // Check TP count - must match tp_levels MINUS filled TPs
@@ -865,10 +896,19 @@ function checkIfResyncNeeded(
   const validTPOrders = tpOrders.filter((o: any) => o.tradeSide === 'close');
   
   if (validTPOrders.length !== expectedTPCount) {
-    return { 
-      mismatch: true, 
-      reason: `Expected ${expectedTPCount} TP orders (filled: TP1=${position.tp1_filled || false}, TP2=${position.tp2_filled || false}, TP3=${position.tp3_filled || false}), found ${validTPOrders.length}` 
-    };
+    result.mismatch = true;
+    result.reason = `Expected ${expectedTPCount} TP orders (filled: TP1=${position.tp1_filled || false}, TP2=${position.tp2_filled || false}, TP3=${position.tp3_filled || false}), found ${validTPOrders.length}`;
+    
+    // Determine which specific TPs are missing
+    for (let i = 1; i <= settings.tp_levels; i++) {
+      const tpFilledKey = `tp${i}_filled` as 'tp1_filled' | 'tp2_filled' | 'tp3_filled';
+      const tpPriceKey = `tp${i}_price` as keyof ExpectedSLTP;
+      
+      if (!position[tpFilledKey] && expected[tpPriceKey]) {
+        const tpKey = `tp${i}` as 'tp1' | 'tp2' | 'tp3';
+        result.missingOrders[tpKey] = true;
+      }
+    }
   }
   
   // Check each TP price and quantity
@@ -885,14 +925,14 @@ function checkIfResyncNeeded(
     });
     
     if (!matchingTP) {
-      return { 
-        mismatch: true, 
-        reason: `TP${i} not found: expected price=${expectedPrice.toFixed(4)}, qty=${expectedQty.toFixed(4)}` 
-      };
+      result.mismatch = true;
+      const tpKey = `tp${i}` as 'tp1' | 'tp2' | 'tp3';
+      result.priceIssues[tpKey] = true;
+      result.reason = `TP${i} not found: expected price=${expectedPrice.toFixed(4)}, qty=${expectedQty.toFixed(4)}`;
     }
   }
   
-  return { mismatch: false, reason: '' };
+  return result;
 }
 
 // Helper function to move SL to breakeven after TP hit
@@ -2680,6 +2720,75 @@ async function checkPositionFullVerification(supabase: any, position: any, setti
   // Check if resync is needed
   const resyncCheck = checkIfResyncNeeded(slOrders, tpOrders, expected, settings, position);
   
+  // ✅ INTELIGENTNY RESYNC: Check order history BEFORE triggering resync
+  // If orders are "missing" but were actually executed, mark as filled instead of resync
+  if (resyncCheck.mismatch && (resyncCheck.missingOrders.tp1 || resyncCheck.missingOrders.tp2 || resyncCheck.missingOrders.tp3)) {
+    console.log(`🔍 Checking order fill history before resync...`);
+    
+    const { data: orderHistory } = await supabase.functions.invoke('bitget-api', {
+      body: {
+        action: 'get_order_fills',
+        params: { 
+          symbol: position.symbol, 
+          startTime: new Date(position.created_at).getTime() 
+        },
+        apiCredentials
+      }
+    });
+    
+    if (orderHistory?.success && orderHistory.data) {
+      const fills = orderHistory.data || [];
+      const closeFills = fills.filter((f: any) => 
+        f.side !== position.side && 
+        f.tradeSide === 'close'
+      );
+      
+      if (closeFills.length > 0) {
+        console.log(`📊 Found ${closeFills.length} close fills in history`);
+        
+        // Calculate total filled quantity
+        const totalFilledQty = closeFills.reduce((sum: number, f: any) => 
+          sum + parseFloat(f.size || f.baseVolume || '0'), 0
+        );
+        
+        console.log(`📊 Total filled quantity from history: ${totalFilledQty}`);
+        
+        // Mark TPs as filled based on quantity
+        const updates: any = {};
+        const tp1Qty = Number(position.tp1_quantity || 0);
+        const tp2Qty = Number(position.tp2_quantity || 0);
+        
+        if (tp1Qty > 0 && !position.tp1_filled && Math.abs(totalFilledQty - tp1Qty) / tp1Qty < 0.1) {
+          updates.tp1_filled = true;
+          console.log(`✅ TP1 was executed (found in fill history) - marking as filled`);
+        } else if (tp2Qty > 0 && !position.tp2_filled && Math.abs(totalFilledQty - tp2Qty) / tp2Qty < 0.1) {
+          updates.tp2_filled = true;
+          console.log(`✅ TP2 was executed (found in fill history) - marking as filled`);
+        }
+        
+        if (Object.keys(updates).length > 0) {
+          await supabase
+            .from('positions')
+            .update({
+              ...updates,
+              quantity: position.quantity - totalFilledQty
+            })
+            .eq('id', position.id);
+          
+          // Cancel resync - orders were actually executed
+          console.log(`✅ Orders were executed - canceling resync`);
+          resyncCheck.mismatch = false;
+          resyncCheck.reason = 'orders_executed';
+          
+          // Update position object
+          if (updates.tp1_filled) position.tp1_filled = true;
+          if (updates.tp2_filled) position.tp2_filled = true;
+          position.quantity -= totalFilledQty;
+        }
+      }
+    }
+  }
+  
   // Log deviations BEFORE resync (if deviations exist but within tolerance)
   await logDeviations(supabase, position, expected, slOrders, tpOrders);
   
@@ -2706,416 +2815,165 @@ async function checkPositionFullVerification(supabase: any, position: any, setti
   }
   
   if (resyncCheck.mismatch) {
-    console.log(`🔄 RESYNC NEEDED for ${position.symbol}: ${resyncCheck.reason}`);
-    await log({
-      functionName: 'position-monitor',
-      message: `Resync triggered: ${resyncCheck.reason}`,
-      level: 'warn',
-      positionId: position.id,
-      metadata: { expected, currentOrders: planOrders.length }
+    console.log(`🔄 SELECTIVE RESYNC for ${position.symbol}: ${resyncCheck.reason}`);
+    console.log(`📊 Resync details:`, {
+      missingOrders: resyncCheck.missingOrders,
+      priceIssues: resyncCheck.priceIssues
     });
     
-    // STEP 1A: Cancel by DB order_ids FIRST (before using API order list)
-    // This prevents duplicates when API returns empty list
-    const dbOrderIds = [
-      { id: position.sl_order_id, label: 'SL' },
-      { id: position.tp1_order_id, label: 'TP1' },
-      { id: position.tp2_order_id, label: 'TP2' },
-      { id: position.tp3_order_id, label: 'TP3' }
-    ].filter(o => o.id);
+    await log({
+      functionName: 'position-monitor',
+      message: `Selective resync triggered: ${resyncCheck.reason}`,
+      level: 'warn',
+      positionId: position.id,
+      metadata: { 
+        expected, 
+        currentOrders: planOrders.length,
+        missingOrders: resyncCheck.missingOrders,
+        priceIssues: resyncCheck.priceIssues
+      }
+    });
     
-    console.log(`🗑️ Step 1A: Canceling ${dbOrderIds.length} orders by DB order_ids...`);
+    const holdSide = position.side === 'BUY' ? 'long' : 'short';
     
-    for (const orderInfo of dbOrderIds) {
-      let canceledSuccessfully = false;
+    // ✅ SELECTIVE RESYNC: Only fix what's broken
+    
+    // 1. Handle SL if needed
+    if (resyncCheck.missingOrders.sl || resyncCheck.priceIssues.sl) {
+      console.log(`🔧 Fixing SL order...`);
       
-      // Try both planType options since we don't know which type it is
-      for (const planType of ['profit_loss', 'normal_plan', 'pos_loss', 'pos_profit']) {
-        try {
+      // Cancel existing SL if it exists
+      if (position.sl_order_id) {
+        for (const planType of ['pos_loss', 'profit_loss']) {
           const { data: cancelResult } = await supabase.functions.invoke('bitget-api', {
             body: {
               action: 'cancel_plan_order',
-              params: { 
-                symbol: position.symbol, 
-                orderId: orderInfo.id,
-                planType
-              },
+              params: { symbol: position.symbol, orderId: position.sl_order_id, planType },
               apiCredentials
             }
           });
-          
           if (cancelResult?.success) {
-            console.log(`✅ Canceled ${orderInfo.label} order ${orderInfo.id} (${planType})`);
-            canceledSuccessfully = true;
+            console.log(`✅ Canceled SL order ${position.sl_order_id}`);
             break;
           }
-        } catch (e) {
-          // Try next planType
         }
       }
       
-      if (!canceledSuccessfully) {
-        console.warn(`⚠️ Failed to cancel ${orderInfo.label} order ${orderInfo.id}, may already be executed`);
-      }
-    }
-    
-    // STEP 1B: Cancel remaining orders from API list (safety net)
-    console.log(`🗑️ Step 1B: Canceling ${planOrders.length} orders from API list...`);
-    for (const order of planOrders) {
-      // Skip if already canceled by DB order_id
-      if (dbOrderIds.some(o => o.id === order.orderId)) {
-        console.log(`⏭️ Skipping ${order.orderId} - already canceled by DB ID`);
-        continue;
-      }
+      await new Promise(r => setTimeout(r, 500));
       
-      const { data: cancelResult, error: cancelError } = await supabase.functions.invoke('bitget-api', {
-        body: {
-          action: 'cancel_plan_order',
-          params: {
-            symbol: position.symbol,
-            orderId: order.orderId,
-            planType: order.planType
-          },
-          apiCredentials
+      // Check if price already passed SL level
+      const slAlreadyTriggered = isPriceBeyondLevel(currentPrice, expected.sl_price, position.side, 'SL');
+      
+      if (slAlreadyTriggered) {
+        console.log(`🚨 CRITICAL: Price ${currentPrice} already past SL ${expected.sl_price} - closing position immediately!`);
+        
+        const { data: posData } = await supabase.functions.invoke('bitget-api', {
+          body: { action: 'get_position', params: { symbol: position.symbol }, apiCredentials }
+        });
+        
+        const exchangePosition = posData?.data?.find((p: any) => 
+          p.holdSide === (position.side === 'BUY' ? 'long' : 'short')
+        );
+        
+        if (exchangePosition && parseFloat(exchangePosition.total) > 0) {
+          const closeResult = await executeVerifiedClose(
+            supabase, position, parseFloat(exchangePosition.total), 
+            holdSide, apiCredentials, pricePlace, volumePlace
+          );
+          
+          if (closeResult.success) {
+            await markPositionAsClosed(supabase, position, 'sl_hit_delayed');
+            console.log(`✅ Emergency close executed - SL was already breached`);
+            actions.push(`Emergency close - SL already hit (price: ${currentPrice})`);
+            return;
+          }
         }
-      });
-      
-      if (cancelError || !cancelResult?.success) {
-        const errorMsg = cancelError?.message || cancelResult?.error || 'Unknown cancel error';
-        console.warn(`⚠️ Failed to cancel order ${order.orderId}: ${errorMsg}`);
-        // Don't throw - continue with other orders
       } else {
-        console.log(`✅ Canceled order ${order.orderId} (${order.planType})`);
-      }
-    }
-    
-    // Wait for cancellations to process
-    await new Promise(r => setTimeout(r, 1000));
-    
-    // STEP 1C: Verify cancellation - check if DB orders still exist
-    console.log(`🔍 Step 1C: Verifying cancellation...`);
-    const { data: verifyProfitLoss } = await supabase.functions.invoke('bitget-api', {
-      body: {
-        action: 'get_plan_orders',
-        params: { symbol: position.symbol, planType: 'profit_loss' },
-        apiCredentials
-      }
-    });
-    
-    const { data: verifyNormalPlan } = await supabase.functions.invoke('bitget-api', {
-      body: {
-        action: 'get_plan_orders',
-        params: { symbol: position.symbol, planType: 'normal_plan' },
-        apiCredentials
-      }
-    });
-    
-    const verifyOrders = [
-      ...(verifyProfitLoss?.success && verifyProfitLoss.data?.entrustedList || []),
-      ...(verifyNormalPlan?.success && verifyNormalPlan.data?.entrustedList || [])
-    ].filter((o: any) => 
-      o.symbol.toLowerCase() === position.symbol.toLowerCase() && 
-      o.planStatus === 'live'
-    );
-    
-    const remainingDBOrders = verifyOrders.filter((o: any) => 
-      dbOrderIds.some(db => db.id === o.orderId)
-    );
-    
-    if (remainingDBOrders.length > 0) {
-      console.error(`⚠️ ${remainingDBOrders.length} DB orders still exist after cancel:`, 
-        remainingDBOrders.map((o: any) => o.orderId)
-      );
-      
-      await log({
-        functionName: 'position-monitor',
-        message: `Orders still exist after cancel attempt`,
-        level: 'warn',
-        positionId: position.id,
-        metadata: { 
-          remaining_orders: remainingDBOrders.map((o: any) => ({ id: o.orderId, type: o.planType }))
-        }
-      });
-      
-      // Retry cancel for remaining orders
-      for (const order of remainingDBOrders) {
-        console.log(`🔄 Retrying cancel for ${order.orderId}...`);
-        await supabase.functions.invoke('bitget-api', {
+        // Place new SL
+        const roundedSlPrice = roundPrice(expected.sl_price, pricePlace);
+        const { data: newSlResult } = await supabase.functions.invoke('bitget-api', {
           body: {
-            action: 'cancel_plan_order',
+            action: 'place_tpsl_order',
             params: {
               symbol: position.symbol,
-              orderId: order.orderId,
-              planType: order.planType
+              planType: 'pos_loss',
+              triggerPrice: roundedSlPrice,
+              triggerType: 'mark_price',
+              holdSide: holdSide,
+              executePrice: 0,
             },
             apiCredentials
           }
         });
-      }
-      
-      await new Promise(r => setTimeout(r, 500));
-    } else {
-      console.log(`✅ All orders successfully canceled - verified with API`);
-    }
-    
-    // STEP 2: Update position in DB with expected values
-    const updateData: any = {
-      sl_price: expected.sl_price,
-      sl_order_id: null,
-      updated_at: new Date().toISOString(),
-      // ✅ PART 6: Update metadata with resync info
-      metadata: {
-        ...position.metadata,
-        last_resync_at: new Date().toISOString(),
-        resync_count: (position.metadata?.resync_count || 0) + 1
-      }
-    };
-    
-    // Use settings_snapshot to determine which TP levels were configured at position open
-    const snapshot = position.metadata?.settings_snapshot || settings;
-    
-    if (expected.tp1_price) {
-      updateData.tp1_price = expected.tp1_price;
-      updateData.tp1_quantity = expected.tp1_quantity;
-      updateData.tp1_order_id = null;
-    }
-    if (expected.tp2_price && snapshot.tp_levels >= 2) {
-      updateData.tp2_price = expected.tp2_price;
-      updateData.tp2_quantity = expected.tp2_quantity;
-      updateData.tp2_order_id = null;
-    }
-    if (expected.tp3_price && snapshot.tp_levels >= 3) {
-      updateData.tp3_price = expected.tp3_price;
-      updateData.tp3_quantity = expected.tp3_quantity;
-      updateData.tp3_order_id = null;
-    }
-    
-    await supabase
-      .from('positions')
-      .update(updateData)
-      .eq('id', position.id)
-      .eq('user_id', position.user_id);
-    
-    console.log(`💾 Updated position in DB with new expected values and resync metadata`);
-    
-    // STEP 3: Place NEW orders using correct types (pos_loss, pos_profit)
-    const holdSide = position.side === 'BUY' ? 'long' : 'short';
-    
-    // ============= PART A3: SL PRICE VALIDATION =============
-    // Check if price already passed SL level
-    const slAlreadyTriggered = isPriceBeyondLevel(currentPrice, expected.sl_price, position.side, 'SL');
-    
-    if (slAlreadyTriggered) {
-      console.log(`🚨 CRITICAL: Price ${currentPrice} already past SL ${expected.sl_price} - closing position immediately!`);
-      
-      // Get current position size from exchange
-      const { data: posData } = await supabase.functions.invoke('bitget-api', {
-        body: {
-          action: 'get_position',
-          params: { symbol: position.symbol },
-          apiCredentials
-        }
-      });
-      
-      const exchangePosition = posData?.data?.find((p: any) => 
-        p.holdSide === (position.side === 'BUY' ? 'long' : 'short')
-      );
-      
-      if (exchangePosition && parseFloat(exchangePosition.total) > 0) {
-        // Close entire remaining position at market with retry logic
-        let closeSuccess = false;
-        let lastError = null;
         
-        // STEP 1: Try flash_close_position (dedicated close endpoint) - 3 attempts
-        console.log(`⚡ Attempting emergency SL close via flash_close_position...`);
-        for (let attempt = 1; attempt <= 3; attempt++) {
-          const { data: flashResult, error } = await supabase.functions.invoke('bitget-api', {
-            body: {
-              action: 'flash_close_position',
-              params: {
-                symbol: position.symbol,
-                holdSide: holdSide,
-                size: exchangePosition.total
-              },
-              apiCredentials
-            }
-          });
-          
-          if (flashResult?.success) {
-            closeSuccess = true;
-            console.log(`✅ Flash close successful on attempt ${attempt}`);
-            break;
-          }
-          
-          lastError = error || flashResult;
-          console.error(`❌ Flash close attempt ${attempt}/3 failed:`, lastError);
-          
-          if (attempt < 3) {
-            await new Promise(resolve => setTimeout(resolve, 500));
-          }
-        }
-        
-        // STEP 2: Fallback to close_position (market order) - 3 attempts
-        if (!closeSuccess) {
-          console.log(`⚠️ Flash close failed, trying market close...`);
-          for (let attempt = 1; attempt <= 3; attempt++) {
-            const { data: closeResult, error } = await supabase.functions.invoke('bitget-api', {
-              body: {
-                action: 'close_position',
-                params: {
-                  symbol: position.symbol,
-                  side: position.side === 'BUY' ? 'long' : 'short',
-                  size: exchangePosition.total
-                },
-                apiCredentials
+        if (newSlResult?.success) {
+          await supabase
+            .from('positions')
+            .update({ 
+              sl_order_id: newSlResult.data.orderId,
+              sl_price: expected.sl_price,
+              metadata: {
+                ...position.metadata,
+                last_resync_at: new Date().toISOString(),
+                resync_count: (position.metadata?.resync_count || 0) + 1
               }
-            });
-            
-            if (closeResult?.success) {
-              closeSuccess = true;
-              console.log(`✅ Market close successful on attempt ${attempt}`);
-              break;
-            }
-            
-            lastError = error || closeResult;
-            console.error(`❌ Market close attempt ${attempt}/3 failed:`, lastError);
-            
-            if (attempt < 3) {
-              await new Promise(resolve => setTimeout(resolve, 500));
-            }
-          }
-        }
-        
-        if (closeSuccess) {
-          // Mark position as closed
-          await markPositionAsClosed(supabase, position, 'sl_hit_delayed');
-          
-          await log({
-            functionName: 'position-monitor',
-            message: `🚨 Emergency close - SL already breached at ${currentPrice}`,
-            level: 'warn',
-            positionId: position.id,
-            metadata: { expected_sl: expected.sl_price, current_price: currentPrice }
-          });
-          
-          console.log(`✅ Emergency close executed - SL was already breached`);
-          actions.push(`Emergency close - SL already hit (price: ${currentPrice})`);
-          return;
-        } else {
-          // STEP 3: Last resort - LIMIT order at current market price
-          console.log(`⚠️ Both flash and market close failed, placing LIMIT order as last resort...`);
-          
-          const ticker = tickerResult.data[0];
-          const currentMarketPrice = parseFloat(ticker.lastPr);
-          const slippageTolerance = 0.001; // 0.1% slippage
-          
-          // Apply slippage: for short position (SL is above), buy slightly above current price
-          // for long position (SL is below), sell slightly below current price
-          const limitPrice = holdSide === 'long' 
-            ? currentMarketPrice * (1 - slippageTolerance)  // Sell slightly below for long
-            : currentMarketPrice * (1 + slippageTolerance); // Buy slightly above for short
-          
-          const roundedLimitPrice = roundPrice(limitPrice, pricePlace);
-          
-          const { data: limitOrderResult } = await supabase.functions.invoke('bitget-api', {
-            body: {
-              action: 'place_order',
-              params: {
-                symbol: position.symbol,
-                side: holdSide,
-                size: exchangePosition.total,
-                price: roundedLimitPrice,
-                orderType: 'limit',
-                reduceOnly: 'YES',
-              },
-              apiCredentials
-            }
-          });
-          
-          if (limitOrderResult?.success) {
-            await log({
-              functionName: 'position-monitor',
-              message: `✅ Placed LIMIT order for emergency SL at market price ${roundedLimitPrice}`,
-              level: 'warn',
-              positionId: position.id,
-              metadata: { 
-                expected_sl: expected.sl_price,
-                current_price: currentMarketPrice,
-                limit_price: roundedLimitPrice,
-                order_id: limitOrderResult.data?.orderId 
-              }
-            });
-            
-            console.log(`✅ LIMIT order placed for emergency SL at ${roundedLimitPrice}`);
-            actions.push(`LIMIT order for SL at market price ${roundedLimitPrice}`);
-            return;
-          } else {
-            // CRITICAL: Even LIMIT order failed
-            await log({
-              functionName: 'position-monitor',
-              message: `🚨 CRITICAL: Failed to place LIMIT order for emergency SL`,
-              level: 'error',
-              positionId: position.id,
-              metadata: { 
-                expected_sl: expected.sl_price, 
-                current_price: currentMarketPrice,
-                limit_price: roundedLimitPrice,
-                position_size: exchangePosition.total,
-                last_error: lastError,
-                limit_result: limitOrderResult
-              }
-            });
-            
-            console.error(`🚨 CRITICAL: Emergency SL LIMIT order also failed - position remains open!`);
-            return;
-          }
+            })
+            .eq('id', position.id);
+          console.log(`✅ SL order placed: ${newSlResult.data.orderId}`);
+          actions.push('Fixed SL order');
         }
       }
     }
     
-    // Normal SL placement (price hasn't reached SL yet)
-    console.log(`🔧 Placing SL order at ${expected.sl_price.toFixed(4)}...`);
-    const roundedSlPrice = roundPrice(expected.sl_price, pricePlace);
-    const { data: newSlResult } = await supabase.functions.invoke('bitget-api', {
-      body: {
-        action: 'place_tpsl_order',
-        params: {
-          symbol: position.symbol,
-          planType: 'pos_loss',
-          triggerPrice: roundedSlPrice,
-          triggerType: 'mark_price',
-          holdSide: holdSide,
-          executePrice: 0,
-        },
-        apiCredentials
-      }
-    });
-    
-    if (newSlResult?.success) {
-      await supabase
-        .from('positions')
-        .update({ sl_order_id: newSlResult.data.orderId })
-        .eq('id', position.id)
-        .eq('user_id', position.user_id);
-      console.log(`✅ SL order placed: ${newSlResult.data.orderId}`);
-      actions.push('Placed new SL order after resync');
-    } else {
-      console.error(`❌ Failed to place SL:`, newSlResult);
-    }
-    
-    // ============= PART A2: TP ORDERS WITH PRICE VALIDATION =============
+    // 2. Handle each TP if needed
     for (let i = 1; i <= settings.tp_levels; i++) {
-      // SKIP already filled TPs
-      const tpFilledKey = `tp${i}_filled` as 'tp1_filled' | 'tp2_filled' | 'tp3_filled';
+      const tpKey = `tp${i}` as 'tp1' | 'tp2' | 'tp3';
+      const tpFilledKey = `${tpKey}_filled` as 'tp1_filled' | 'tp2_filled' | 'tp3_filled';
+      const tpOrderIdKey = `${tpKey}_order_id` as 'tp1_order_id' | 'tp2_order_id' | 'tp3_order_id';
+      const tpPriceKey = `${tpKey}_price` as keyof ExpectedSLTP;
+      const tpQtyKey = `${tpKey}_quantity` as keyof ExpectedSLTP;
+      
+      // Skip if already filled
       if (position[tpFilledKey] === true) {
         console.log(`⏭️ Skipping TP${i} - already filled`);
         continue;
       }
       
-      const tpPrice = expected[`tp${i}_price` as keyof ExpectedSLTP] as number | undefined;
-      const tpQty = expected[`tp${i}_quantity` as keyof ExpectedSLTP] as number | undefined;
+      // Skip if no issue with this TP
+      if (!resyncCheck.missingOrders[tpKey] && !resyncCheck.priceIssues[tpKey]) {
+        console.log(`⏭️ Skipping TP${i} - no issues detected`);
+        continue;
+      }
       
-      if (!tpPrice || !tpQty) continue;
+      const tpPrice = expected[tpPriceKey] as number | undefined;
+      const tpQty = expected[tpQtyKey] as number | undefined;
+      
+      if (!tpPrice || !tpQty) {
+        console.log(`⏭️ Skipping TP${i} - no expected values`);
+        continue;
+      }
+      
+      console.log(`🔧 Fixing TP${i} order...`);
+      
+      // Cancel existing TP if it exists
+      const existingOrderId = position[tpOrderIdKey];
+      if (existingOrderId) {
+        for (const planType of ['normal_plan', 'profit_plan', 'pos_profit']) {
+          const { data: cancelResult } = await supabase.functions.invoke('bitget-api', {
+            body: {
+              action: 'cancel_plan_order',
+              params: { symbol: position.symbol, orderId: existingOrderId, planType },
+              apiCredentials
+            }
+          });
+          if (cancelResult?.success) {
+            console.log(`✅ Canceled TP${i} order ${existingOrderId}`);
+            break;
+          }
+        }
+      }
+      
+      await new Promise(r => setTimeout(r, 500));
       
       // Check if price already passed this TP level
       const priceAlreadyPastTP = isPriceBeyondLevel(currentPrice, tpPrice, position.side, 'TP');
@@ -3123,292 +2981,75 @@ async function checkPositionFullVerification(supabase: any, position: any, setti
       if (priceAlreadyPastTP) {
         console.log(`⚠️ Price ${currentPrice} already past TP${i} ${tpPrice} - executing immediate partial close`);
         
-        // Round quantity to volumePlace precision
         const roundedQty = Math.floor(tpQty * Math.pow(10, volumePlace)) / Math.pow(10, volumePlace);
         
-        // Execute immediate close with retry logic
-        let closeSuccess = false;
-        let lastError = null;
-        
-        // ✅ PART 3: Use executeVerifiedClose with position size verification
-        console.log(`⚡ Attempting verified TP${i} close with position size verification...`);
         const closeResult = await executeVerifiedClose(
-          supabase, 
-          position, 
-          roundedQty, 
-          holdSide, 
-          apiCredentials, 
-          pricePlace, 
-          volumePlace
+          supabase, position, roundedQty, 
+          holdSide, apiCredentials, pricePlace, volumePlace
         );
         
         if (closeResult.success) {
-          console.log(`✅ Verified close: ${closeResult.actualClosedQty} units closed via ${closeResult.method}`);
-          
-          // ✅ PART 3: Only mark as filled if verified close was successful
           await supabase
             .from('positions')
             .update({ [tpFilledKey]: true })
             .eq('id', position.id);
           
-          await log({
-            functionName: 'position-monitor',
-            message: `✅ Immediate TP${i} close - price already past level (verified)`,
-            level: 'info',
-            positionId: position.id,
-            metadata: { 
-              current_price: currentPrice, 
-              tp_price: tpPrice, 
-              quantity: roundedQty,
-              actual_closed: closeResult.actualClosedQty,
-              method: closeResult.method
-            }
-          });
-          
-          console.log(`✅ Verified immediate partial close executed for TP${i}`);
+          console.log(`✅ Immediate TP${i} close executed (verified: ${closeResult.actualClosedQty} units)`);
           actions.push(`Immediate TP${i} close (verified: ${closeResult.actualClosedQty} units)`);
           
-          // Check if SL should move to breakeven after this TP
+          // Move SL to breakeven if needed
           if (settings.sl_to_breakeven && i >= (settings.breakeven_trigger_tp || 1)) {
             await moveSlToBreakeven(supabase, position, apiCredentials, pricePlace, settings);
           }
-          
-          closeSuccess = true;
-        } else {
-          console.error(`❌ Failed to verify TP${i} close - NOT marking as filled`);
-          lastError = `Verified close failed - method: ${closeResult.method}`;
         }
-        
-        // STEP 2: Fallback to close_position (market order) - 3 attempts
-        if (!closeSuccess) {
-          console.log(`⚠️ Flash close failed, trying market close...`);
-          for (let attempt = 1; attempt <= 3; attempt++) {
-            const { data: closeResult, error } = await supabase.functions.invoke('bitget-api', {
-              body: {
-                action: 'close_position',
-                params: {
-                  symbol: position.symbol,
-                  side: holdSide,
-                  size: roundedQty.toString()
-                },
-                apiCredentials
-              }
-            });
-            
-            if (closeResult?.success) {
-              closeSuccess = true;
-              console.log(`✅ Market close successful on attempt ${attempt}`);
-              
-              // Mark this TP as filled
-              await supabase
-                .from('positions')
-                .update({ [tpFilledKey]: true })
-                .eq('id', position.id);
-              
-              await log({
-                functionName: 'position-monitor',
-                message: `✅ Immediate TP${i} close - price already past level`,
-                level: 'info',
-                positionId: position.id,
-                metadata: { 
-                  current_price: currentPrice, 
-                  tp_price: tpPrice, 
-                  quantity: roundedQty 
-                }
-              });
-              
-              console.log(`✅ Immediate partial close executed for TP${i} (price ${currentPrice} past ${tpPrice})`);
-              actions.push(`Immediate TP${i} close (price ${currentPrice} past ${tpPrice})`);
-              
-              // Check if SL should move to breakeven after this TP
-              if (settings.sl_to_breakeven && i >= (settings.breakeven_trigger_tp || 1)) {
-                await moveSlToBreakeven(supabase, position, apiCredentials, pricePlace, settings);
-              }
-              
-              break;
-            }
-            
-            lastError = error || closeResult;
-            console.error(`❌ Market close attempt ${attempt}/3 failed:`, lastError);
-            
-            if (attempt < 3) {
-              await new Promise(resolve => setTimeout(resolve, 500));
-            }
-          }
-        }
-        
-        if (closeSuccess) {
-          continue; // Skip placing order - close was successful
-        } else {
-          // STEP 3: Last resort - LIMIT order at current market price
-          console.log(`⚠️ Both flash and market close failed, placing LIMIT order as last resort...`);
-          
-          const ticker = tickerResult.data[0];
-          const currentMarketPrice = parseFloat(ticker.lastPr);
-          const slippageTolerance = 0.001; // 0.1% slippage
-          
-          // Apply slippage: for long position TP (sell), slightly below current price
-          // for short position TP (buy), slightly above current price
-          const limitPrice = holdSide === 'long' 
-            ? currentMarketPrice * (1 - slippageTolerance)  // Sell slightly below for long
-            : currentMarketPrice * (1 + slippageTolerance); // Buy slightly above for short
-          
-          const roundedLimitPrice = roundPrice(limitPrice, pricePlace);
-          
-          const { data: limitOrderResult } = await supabase.functions.invoke('bitget-api', {
-            body: {
-              action: 'place_order',
-              params: {
-                symbol: position.symbol,
-                side: holdSide,
-                size: roundedQty.toString(),
-                price: roundedLimitPrice,
-                orderType: 'limit',
-                reduceOnly: 'YES',
-              },
-              apiCredentials
-            }
-          });
-          
-          if (limitOrderResult?.success) {
-            // Mark this TP as filled since we placed the order
-            await supabase
-              .from('positions')
-              .update({ [tpFilledKey]: true })
-              .eq('id', position.id);
-            
-            await log({
-              functionName: 'position-monitor',
-              message: `✅ Placed LIMIT order for TP${i} at market price ${roundedLimitPrice}`,
-              level: 'info',
-              positionId: position.id,
-              metadata: { 
-                current_price: currentMarketPrice,
-                tp_price: tpPrice,
-                limit_price: roundedLimitPrice,
-                quantity: roundedQty,
-                order_id: limitOrderResult.data?.orderId 
-              }
-            });
-            
-            console.log(`✅ LIMIT order placed for TP${i} at ${roundedLimitPrice}`);
-            actions.push(`LIMIT order for TP${i} at market price ${roundedLimitPrice}`);
-            
-            // Check if SL should move to breakeven after this TP
-            if (settings.sl_to_breakeven && i >= (settings.breakeven_trigger_tp || 1)) {
-              await moveSlToBreakeven(supabase, position, apiCredentials, pricePlace, settings);
-            }
-            
-            continue;
-          } else {
-            // CRITICAL: Even LIMIT order failed
-            await log({
-              functionName: 'position-monitor',
-              message: `🚨 CRITICAL: Failed to place LIMIT order for TP${i}`,
-              level: 'error',
-              positionId: position.id,
-              metadata: { 
-                current_price: currentMarketPrice,
-                tp_price: tpPrice,
-                limit_price: roundedLimitPrice,
-                quantity: roundedQty,
-                last_error: lastError,
-                limit_result: limitOrderResult
-              }
-            });
-            
-            console.error(`🚨 CRITICAL: TP${i} LIMIT order also failed - NOT placing trigger order`);
-            continue;
-          }
-        }
-      }
-      
-      // Normal TP order placement (price hasn't reached TP yet)
-      // Round quantity to volumePlace precision
-      const roundedQty = Math.floor(tpQty * Math.pow(10, volumePlace)) / Math.pow(10, volumePlace);
-      
-      console.log(`🔧 Placing TP${i} order at ${tpPrice.toFixed(4)}, qty=${tpQty.toFixed(4)} → rounded=${roundedQty.toFixed(volumePlace)}...`);
-      const roundedTpPrice = roundPrice(tpPrice, pricePlace);
-      
-      const { data: newTpResult } = await supabase.functions.invoke('bitget-api', {
-        body: {
-          action: 'place_plan_order',
-          params: {
-            symbol: position.symbol,
-            planType: 'normal_plan',
-            triggerPrice: roundedTpPrice,
-            triggerType: 'mark_price',
-            side: holdSide === 'long' ? 'sell' : 'buy',
-            tradeSide: 'close',
-            size: roundedQty.toString(),
-          },
-          apiCredentials
-        }
-      });
-      
-      if (newTpResult?.success && newTpResult.data?.orderId) {
-        const updateField = `tp${i}_order_id` as const;
-        await supabase
-          .from('positions')
-          .update({ [updateField]: newTpResult.data.orderId })
-          .eq('id', position.id)
-          .eq('user_id', position.user_id);
-        console.log(`✅ TP${i} order placed: ${newTpResult.data.orderId}`);
-        actions.push(`Placed new TP${i} order after resync`);
-        
-        await log({
-          functionName: 'position-monitor',
-          message: `TP${i} order placed during resync`,
-          level: 'info',
-          positionId: position.id,
-          metadata: { 
-            orderId: newTpResult.data.orderId, 
-            price: roundedTpPrice, 
-            quantity: roundedQty 
-          }
-        });
       } else {
-        console.error(`❌ Failed to place TP${i}:`, JSON.stringify(newTpResult, null, 2));
-        await log({
-          functionName: 'position-monitor',
-          message: `Failed to place TP${i} during resync`,
-          level: 'error',
-          positionId: position.id,
-          metadata: { 
-            response: newTpResult,
-            price: roundedTpPrice,
-            quantity: roundedQty,
-            volumePlace
+        // Place new TP order
+        const roundedTpPrice = roundPrice(tpPrice, pricePlace);
+        const roundedQty = Math.floor(tpQty * Math.pow(10, volumePlace)) / Math.pow(10, volumePlace);
+        
+        const { data: tpResult } = await supabase.functions.invoke('bitget-api', {
+          body: {
+            action: 'place_order',
+            params: {
+              symbol: position.symbol,
+              side: holdSide === 'long' ? 'close_long' : 'close_short',
+              size: roundedQty.toString(),
+              price: roundedTpPrice,
+              orderType: 'limit',
+              reduceOnly: 'YES',
+            },
+            apiCredentials
           }
         });
+        
+        if (tpResult?.success) {
+          await supabase
+            .from('positions')
+            .update({ 
+              [tpOrderIdKey]: tpResult.data.orderId,
+              [`${tpKey}_price`]: tpPrice,
+              [`${tpKey}_quantity`]: tpQty
+            })
+            .eq('id', position.id);
+          console.log(`✅ TP${i} order placed: ${tpResult.data.orderId}`);
+          actions.push(`Fixed TP${i} order`);
+        }
       }
     }
     
-    await log({
-      functionName: 'position-monitor',
-      message: `Resync complete for ${position.symbol}`,
-      level: 'info',
-      positionId: position.id,
-      metadata: { actions }
-    });
-    
-    // Determine intervention type based on reason
-    let checkType = 'tp_repair';
-    if (resyncCheck.reason.includes('SL')) {
-      checkType = resyncCheck.reason.includes('TP') ? 'sl_repair' : 'sl_repair';
-    } else if (resyncCheck.reason.includes('quantity')) {
-      checkType = 'emergency_close'; // Quantity mismatches are critical
-    }
+    console.log(`✅ Selective resync completed for ${position.symbol}`);
     
     // Log intervention to monitoring_logs for Diagnostics dashboard
     await supabase.from('monitoring_logs').insert({
-      check_type: checkType,
+      check_type: 'selective_resync',
       position_id: position.id,
       status: 'success',
       actions_taken: actions.join('; '),
       issues: [{
         reason: resyncCheck.reason,
-        severity: 'high'
+        severity: 'high',
+        missing_orders: resyncCheck.missingOrders,
+        price_issues: resyncCheck.priceIssues
       }],
       expected_data: {
         sl_price: expected.sl_price,
@@ -3427,7 +3068,7 @@ async function checkPositionFullVerification(supabase: any, position: any, setti
       }
     });
     
-    // Skip further checks - we just resynced everything
+    // Update position last check time
     await supabase
       .from('positions')
       .update({
@@ -3440,7 +3081,7 @@ async function checkPositionFullVerification(supabase: any, position: any, setti
       .eq('id', position.id)
       .eq('user_id', position.user_id);
     
-    console.log(`✅ Position ${position.symbol} resync complete`);
+    console.log(`✅ Position ${position.symbol} selective resync complete`);
     return;
   }
   
