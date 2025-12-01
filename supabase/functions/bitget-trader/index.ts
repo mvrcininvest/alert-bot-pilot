@@ -1213,16 +1213,61 @@ serve(async (req) => {
       return price.toFixed(places);
     };
     
+    // 1. First round the SL price
     const roundedSlPrice = roundToPlaces(sl_price, pricePlace);
-    const roundedTp1Price = tp1_price ? roundToPlaces(tp1_price, pricePlace) : null;
-    const roundedTp2Price = tp2_price ? roundToPlaces(tp2_price, pricePlace) : null;
-    const roundedTp3Price = tp3_price ? roundToPlaces(tp3_price, pricePlace) : null;
     
+    // 2. Calculate ACTUAL SL distance from rounded SL (to maintain exact R:R)
+    const actualSlDistance = Math.abs(alert_data.price - parseFloat(roundedSlPrice));
+    
+    // 3. Get R:R ratios from settings
+    const tp1RR = settings.tp1_rr_ratio || 1.2;
+    const tp2RR = settings.tp2_rr_ratio || 2.4;
+    const tp3RR = settings.tp3_rr_ratio || 3.5;
+    
+    // 4. Recalculate TP prices from actual SL distance to preserve exact R:R
+    let correctedTp1Price = tp1_price;
+    let correctedTp2Price = tp2_price;
+    let correctedTp3Price = tp3_price;
+    
+    if (actualSlDistance > 0 && settings.position_sizing_type === 'scalping_mode') {
+      const direction = alert_data.side === 'BUY' ? 1 : -1;
+      
+      if (tp1_price) {
+        correctedTp1Price = alert_data.price + (direction * actualSlDistance * tp1RR);
+      }
+      if (tp2_price) {
+        correctedTp2Price = alert_data.price + (direction * actualSlDistance * tp2RR);
+      }
+      if (tp3_price) {
+        correctedTp3Price = alert_data.price + (direction * actualSlDistance * tp3RR);
+      }
+      
+      console.log(`🔧 TP prices recalculated from rounded SL (actual SL distance: ${actualSlDistance.toFixed(6)}):`);
+      console.log(`   Original TP1: ${tp1_price?.toFixed(pricePlace)} → Corrected: ${correctedTp1Price?.toFixed(pricePlace)}`);
+      console.log(`   Original TP2: ${tp2_price?.toFixed(pricePlace)} → Corrected: ${correctedTp2Price?.toFixed(pricePlace)}`);
+      console.log(`   Original TP3: ${tp3_price?.toFixed(pricePlace)} → Corrected: ${correctedTp3Price?.toFixed(pricePlace)}`);
+    }
+    
+    // 5. Round corrected TP prices
+    const roundedTp1Price = correctedTp1Price ? roundToPlaces(correctedTp1Price, pricePlace) : null;
+    const roundedTp2Price = correctedTp2Price ? roundToPlaces(correctedTp2Price, pricePlace) : null;
+    const roundedTp3Price = correctedTp3Price ? roundToPlaces(correctedTp3Price, pricePlace) : null;
+    
+    // 6. Log effective R:R for verification
     console.log(`Prices rounded to ${pricePlace} decimals:`);
     console.log(`SL: ${sl_price} -> ${roundedSlPrice}`);
-    if (roundedTp1Price) console.log(`TP1: ${tp1_price} -> ${roundedTp1Price}`);
-    if (roundedTp2Price) console.log(`TP2: ${tp2_price} -> ${roundedTp2Price}`);
-    if (roundedTp3Price) console.log(`TP3: ${tp3_price} -> ${roundedTp3Price}`);
+    if (roundedTp1Price) {
+      const effectiveTP1RR = actualSlDistance > 0 ? Math.abs(parseFloat(roundedTp1Price) - alert_data.price) / actualSlDistance : 0;
+      console.log(`TP1: ${tp1_price} -> ${roundedTp1Price} (effective R:R: ${effectiveTP1RR.toFixed(2)}, target: ${tp1RR})`);
+    }
+    if (roundedTp2Price) {
+      const effectiveTP2RR = actualSlDistance > 0 ? Math.abs(parseFloat(roundedTp2Price) - alert_data.price) / actualSlDistance : 0;
+      console.log(`TP2: ${tp2_price} -> ${roundedTp2Price} (effective R:R: ${effectiveTP2RR.toFixed(2)}, target: ${tp2RR})`);
+    }
+    if (roundedTp3Price) {
+      const effectiveTP3RR = actualSlDistance > 0 ? Math.abs(parseFloat(roundedTp3Price) - alert_data.price) / actualSlDistance : 0;
+      console.log(`TP3: ${tp3_price} -> ${roundedTp3Price} (effective R:R: ${effectiveTP3RR.toFixed(2)}, target: ${tp3RR})`);
+    }
 
     // ⚡ OPTIMIZATION: Place SL order first, then TPs in parallel
     await log({
