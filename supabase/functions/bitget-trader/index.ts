@@ -1113,6 +1113,68 @@ serve(async (req) => {
     console.log('Order placed:', orderId);
     latencyMarkers.order_placed = Date.now();
 
+    // ⚡ DIAGNOSTIC: Test fill price availability
+    const fillPriceTestStart = Date.now();
+    let fillPrice = null;
+    let fillPriceSlippage = null;
+
+    try {
+      // Small delay for Bitget propagation
+      await new Promise(resolve => setTimeout(resolve, 50));
+      
+      const { data: positionData } = await supabase.functions.invoke('bitget-api', {
+        body: {
+          action: 'get_position',
+          apiCredentials,
+          params: { symbol: alert_data.symbol }
+        }
+      });
+      
+      const fillPriceTestDuration = Date.now() - fillPriceTestStart;
+      
+      // Extract fill price from position
+      const positionInfo = positionData?.data?.[0];
+      if (positionInfo?.openPriceAvg) {
+        fillPrice = parseFloat(positionInfo.openPriceAvg);
+        fillPriceSlippage = ((fillPrice - alert_data.price) / alert_data.price * 100).toFixed(4);
+        
+        await log({
+          functionName: 'bitget-trader',
+          message: '📊 FILL PRICE DIAGNOSTIC',
+          level: 'info',
+          alertId: alert_id,
+          metadata: {
+            alertPrice: alert_data.price,
+            fillPrice: fillPrice,
+            slippagePercent: fillPriceSlippage,
+            fetchTimeMs: fillPriceTestDuration,
+            side: alert_data.side,
+            symbol: alert_data.symbol
+          }
+        });
+        
+        console.log(`📊 Fill price: ${fillPrice} (alert: ${alert_data.price}, slippage: ${fillPriceSlippage}%, fetch: ${fillPriceTestDuration}ms)`);
+      } else {
+        console.warn(`⚠️ Fill price not available yet after ${fillPriceTestDuration}ms`);
+        await log({
+          functionName: 'bitget-trader',
+          message: 'Fill price not available in diagnostic test',
+          level: 'warn',
+          alertId: alert_id,
+          metadata: { fetchTimeMs: fillPriceTestDuration }
+        });
+      }
+    } catch (error) {
+      console.error('Fill price diagnostic failed:', error);
+      await log({
+        functionName: 'bitget-trader',
+        message: 'Fill price diagnostic error',
+        level: 'error',
+        alertId: alert_id,
+        metadata: { error: String(error) }
+      });
+    }
+
     // Get symbol info to determine price precision (RE-USE CACHED)
     latencyMarkers.precision_check_start = Date.now();
     let priceInfoResult;
