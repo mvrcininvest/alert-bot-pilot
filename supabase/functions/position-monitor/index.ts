@@ -1659,30 +1659,97 @@ async function markPositionAsClosed(supabase: any, position: any, reason: string
     const currentQty = posCheck?.data?.[0] ? parseFloat(posCheck.data[0].total || '0') : 0;
     const minQty = getMinQuantityForSymbol(position.symbol);
     
-    if (activeOrders.length > 0 || currentQty >= minQty) {
-      console.warn(`🚨 ABORT CLOSE: Position ${position.symbol} has ${activeOrders.length} active TP orders and quantity ${currentQty} on exchange (min: ${minQty})`);
-      console.warn(`⚠️ NOT marking as closed to prevent data loss - position still active`);
+    // Case 1: Position still has quantity on exchange - DO NOT CLOSE
+    if (currentQty >= minQty) {
+      console.log(`✅ Position ${position.symbol} still has ${currentQty} qty (min: ${minQty}) - NOT closing`);
+      
+      if (activeOrders.length > 0) {
+        console.log(`   └─ Has ${activeOrders.length} active orders - position is active`);
+      } else {
+        console.warn(`⚠️ Position ${position.symbol} has qty but NO orders - may need resync`);
+      }
       
       await log({
         functionName: 'position-monitor',
-        message: `Prevented incorrect position closure - active orders/quantity detected`,
-        level: 'warn',
+        message: `Position still active on exchange - not closing`,
+        level: 'info',
         positionId: position.id,
         metadata: { 
           reason,
           activeOrders: activeOrders.length,
           currentQty,
-          minQty,
-          orderDetails: activeOrders.map((o: any) => ({
-            orderId: o.orderId,
-            triggerPrice: o.triggerPrice,
-            size: o.size
-          }))
+          minQty
         }
       });
       
-      return; // ABORT - do not mark as closed
+      return; // ABORT - position still active
     }
+    
+    // Case 2: Position closed on exchange (qty < minQty) but has orphan orders - CANCEL THEM
+    if (activeOrders.length > 0) {
+      console.log(`🗑️ Position ${position.symbol} closed (qty=${currentQty}) but has ${activeOrders.length} orphan orders - canceling...`);
+      
+      // Also check for profit_loss orders (SL/TP)
+      const { data: plOrdersCheck } = await supabase.functions.invoke('bitget-api', {
+        body: {
+          action: 'get_plan_orders',
+          params: { symbol: position.symbol, planType: 'profit_loss' },
+          apiCredentials: validationCredentials
+        }
+      });
+      
+      const plOrders = plOrdersCheck?.success && plOrdersCheck.data?.entrustedList
+        ? plOrdersCheck.data.entrustedList.filter((o: any) => 
+            o.symbol.toLowerCase() === position.symbol.toLowerCase() && 
+            o.planStatus === 'live'
+          )
+        : [];
+      
+      const allOrphans = [...activeOrders, ...plOrders];
+      console.log(`🗑️ Total orphan orders to cancel: ${allOrphans.length} (${activeOrders.length} TP + ${plOrders.length} SL)`);
+      
+      for (const order of allOrphans) {
+        try {
+          const planType = order.planType === 'pos_loss' || order.planType === 'pos_profit' ? 'profit_loss' : 'normal_plan';
+          
+          const { data: cancelResult } = await supabase.functions.invoke('bitget-api', {
+            body: {
+              action: 'cancel_plan_order',
+              params: {
+                symbol: position.symbol,
+                orderId: order.orderId,
+                planType: planType
+              },
+              apiCredentials: validationCredentials
+            }
+          });
+          
+          if (cancelResult?.success) {
+            console.log(`✅ Canceled orphan order ${order.orderId} (${order.planType})`);
+          } else {
+            console.warn(`⚠️ Failed to cancel order ${order.orderId}: ${cancelResult?.error}`);
+          }
+          
+          // Small delay between cancellations to avoid rate limiting
+          await new Promise(r => setTimeout(r, 100));
+        } catch (error) {
+          console.error(`❌ Error canceling order ${order.orderId}:`, error);
+        }
+      }
+      
+      await log({
+        functionName: 'position-monitor',
+        message: `Canceled ${allOrphans.length} orphan orders before closing position`,
+        level: 'info',
+        positionId: position.id,
+        metadata: { 
+          reason,
+          canceledOrders: allOrphans.map((o: any) => o.orderId)
+        }
+      });
+    }
+    
+    // Case 3: Position closed and no orders (or orders just canceled) - proceed with DB close
   }
   
   console.log(`✅ Validation passed - proceeding to mark position ${position.symbol} as closed`);
