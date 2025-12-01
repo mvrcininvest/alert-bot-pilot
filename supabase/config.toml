@@ -41,3 +41,6 @@ verify_jwt = true
 
 [functions.repair-mm-data]
 verify_jwt = true
+
+[functions.keep-warm]
+verify_jwt = false
