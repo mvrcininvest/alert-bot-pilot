@@ -86,13 +86,66 @@ serve(async (req) => {
       passphrase: userKeys.passphrase
     };
     
-    // Check if symbol is banned
-    const { data: bannedSymbol } = await supabase
-      .from('banned_symbols')
-      .select('*')
-      .eq('symbol', alert_data.symbol)
-      .maybeSingle();
+    console.log('=== BITGET TRADER STARTED ===');
+    console.log('Alert ID:', alert_id);
+    console.log('Alert symbol:', alert_data.symbol);
+    console.log('Alert side:', alert_data.side);
+    console.log('Alert tier:', alert_data.tier);
+    console.log('Alert strength:', alert_data.strength);
+    console.log('Alert entry price:', alert_data.price);
+    console.log('Alert leverage:', alert_data.leverage);
+
+    await log({
+      functionName: 'bitget-trader',
+      message: 'Trader function started',
+      level: 'info',
+      alertId: alert_id,
+      metadata: { 
+        symbol: alert_data.symbol,
+        side: alert_data.side,
+        tier: alert_data.tier
+      }
+    });
+
+    // ✅ PHASE 2: PARALLEL DB CHECKS - Execute all initial checks simultaneously
+    console.log('🔄 Starting parallel DB checks...');
+    const parallelStartTime = Date.now();
     
+    const [
+      bannedSymbolResult,
+      positionLimitResult,
+      existingPositionResult
+    ] = await Promise.all([
+      // Check 1: Banned symbol
+      supabase
+        .from('banned_symbols')
+        .select('*')
+        .eq('symbol', alert_data.symbol)
+        .maybeSingle(),
+      
+      // Check 2: Position limit (atomic check and reserve)
+      supabase.rpc('check_and_reserve_position', {
+        p_user_id: user_id,
+        p_max_positions: settings.max_open_positions
+      }),
+      
+      // Check 3: Existing position for duplicate alert handling
+      settings.duplicate_alert_handling !== false
+        ? supabase
+            .from('positions')
+            .select('*, alerts!positions_alert_id_fkey(strength)')
+            .eq('user_id', user_id)
+            .eq('symbol', alert_data.symbol)
+            .eq('status', 'open')
+            .maybeSingle()
+        : Promise.resolve({ data: null, error: null })
+    ]);
+    
+    console.log(`✅ Parallel DB checks completed in ${Date.now() - parallelStartTime}ms`);
+    latencyMarkers.parallel_checks_done = Date.now();
+
+    // Process banned symbol check
+    const bannedSymbol = bannedSymbolResult.data;
     if (bannedSymbol) {
       await log({
         functionName: 'bitget-trader',
@@ -122,36 +175,11 @@ serve(async (req) => {
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       });
     }
-    
-    await log({
-      functionName: 'bitget-trader',
-      message: 'Trader function started',
-      level: 'info',
-      alertId: alert_id,
-      metadata: { 
-        symbol: alert_data.symbol,
-        side: alert_data.side,
-        tier: alert_data.tier
-      }
-    });
-    
-    console.log('=== BITGET TRADER STARTED ===');
-    console.log('Alert ID:', alert_id);
-    console.log('Alert symbol:', alert_data.symbol);
-    console.log('Alert side:', alert_data.side);
-    console.log('Alert tier:', alert_data.tier);
-    console.log('Alert strength:', alert_data.strength);
-    console.log('Alert entry price:', alert_data.price);
-    console.log('Alert leverage:', alert_data.leverage);
 
-    // Check if we've reached max open positions FOR THIS USER
-    // Using atomic RPC function to prevent race conditions when multiple alerts arrive simultaneously
-    const { data: canOpenPosition, error: positionCheckError } = await supabase
-      .rpc('check_and_reserve_position', {
-        p_user_id: user_id,
-        p_max_positions: settings.max_open_positions
-      });
-
+    // Process position limit check
+    const canOpenPosition = positionLimitResult.data;
+    const positionCheckError = positionLimitResult.error;
+    
     if (positionCheckError) {
       await log({
         functionName: 'bitget-trader',
@@ -208,19 +236,10 @@ serve(async (req) => {
       }
     });
 
-    // Check if duplicate alert handling is enabled and if there's an existing position FOR THIS USER
-    if (settings.duplicate_alert_handling !== false) {
-      const symbol = alert_data.symbol;
-      const { data: existingPosition } = await supabase
-        .from('positions')
-        .select('*, alerts!positions_alert_id_fkey(strength)')
-        .eq('user_id', user_id)
-        .eq('symbol', symbol)
-        .eq('status', 'open')
-        .maybeSingle();
-
-      if (existingPosition) {
-        const currentStrength = existingPosition.alerts?.strength || 0;
+    // Process duplicate alert handling
+    const existingPosition = existingPositionResult.data;
+    if (settings.duplicate_alert_handling !== false && existingPosition) {
+      const currentStrength = existingPosition.alerts?.strength || 0;
         const newStrength = alert_data.strength || 0;
         const strengthDiff = newStrength - currentStrength;
         const threshold = settings.alert_strength_threshold || 0.20;
@@ -385,10 +404,9 @@ serve(async (req) => {
         });
         
         console.log(`✓ Existing position closed for replacement: ${closeReason}`);
-      }
     }
 
-    // Check daily loss limit FOR THIS USER
+    // Check daily loss limit FOR THIS USER (run separately as it may need account data)
     latencyMarkers.daily_loss_check_start = Date.now();
     const today = new Date().toISOString().split('T')[0];
     const { data: todayPositions } = await supabase
