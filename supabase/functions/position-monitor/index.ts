@@ -2925,7 +2925,18 @@ async function checkPositionFullVerification(supabase: any, position: any, setti
       }
     }
     
-    // 2. Handle each TP if needed
+    // 2. Handle all TP orders in PARALLEL (like bitget-trader does)
+    // First, collect all TPs that need fixing
+    const tpsToFix: Array<{
+      level: number;
+      key: 'tp1' | 'tp2' | 'tp3';
+      price: number;
+      quantity: number;
+      orderIdKey: 'tp1_order_id' | 'tp2_order_id' | 'tp3_order_id';
+      filledKey: 'tp1_filled' | 'tp2_filled' | 'tp3_filled';
+      existingOrderId?: string;
+    }> = [];
+    
     for (let i = 1; i <= settings.tp_levels; i++) {
       const tpKey = `tp${i}` as 'tp1' | 'tp2' | 'tp3';
       const tpFilledKey = `${tpKey}_filled` as 'tp1_filled' | 'tp2_filled' | 'tp3_filled';
@@ -2952,28 +2963,6 @@ async function checkPositionFullVerification(supabase: any, position: any, setti
         console.log(`⏭️ Skipping TP${i} - no expected values`);
         continue;
       }
-      
-      console.log(`🔧 Fixing TP${i} order...`);
-      
-      // Cancel existing TP if it exists
-      const existingOrderId = position[tpOrderIdKey];
-      if (existingOrderId) {
-        for (const planType of ['normal_plan', 'profit_plan', 'pos_profit']) {
-          const { data: cancelResult } = await supabase.functions.invoke('bitget-api', {
-            body: {
-              action: 'cancel_plan_order',
-              params: { symbol: position.symbol, orderId: existingOrderId, planType },
-              apiCredentials
-            }
-          });
-          if (cancelResult?.success) {
-            console.log(`✅ Canceled TP${i} order ${existingOrderId}`);
-            break;
-          }
-        }
-      }
-      
-      await new Promise(r => setTimeout(r, 500));
       
       // Check if price already passed this TP level
       const priceAlreadyPastTP = isPriceBeyondLevel(currentPrice, tpPrice, position.side, 'TP');
@@ -3003,38 +2992,132 @@ async function checkPositionFullVerification(supabase: any, position: any, setti
           }
         }
       } else {
-        // Place new TP order
-        const roundedTpPrice = roundPrice(tpPrice, pricePlace);
-        const roundedQty = Math.floor(tpQty * Math.pow(10, volumePlace)) / Math.pow(10, volumePlace);
-        
-        const { data: tpResult } = await supabase.functions.invoke('bitget-api', {
-          body: {
-            action: 'place_plan_order',
-            params: {
-              symbol: position.symbol,
-              planType: 'normal_plan',
-              side: holdSide === 'long' ? 'close_long' : 'close_short',
-              size: roundedQty.toString(),
-              triggerPrice: roundedTpPrice,
-              triggerType: 'mark_price',
-              orderType: 'market',
-            },
-            apiCredentials
+        // Add to list of TPs to fix
+        tpsToFix.push({
+          level: i,
+          key: tpKey,
+          price: tpPrice,
+          quantity: tpQty,
+          orderIdKey: tpOrderIdKey,
+          filledKey: tpFilledKey,
+          existingOrderId: position[tpOrderIdKey] || undefined
+        });
+      }
+    }
+    
+    // Now handle all TPs to fix in parallel
+    if (tpsToFix.length > 0) {
+      console.log(`🔧 Fixing ${tpsToFix.length} TP orders in PARALLEL...`);
+      
+      // Step 1: Cancel all existing orders in parallel
+      const cancelPromises = tpsToFix
+        .filter(tp => tp.existingOrderId)
+        .map(tp => 
+          supabase.functions.invoke('bitget-api', {
+            body: {
+              action: 'cancel_plan_order',
+              params: { 
+                symbol: position.symbol, 
+                orderId: tp.existingOrderId, 
+                planType: 'normal_plan' 
+              },
+              apiCredentials
+            }
+          }).then((result: any) => ({
+            level: tp.level,
+            orderId: tp.existingOrderId,
+            success: result.data?.success || false
+          }))
+        );
+      
+      if (cancelPromises.length > 0) {
+        const cancelResults = await Promise.allSettled(cancelPromises);
+        cancelResults.forEach((result, idx) => {
+          if (result.status === 'fulfilled' && result.value.success) {
+            console.log(`✅ Canceled old TP${result.value.level} order ${result.value.orderId}`);
           }
         });
         
-        if (tpResult?.success) {
-          await supabase
-            .from('positions')
-            .update({ 
-              [tpOrderIdKey]: tpResult.data.orderId,
-              [`${tpKey}_price`]: tpPrice,
-              [`${tpKey}_quantity`]: tpQty
-            })
-            .eq('id', position.id);
-          console.log(`✅ TP${i} order placed: ${tpResult.data.orderId}`);
-          actions.push(`Fixed TP${i} order`);
+        // Small delay after cancellations
+        await new Promise(r => setTimeout(r, 300));
+      }
+      
+      // Step 2: Place all new TP orders in parallel
+      const tpOrderPromises = tpsToFix.map(tp => {
+        const roundedTpPrice = roundPrice(tp.price, pricePlace);
+        const roundedQty = Math.floor(tp.quantity * Math.pow(10, volumePlace)) / Math.pow(10, volumePlace);
+        
+        return {
+          level: tp.level,
+          key: tp.key,
+          orderIdKey: tp.orderIdKey,
+          price: tp.price,
+          quantity: tp.quantity,
+          promise: supabase.functions.invoke('bitget-api', {
+            body: {
+              action: 'place_plan_order',
+              params: {
+                symbol: position.symbol,
+                planType: 'normal_plan',
+                side: holdSide === 'long' ? 'close_long' : 'close_short',
+                size: roundedQty.toString(),
+                triggerPrice: roundedTpPrice,
+                triggerType: 'mark_price',
+                orderType: 'market',
+              },
+              apiCredentials
+            }
+          })
+        };
+      });
+      
+      const tpStartTime = Date.now();
+      console.log(`🚀 Placing ${tpOrderPromises.length} TP orders in parallel...`);
+      const tpResults = await Promise.allSettled(tpOrderPromises.map(tp => tp.promise));
+      const tpElapsed = Date.now() - tpStartTime;
+      console.log(`⏱️ All TP orders completed in ${tpElapsed}ms (parallel execution)`);
+      
+      // Step 3: Process results and update database
+      const dbUpdates: any = {};
+      
+      tpResults.forEach((result, index) => {
+        const tpOrder = tpOrderPromises[index];
+        
+        if (result.status === 'fulfilled') {
+          const tpResult = result.value?.data;
+          console.log(`📊 TP${tpOrder.level} result:`, JSON.stringify(tpResult, null, 2));
+          
+          if (tpResult?.success && tpResult.data?.orderId) {
+            const orderId = tpResult.data.orderId;
+            
+            dbUpdates[tpOrder.orderIdKey] = orderId;
+            dbUpdates[`${tpOrder.key}_price`] = tpOrder.price;
+            dbUpdates[`${tpOrder.key}_quantity`] = tpOrder.quantity;
+            
+            console.log(`✅ TP${tpOrder.level} order placed: ${orderId} at ${tpOrder.price}`);
+            actions.push(`Fixed TP${tpOrder.level} order`);
+          } else {
+            console.error(`❌ Failed to place TP${tpOrder.level} order:`, JSON.stringify(tpResult, null, 2));
+          }
+        } else {
+          console.error(`❌ TP${tpOrder.level} order promise rejected:`, result.reason);
         }
+      });
+      
+      // Update database with all successful TPs in one operation
+      if (Object.keys(dbUpdates).length > 0) {
+        await supabase
+          .from('positions')
+          .update({
+            ...dbUpdates,
+            metadata: {
+              ...position.metadata,
+              last_resync_at: new Date().toISOString(),
+              resync_count: (position.metadata?.resync_count || 0) + 1
+            }
+          })
+          .eq('id', position.id);
+        console.log(`✅ Database updated with ${Object.keys(dbUpdates).length / 3} TP orders`);
       }
     }
     
