@@ -438,13 +438,15 @@ function calculateExpectedSLTP(position: any, settings: any): ExpectedSLTP {
   );
   
   if (shouldBeAtBreakeven) {
-    // SL should be at entry price (with small buffer to avoid exact entry close)
-    const beBuffer = position.entry_price * 0.0001; // 0.01% buffer
-    const slPrice = position.side === 'BUY' 
-      ? position.entry_price + beBuffer 
-      : position.entry_price - beBuffer;
+    // Use fee-aware breakeven if enabled (0.12% for round-trip fees)
+    const feeAwareBE = settings?.fee_aware_breakeven !== false; // default true
+    const bePercent = feeAwareBE ? 0.0012 : 0.0001; // 0.12% vs 0.01%
     
-    console.log(`📍 Expected SL at BREAKEVEN: ${slPrice} (entry: ${position.entry_price})`);
+    const slPrice = position.side === 'BUY' 
+      ? position.entry_price * (1 + bePercent)  // LONG: SL above entry
+      : position.entry_price * (1 - bePercent); // SHORT: SL below entry
+    
+    console.log(`📍 Expected SL at ${feeAwareBE ? 'FEE-AWARE' : 'STANDARD'} BREAKEVEN: ${slPrice.toFixed(6)} (entry: ${position.entry_price}, buffer: ${bePercent * 100}%)`);
     
     // Calculate TPs with smart redistribution
     const totalQty = position.quantity;
@@ -849,20 +851,27 @@ function checkIfResyncNeeded(
   );
   
   if (shouldBeAtBreakeven) {
-    // Check if SL is at breakeven or better (more protective)
+    // Calculate expected BE price with fee-aware setting
+    const feeAwareBE = settings?.fee_aware_breakeven !== false; // default true
+    const bePercent = feeAwareBE ? 0.0012 : 0.0001; // 0.12% vs 0.01%
+    const expectedBEPrice = isBuy
+      ? position.entry_price * (1 + bePercent)
+      : position.entry_price * (1 - bePercent);
+    
+    // Allow 0.1% tolerance below expected BE
     const slAtBEOrBetter = isBuy 
-      ? actualSlPrice >= position.entry_price * 0.9999 // Allow small tolerance
-      : actualSlPrice <= position.entry_price * 1.0001;
+      ? actualSlPrice >= expectedBEPrice * 0.999  // Within 0.1% of fee-aware BE
+      : actualSlPrice <= expectedBEPrice * 1.001;
       
     if (slAtBEOrBetter) {
-      console.log(`✅ SL at breakeven or better - no resync needed`);
+      console.log(`✅ SL at breakeven or better - no resync needed (actual: ${actualSlPrice.toFixed(6)}, expected BE: ${expectedBEPrice.toFixed(6)})`);
       // SL is at breakeven or better - don't flag as mismatch
       // Continue to check TPs...
     } else {
       // SL should be at BE but it's not - flag for correction
       result.mismatch = true;
       result.priceIssues.sl = true;
-      result.reason = `SL should be at breakeven (${position.entry_price.toFixed(4)}) but is at ${actualSlPrice}`;
+      result.reason = `SL should be at ${feeAwareBE ? 'fee-aware' : 'standard'} breakeven (${expectedBEPrice.toFixed(6)}) but is at ${actualSlPrice}`;
     }
   } else if (slOrders.length === 1) {
     // Normal SL check when not at breakeven
@@ -3172,85 +3181,105 @@ async function checkPositionFullVerification(supabase: any, position: any, setti
     if (resyncCheck.missingOrders.sl || resyncCheck.priceIssues.sl) {
       console.log(`🔧 Fixing SL order...`);
       
-      // Cancel existing SL if it exists
-      if (position.sl_order_id) {
-        for (const planType of ['pos_loss', 'profit_loss']) {
-          const { data: cancelResult } = await supabase.functions.invoke('bitget-api', {
+      // Check if should be at breakeven
+      const triggerTP = settings.breakeven_trigger_tp || 1;
+      const shouldBeAtBreakeven = settings.sl_to_breakeven && (
+        (triggerTP === 1 && position.tp1_filled) ||
+        (triggerTP === 2 && position.tp2_filled) ||
+        (triggerTP === 3 && position.tp3_filled)
+      );
+      
+      if (shouldBeAtBreakeven) {
+        // Use moveSlToBreakeven which has correct fee-aware logic
+        console.log(`🔄 Position should be at BE - using moveSlToBreakeven`);
+        const beResult = await moveSlToBreakeven(supabase, position, apiCredentials, pricePlace, settings);
+        if (beResult) {
+          actions.push('Moved SL to fee-aware breakeven');
+        } else {
+          actions.push('Failed to move SL to breakeven');
+        }
+      } else {
+        // Normal SL fix logic for non-BE case
+        // Cancel existing SL if it exists
+        if (position.sl_order_id) {
+          for (const planType of ['pos_loss', 'profit_loss']) {
+            const { data: cancelResult } = await supabase.functions.invoke('bitget-api', {
+              body: {
+                action: 'cancel_plan_order',
+                params: { symbol: position.symbol, orderId: position.sl_order_id, planType },
+                apiCredentials
+              }
+            });
+            if (cancelResult?.success) {
+              console.log(`✅ Canceled SL order ${position.sl_order_id}`);
+              break;
+            }
+          }
+        }
+        
+        await new Promise(r => setTimeout(r, 500));
+        
+        // Check if price already passed SL level
+        const slAlreadyTriggered = isPriceBeyondLevel(currentPrice, expected.sl_price, position.side, 'SL');
+        
+        if (slAlreadyTriggered) {
+          console.log(`🚨 CRITICAL: Price ${currentPrice} already past SL ${expected.sl_price} - closing position immediately!`);
+          
+          const { data: posData } = await supabase.functions.invoke('bitget-api', {
+            body: { action: 'get_position', params: { symbol: position.symbol }, apiCredentials }
+          });
+          
+          const exchangePosition = posData?.data?.find((p: any) => 
+            p.holdSide === (position.side === 'BUY' ? 'long' : 'short')
+          );
+          
+          if (exchangePosition && parseFloat(exchangePosition.total) > 0) {
+            const closeResult = await executeVerifiedClose(
+              supabase, position, parseFloat(exchangePosition.total), 
+              holdSide, apiCredentials, pricePlace, volumePlace
+            );
+            
+            if (closeResult.success) {
+              await markPositionAsClosed(supabase, position, 'sl_hit_delayed');
+              console.log(`✅ Emergency close executed - SL was already breached`);
+              actions.push(`Emergency close - SL already hit (price: ${currentPrice})`);
+              return;
+            }
+          }
+        } else {
+          // Place new SL
+          const roundedSlPrice = roundPrice(expected.sl_price, pricePlace);
+          const { data: newSlResult } = await supabase.functions.invoke('bitget-api', {
             body: {
-              action: 'cancel_plan_order',
-              params: { symbol: position.symbol, orderId: position.sl_order_id, planType },
+              action: 'place_tpsl_order',
+              params: {
+                symbol: position.symbol,
+                planType: 'pos_loss',
+                triggerPrice: roundedSlPrice,
+                triggerType: 'mark_price',
+                holdSide: holdSide,
+                executePrice: 0,
+              },
               apiCredentials
             }
           });
-          if (cancelResult?.success) {
-            console.log(`✅ Canceled SL order ${position.sl_order_id}`);
-            break;
-          }
-        }
-      }
-      
-      await new Promise(r => setTimeout(r, 500));
-      
-      // Check if price already passed SL level
-      const slAlreadyTriggered = isPriceBeyondLevel(currentPrice, expected.sl_price, position.side, 'SL');
-      
-      if (slAlreadyTriggered) {
-        console.log(`🚨 CRITICAL: Price ${currentPrice} already past SL ${expected.sl_price} - closing position immediately!`);
-        
-        const { data: posData } = await supabase.functions.invoke('bitget-api', {
-          body: { action: 'get_position', params: { symbol: position.symbol }, apiCredentials }
-        });
-        
-        const exchangePosition = posData?.data?.find((p: any) => 
-          p.holdSide === (position.side === 'BUY' ? 'long' : 'short')
-        );
-        
-        if (exchangePosition && parseFloat(exchangePosition.total) > 0) {
-          const closeResult = await executeVerifiedClose(
-            supabase, position, parseFloat(exchangePosition.total), 
-            holdSide, apiCredentials, pricePlace, volumePlace
-          );
           
-          if (closeResult.success) {
-            await markPositionAsClosed(supabase, position, 'sl_hit_delayed');
-            console.log(`✅ Emergency close executed - SL was already breached`);
-            actions.push(`Emergency close - SL already hit (price: ${currentPrice})`);
-            return;
+          if (newSlResult?.success) {
+            await supabase
+              .from('positions')
+              .update({ 
+                sl_order_id: newSlResult.data.orderId,
+                sl_price: expected.sl_price,
+                metadata: {
+                  ...position.metadata,
+                  last_resync_at: new Date().toISOString(),
+                  resync_count: (position.metadata?.resync_count || 0) + 1
+                }
+              })
+              .eq('id', position.id);
+            console.log(`✅ SL order placed: ${newSlResult.data.orderId}`);
+            actions.push('Fixed SL order');
           }
-        }
-      } else {
-        // Place new SL
-        const roundedSlPrice = roundPrice(expected.sl_price, pricePlace);
-        const { data: newSlResult } = await supabase.functions.invoke('bitget-api', {
-          body: {
-            action: 'place_tpsl_order',
-            params: {
-              symbol: position.symbol,
-              planType: 'pos_loss',
-              triggerPrice: roundedSlPrice,
-              triggerType: 'mark_price',
-              holdSide: holdSide,
-              executePrice: 0,
-            },
-            apiCredentials
-          }
-        });
-        
-        if (newSlResult?.success) {
-          await supabase
-            .from('positions')
-            .update({ 
-              sl_order_id: newSlResult.data.orderId,
-              sl_price: expected.sl_price,
-              metadata: {
-                ...position.metadata,
-                last_resync_at: new Date().toISOString(),
-                resync_count: (position.metadata?.resync_count || 0) + 1
-              }
-            })
-            .eq('id', position.id);
-          console.log(`✅ SL order placed: ${newSlResult.data.orderId}`);
-          actions.push('Fixed SL order');
         }
       }
     }
