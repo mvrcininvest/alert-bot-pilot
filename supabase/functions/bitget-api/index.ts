@@ -124,6 +124,62 @@ serve(async (req) => {
     let result;
 
     switch (action) {
+      case 'batch_actions':
+        // Execute multiple actions in sequence and return all results
+        // This reduces edge function invocation overhead
+        console.log(`📦 batch_actions: ${params.actions?.length || 0} actions`);
+        const batchResults: Record<string, any> = {};
+        
+        if (!params.actions || !Array.isArray(params.actions)) {
+          throw new Error('batch_actions requires an array of actions');
+        }
+        
+        for (const batchAction of params.actions) {
+          const { id, type, params: actionParams } = batchAction;
+          
+          try {
+            console.log(`  ➡️ Executing batch action ${id}: ${type}`);
+            
+            // Execute each action based on type
+            switch (type) {
+              case 'get_account':
+                batchResults[id] = await bitgetRequest(config, 'GET', `/api/v2/mix/account/accounts?productType=USDT-FUTURES`);
+                break;
+                
+              case 'get_symbol_info':
+                batchResults[id] = await bitgetRequest(config, 'GET', `/api/v2/mix/market/contracts?productType=USDT-FUTURES&symbol=${actionParams.symbol}`);
+                break;
+                
+              case 'set_leverage':
+                batchResults[id] = await bitgetRequest(config, 'POST', '/api/v2/mix/account/set-leverage', {
+                  symbol: actionParams.symbol,
+                  productType: 'USDT-FUTURES',
+                  marginCoin: 'USDT',
+                  leverage: actionParams.leverage.toString(),
+                  holdSide: actionParams.holdSide || 'long',
+                });
+                break;
+                
+              case 'get_ticker':
+                batchResults[id] = await bitgetRequest(config, 'GET', `/api/v2/mix/market/ticker?symbol=${actionParams.symbol}&productType=USDT-FUTURES`);
+                break;
+                
+              default:
+                batchResults[id] = { error: `Unknown batch action type: ${type}` };
+            }
+            
+            console.log(`  ✅ Batch action ${id} completed`);
+          } catch (error: unknown) {
+            const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+            console.error(`  ❌ Batch action ${id} failed:`, error);
+            batchResults[id] = { error: errorMessage };
+          }
+        }
+        
+        result = batchResults;
+        console.log(`📦 batch_actions completed: ${Object.keys(batchResults).length} results`);
+        break;
+
       case 'get_account':
         // Get account info - v2 API
         result = await bitgetRequest(config, 'GET', `/api/v2/mix/account/accounts?productType=USDT-FUTURES`);
