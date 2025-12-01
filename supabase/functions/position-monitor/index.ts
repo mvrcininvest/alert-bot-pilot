@@ -1561,13 +1561,23 @@ function determineCloseReasonFromPrice(position: any, closePrice: number): strin
   const tolerance = 0.005; // 0.5%
   
   console.log(`🔍 Determining close reason: price=${closePrice}, EP=${ep}, SL=${sl}, TP1=${tp1}, TP2=${tp2}, TP3=${tp3}`);
+  console.log(`🔍 TP filled flags: tp1=${position.tp1_filled}, tp2=${position.tp2_filled}, tp3=${position.tp3_filled}`);
   
-  // Check filled flags first
-  if (position.tp3_filled) return 'tp3_hit';
-  if (position.tp2_filled) return 'tp2_hit';
-  if (position.tp1_filled) return 'tp1_hit';
+  // ✅ PRIORITY 1: Check filled flags first (most reliable)
+  if (position.tp3_filled) {
+    console.log(`📈 Determined: TP3 hit (tp3_filled=true)`);
+    return 'tp3_hit';
+  }
+  if (position.tp2_filled) {
+    console.log(`📈 Determined: TP2 hit (tp2_filled=true)`);
+    return 'tp2_hit';
+  }
+  if (position.tp1_filled) {
+    console.log(`📈 Determined: TP1 hit (tp1_filled=true)`);
+    return 'tp1_hit';
+  }
   
-  // Determine from price comparison
+  // ✅ PRIORITY 2: Determine from price comparison
   if (isBuy) {
     if (sl && closePrice <= sl * (1 + tolerance)) {
       console.log(`📉 Determined: SL hit (price ${closePrice} <= SL ${sl})`);
@@ -1609,7 +1619,73 @@ function determineCloseReasonFromPrice(position: any, closePrice: number): strin
 
 // Helper function to mark position as closed in DB
 async function markPositionAsClosed(supabase: any, position: any, reason: string) {
-  console.log(`⚠️ Marking position ${position.symbol} as closed in DB: ${reason}`);
+  console.log(`⚠️ Attempting to mark position ${position.symbol} as closed: ${reason}`);
+  
+  // ✅ CRITICAL VALIDATION: Check for active TP orders before closing
+  const validationKeys = await getUserApiKeys(position.user_id);
+  if (validationKeys) {
+    const validationCredentials = {
+      apiKey: validationKeys.apiKey,
+      secretKey: validationKeys.secretKey,
+      passphrase: validationKeys.passphrase
+    };
+    
+    // Check for active orders on exchange
+    const { data: ordersCheck } = await supabase.functions.invoke('bitget-api', {
+      body: {
+        action: 'get_plan_orders',
+        params: { symbol: position.symbol, planType: 'normal_plan' },
+        apiCredentials: validationCredentials
+      }
+    });
+    
+    const activeOrders = ordersCheck?.success && ordersCheck.data?.entrustedList
+      ? ordersCheck.data.entrustedList.filter((o: any) => 
+          o.symbol.toLowerCase() === position.symbol.toLowerCase() && 
+          o.planStatus === 'live' &&
+          o.tradeSide === 'close'
+        )
+      : [];
+    
+    // Check current position quantity
+    const { data: posCheck } = await supabase.functions.invoke('bitget-api', {
+      body: {
+        action: 'get_position',
+        params: { symbol: position.symbol },
+        apiCredentials: validationCredentials
+      }
+    });
+    
+    const currentQty = posCheck?.data?.[0] ? parseFloat(posCheck.data[0].total || '0') : 0;
+    const minQty = getMinQuantityForSymbol(position.symbol);
+    
+    if (activeOrders.length > 0 || currentQty >= minQty) {
+      console.warn(`🚨 ABORT CLOSE: Position ${position.symbol} has ${activeOrders.length} active TP orders and quantity ${currentQty} on exchange (min: ${minQty})`);
+      console.warn(`⚠️ NOT marking as closed to prevent data loss - position still active`);
+      
+      await log({
+        functionName: 'position-monitor',
+        message: `Prevented incorrect position closure - active orders/quantity detected`,
+        level: 'warn',
+        positionId: position.id,
+        metadata: { 
+          reason,
+          activeOrders: activeOrders.length,
+          currentQty,
+          minQty,
+          orderDetails: activeOrders.map((o: any) => ({
+            orderId: o.orderId,
+            triggerPrice: o.triggerPrice,
+            size: o.size
+          }))
+        }
+      });
+      
+      return; // ABORT - do not mark as closed
+    }
+  }
+  
+  console.log(`✅ Validation passed - proceeding to mark position ${position.symbol} as closed`);
   
   // Determine actual close reason and price if "not_found_on_exchange"
   let actualReason = reason;
@@ -2730,38 +2806,27 @@ async function checkPositionFullVerification(supabase: any, position: any, setti
   // Check if resync is needed
   const resyncCheck = checkIfResyncNeeded(slOrders, tpOrders, expected, settings, position);
   
-  // ✅ INTELIGENTNY RESYNC: Check order history BEFORE triggering resync
+  // ✅ SMART RESYNC: Check fill history BEFORE triggering resync
   // If orders are "missing" but were actually executed, mark as filled instead of resync
   if (resyncCheck.mismatch && (resyncCheck.missingOrders.tp1 || resyncCheck.missingOrders.tp2 || resyncCheck.missingOrders.tp3)) {
-    console.log(`🔍 Checking order fill history before resync...`);
+    console.log(`🔍 CRITICAL: Checking order fill history before resync...`);
     
-    // 🔧 NEW: Check if TP orders exist on exchange first
-    // If TP is missing but was never filled, it means order was canceled/lost
-    const updates: any = {};
-    
-    // Check each TP level
-    if (resyncCheck.missingOrders.tp1 && !position.tp1_filled) {
-      // TP1 order is missing - check if it's in order list
-      const tp1Order = tpOrders.find((o: any) => o.orderId === position.tp1_order_id);
-      if (!tp1Order) {
-        console.log(`⚠️ TP1 order missing from exchange - checking if it was executed...`);
+    // STEP 1: Verify current position quantity on exchange
+    const { data: posCheck } = await supabase.functions.invoke('bitget-api', {
+      body: {
+        action: 'get_position',
+        params: { symbol: position.symbol },
+        apiCredentials
       }
-    }
+    });
     
-    if (resyncCheck.missingOrders.tp2 && !position.tp2_filled) {
-      const tp2Order = tpOrders.find((o: any) => o.orderId === position.tp2_order_id);
-      if (!tp2Order) {
-        console.log(`⚠️ TP2 order missing from exchange - checking if it was executed...`);
-      }
-    }
+    const currentExchangeQty = posCheck?.data?.[0] ? parseFloat(posCheck.data[0].total || '0') : 0;
+    const dbQuantity = Number(position.quantity);
+    const quantityReduced = currentExchangeQty < dbQuantity * 0.99;
     
-    if (resyncCheck.missingOrders.tp3 && !position.tp3_filled) {
-      const tp3Order = tpOrders.find((o: any) => o.orderId === position.tp3_order_id);
-      if (!tp3Order) {
-        console.log(`⚠️ TP3 order missing from exchange - checking if it was executed...`);
-      }
-    }
+    console.log(`📊 Quantity check: DB=${dbQuantity}, Exchange=${currentExchangeQty}, Reduced=${quantityReduced}`);
     
+    // STEP 2: If quantity reduced, TP was likely filled - fetch fill history
     const { data: orderHistory } = await supabase.functions.invoke('bitget-api', {
       body: {
         action: 'get_order_fills',
@@ -2773,19 +2838,25 @@ async function checkPositionFullVerification(supabase: any, position: any, setti
       }
     });
     
-    if (orderHistory?.success && orderHistory.data && Array.isArray(orderHistory.data)) {
-      const fills = orderHistory.data || [];
-      const closeFills = Array.isArray(fills) ? fills.filter((f: any) => 
+    // CRITICAL: Validate fills array to prevent filter errors
+    const fillsData = orderHistory?.success && orderHistory.data ? orderHistory.data : [];
+    const fills = Array.isArray(fillsData) ? fillsData : (Array.isArray(fillsData.fillList) ? fillsData.fillList : []);
+    
+    console.log(`📊 Fill history check: success=${orderHistory?.success}, fills count=${fills.length}`);
+    
+    if (fills.length > 0) {
+      const closeFills = fills.filter((f: any) => 
         f.side !== position.side && 
         f.tradeSide === 'close'
-      ) : [];
+      );
+      
+      console.log(`📊 Found ${closeFills.length} close fills in history`);
       
       if (closeFills.length > 0) {
-        console.log(`📊 Found ${closeFills.length} close fills in history`);
-        
-        // 🔧 IMPROVED: Match fills to specific TP orders by orderId
+        // Match fills to specific TP orders by orderId
         const updates: any = {};
         let totalFilledQty = 0;
+        let anyTPFilled = false;
         
         // Check TP1
         if (!position.tp1_filled && position.tp1_order_id) {
@@ -2797,7 +2868,9 @@ async function checkPositionFullVerification(supabase: any, position: any, setti
             if (tp1FilledQty > 0) {
               updates.tp1_filled = true;
               totalFilledQty += tp1FilledQty;
-              console.log(`✅ TP1 was executed (orderId: ${position.tp1_order_id}, qty: ${tp1FilledQty}) - marking as filled`);
+              anyTPFilled = true;
+              console.log(`✅ TP1 EXECUTED (orderId: ${position.tp1_order_id}, qty: ${tp1FilledQty}) - marking as filled`);
+              resyncCheck.missingOrders.tp1 = false; // Cancel resync for TP1
             }
           }
         }
@@ -2812,7 +2885,9 @@ async function checkPositionFullVerification(supabase: any, position: any, setti
             if (tp2FilledQty > 0) {
               updates.tp2_filled = true;
               totalFilledQty += tp2FilledQty;
-              console.log(`✅ TP2 was executed (orderId: ${position.tp2_order_id}, qty: ${tp2FilledQty}) - marking as filled`);
+              anyTPFilled = true;
+              console.log(`✅ TP2 EXECUTED (orderId: ${position.tp2_order_id}, qty: ${tp2FilledQty}) - marking as filled`);
+              resyncCheck.missingOrders.tp2 = false; // Cancel resync for TP2
             }
           }
         }
@@ -2827,51 +2902,99 @@ async function checkPositionFullVerification(supabase: any, position: any, setti
             if (tp3FilledQty > 0) {
               updates.tp3_filled = true;
               totalFilledQty += tp3FilledQty;
-              console.log(`✅ TP3 was executed (orderId: ${position.tp3_order_id}, qty: ${tp3FilledQty}) - marking as filled`);
+              anyTPFilled = true;
+              console.log(`✅ TP3 EXECUTED (orderId: ${position.tp3_order_id}, qty: ${tp3FilledQty}) - marking as filled`);
+              resyncCheck.missingOrders.tp3 = false; // Cancel resync for TP3
             }
           }
         }
         
-        console.log(`📊 Total filled quantity from matched TP orders: ${totalFilledQty}`);
+        console.log(`📊 Total filled quantity from matched TP orders: ${totalFilledQty}, any filled: ${anyTPFilled}`);
         
         if (Object.keys(updates).length > 0) {
+          // Calculate new quantity
+          const newQuantity = Math.max(0, position.quantity - totalFilledQty);
+          
           await supabase
             .from('positions')
             .update({
               ...updates,
-              quantity: position.quantity - totalFilledQty
+              quantity: newQuantity
             })
             .eq('id', position.id);
           
-          // Log which TPs were marked as filled
           await log({
             functionName: 'position-monitor',
-            message: `TP orders executed - updated filled status`,
+            message: `TP orders VERIFIED as executed - updated filled status, prevented incorrect resync`,
             level: 'info',
             positionId: position.id,
             metadata: { 
               updates, 
               totalFilledQty,
-              newQuantity: position.quantity - totalFilledQty
+              oldQuantity: position.quantity,
+              newQuantity: newQuantity
             }
           });
           
-          // Cancel resync - orders were actually executed
-          console.log(`✅ Orders were executed - canceling resync`);
-          resyncCheck.mismatch = false;
-          resyncCheck.reason = 'orders_executed';
-          
-          // Update position object
+          // Update position object for rest of function
           if (updates.tp1_filled) position.tp1_filled = true;
           if (updates.tp2_filled) position.tp2_filled = true;
           if (updates.tp3_filled) position.tp3_filled = true;
-          position.quantity -= totalFilledQty;
-        } else {
-          console.log(`⚠️ No TP fills found in order history - orders may have been canceled, proceeding with resync`);
+          position.quantity = newQuantity;
+          
+          // Check if ANY missingOrders remain - if not, cancel resync completely
+          const anyMissing = resyncCheck.missingOrders.tp1 || resyncCheck.missingOrders.tp2 || resyncCheck.missingOrders.tp3;
+          
+          if (!anyMissing && !resyncCheck.priceIssues.sl && !resyncCheck.priceIssues.tp1 && !resyncCheck.priceIssues.tp2 && !resyncCheck.priceIssues.tp3) {
+            console.log(`✅ ALL missing orders were verified as executed - CANCELING RESYNC COMPLETELY`);
+            resyncCheck.mismatch = false;
+            resyncCheck.reason = 'all_orders_executed_verified';
+          } else {
+            console.log(`⚠️ Some orders still need resync: missingOrders=${JSON.stringify(resyncCheck.missingOrders)}, priceIssues=${JSON.stringify(resyncCheck.priceIssues)}`);
+          }
+        } else if (quantityReduced) {
+          // Quantity reduced but no fills found - WARNING situation
+          console.warn(`🚨 CRITICAL: Position quantity reduced (${dbQuantity} → ${currentExchangeQty}) but NO fills found in history!`);
+          console.warn(`⚠️ This may indicate API delay - waiting 3 seconds before proceeding with resync...`);
+          
+          await new Promise(r => setTimeout(r, 3000));
+          
+          // Re-check fills after delay
+          const { data: recheckHistory } = await supabase.functions.invoke('bitget-api', {
+            body: {
+              action: 'get_order_fills',
+              params: { 
+                symbol: position.symbol, 
+                startTime: new Date(position.created_at).getTime() 
+              },
+              apiCredentials
+            }
+          });
+          
+          if (recheckHistory?.success) {
+            const recheckFills = Array.isArray(recheckHistory.data) ? recheckHistory.data : (Array.isArray(recheckHistory.data?.fillList) ? recheckHistory.data.fillList : []);
+            console.log(`📊 Recheck found ${recheckFills.length} total fills`);
+            
+            if (recheckFills.length > fills.length) {
+              console.log(`✅ New fills appeared after delay - NOT proceeding with resync to prevent order cancellation`);
+              resyncCheck.mismatch = false;
+              resyncCheck.reason = 'fills_appeared_after_delay';
+            }
+          }
         }
       } else {
-        console.log(`⚠️ No close fills found in order history - orders may have been canceled, proceeding with resync`);
+        console.log(`⚠️ No close fills found in order history`);
+        
+        // If quantity hasn't changed, orders may have been canceled - proceed with resync
+        if (!quantityReduced) {
+          console.log(`📊 Quantity unchanged - orders likely canceled, proceeding with resync`);
+        } else {
+          console.warn(`🚨 Quantity reduced but no fills - possible API delay, adding safety delay before resync`);
+          await new Promise(r => setTimeout(r, 2000));
+        }
       }
+    } else {
+      console.warn(`⚠️ Failed to fetch order history or invalid data - proceeding cautiously with resync`);
     }
   }
   
@@ -2907,6 +3030,58 @@ async function checkPositionFullVerification(supabase: any, position: any, setti
       priceIssues: resyncCheck.priceIssues
     });
     
+    // ✅ PRE-RESYNC VALIDATION: Verify position still exists and check active orders
+    console.log(`🔍 PRE-RESYNC VALIDATION: Checking exchange state before making changes...`);
+    
+    const { data: preResyncPosCheck } = await supabase.functions.invoke('bitget-api', {
+      body: {
+        action: 'get_position',
+        params: { symbol: position.symbol },
+        apiCredentials
+      }
+    });
+    
+    const preResyncPosition = preResyncPosCheck?.data?.[0];
+    const preResyncQty = preResyncPosition ? parseFloat(preResyncPosition.total || '0') : 0;
+    
+    if (preResyncQty === 0) {
+      console.warn(`🚨 CRITICAL: Position fully closed on exchange (qty=0) - aborting resync and marking as closed`);
+      await markPositionAsClosed(supabase, position, 'closed_before_resync');
+      return;
+    }
+    
+    // Check for active TP orders one more time
+    const { data: preResyncOrders } = await supabase.functions.invoke('bitget-api', {
+      body: {
+        action: 'get_plan_orders',
+        params: { symbol: position.symbol, planType: 'normal_plan' },
+        apiCredentials
+      }
+    });
+    
+    const activeTPOrders = preResyncOrders?.success && preResyncOrders.data?.entrustedList
+      ? preResyncOrders.data.entrustedList.filter((o: any) => 
+          o.symbol.toLowerCase() === position.symbol.toLowerCase() && 
+          o.planStatus === 'live' &&
+          o.tradeSide === 'close'
+        )
+      : [];
+    
+    console.log(`📊 Pre-resync check: Exchange qty=${preResyncQty}, DB qty=${position.quantity}, Active TP orders=${activeTPOrders.length}`);
+    
+    // If we have active TP orders but they're flagged as missing, they might be correct - skip resync
+    if (activeTPOrders.length > 0 && resyncCheck.missingOrders.tp1 && !resyncCheck.priceIssues.tp1) {
+      console.warn(`⚠️ Found ${activeTPOrders.length} active TP orders on exchange, but they're flagged as "missing" - possible detection issue`);
+      console.log(`⚠️ Skipping resync to prevent canceling valid orders - will re-check next cycle`);
+      resyncCheck.mismatch = false;
+      resyncCheck.reason = 'active_orders_found_skip_resync';
+    }
+    
+    if (!resyncCheck.mismatch) {
+      console.log(`✅ Pre-resync validation canceled resync - no changes needed`);
+      return;
+    }
+    
     await log({
       functionName: 'position-monitor',
       message: `Selective resync triggered: ${resyncCheck.reason}`,
@@ -2916,7 +3091,9 @@ async function checkPositionFullVerification(supabase: any, position: any, setti
         expected, 
         currentOrders: planOrders.length,
         missingOrders: resyncCheck.missingOrders,
-        priceIssues: resyncCheck.priceIssues
+        priceIssues: resyncCheck.priceIssues,
+        preResyncQty,
+        activeTPOrders: activeTPOrders.length
       }
     });
     
