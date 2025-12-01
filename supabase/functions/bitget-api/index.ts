@@ -210,6 +210,7 @@ serve(async (req) => {
         break;
 
       case 'get_fills':
+      case 'get_order_fills':
         // Get recent fills for position - used to calculate actual PnL
         const fillParams = new URLSearchParams({
           productType: 'USDT-FUTURES',
