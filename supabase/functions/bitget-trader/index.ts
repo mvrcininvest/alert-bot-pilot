@@ -1234,18 +1234,37 @@ serve(async (req) => {
         tp3: Math.round(quantities.tp3 * precision) / precision
       };
       
-      // Calculate remainder (what was lost in rounding)
+      // Calculate remainder (what was lost/gained in rounding)
       const sumRounded = rounded.tp1 + rounded.tp2 + rounded.tp3;
       const remainder = Math.round((totalQuantity - sumRounded) * precision) / precision;
       
-      // Add remainder to the largest active TP to maintain exact total
-      if (remainder > 0) {
-        if (rounded.tp1 >= rounded.tp2 && rounded.tp1 >= rounded.tp3) {
-          rounded.tp1 = Math.round((rounded.tp1 + remainder) * precision) / precision;
-        } else if (rounded.tp2 >= rounded.tp3) {
+      // Handle both positive AND negative remainder by adjusting the largest TP
+      // Positive remainder: sum too small, need to add
+      // Negative remainder: sum too large, need to subtract
+      if (Math.abs(remainder) > 0.0000001) {
+        // Prefer tp2 (usually largest with 75% in 2-TP setup)
+        if (rounded.tp2 > 0 && rounded.tp2 >= rounded.tp1 && rounded.tp2 >= rounded.tp3) {
           rounded.tp2 = Math.round((rounded.tp2 + remainder) * precision) / precision;
-        } else {
+        } else if (rounded.tp1 >= rounded.tp3) {
+          rounded.tp1 = Math.round((rounded.tp1 + remainder) * precision) / precision;
+        } else if (rounded.tp3 > 0) {
           rounded.tp3 = Math.round((rounded.tp3 + remainder) * precision) / precision;
+        } else {
+          // Fallback to tp1
+          rounded.tp1 = Math.round((rounded.tp1 + remainder) * precision) / precision;
+        }
+      }
+      
+      // Final validation - ensure sum equals total
+      const finalSum = rounded.tp1 + rounded.tp2 + rounded.tp3;
+      const finalDiff = Math.round((totalQuantity - finalSum) * precision) / precision;
+      if (Math.abs(finalDiff) > 0.0000001) {
+        console.warn(`⚠️ TP quantity mismatch after rounding! Forcing correction. Total=${totalQuantity}, Sum=${finalSum}, Diff=${finalDiff}`);
+        // Force correction on tp2 (usually largest)
+        if (rounded.tp2 > 0) {
+          rounded.tp2 = Math.round((rounded.tp2 + finalDiff) * precision) / precision;
+        } else {
+          rounded.tp1 = Math.round((rounded.tp1 + finalDiff) * precision) / precision;
         }
       }
       
