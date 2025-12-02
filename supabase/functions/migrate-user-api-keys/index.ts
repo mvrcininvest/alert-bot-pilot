@@ -70,12 +70,13 @@ Deno.serve(async (req) => {
     }
 
     // Get global API keys from secrets
-    const apiKey = Deno.env.get('BYBIT_API_KEY');
-    const secretKey = Deno.env.get('BYBIT_SECRET_KEY');
+    const apiKey = Deno.env.get('BITGET_API_KEY');
+    const secretKey = Deno.env.get('BITGET_SECRET_KEY');
+    const passphrase = Deno.env.get('BITGET_PASSPHRASE');
     const encryptionKey = Deno.env.get('ENCRYPTION_KEY');
 
-    if (!apiKey || !secretKey) {
-      throw new Error('Global Bybit API keys not found in secrets');
+    if (!apiKey || !secretKey || !passphrase) {
+      throw new Error('Global Bitget API keys not found in secrets');
     }
 
     if (!encryptionKey) {
@@ -108,8 +109,9 @@ Deno.serve(async (req) => {
     console.log('Encrypting API keys...');
     const encryptedApiKey = await encrypt(apiKey, encryptionKey);
     const encryptedSecretKey = await encrypt(secretKey, encryptionKey);
+    const encryptedPassphrase = await encrypt(passphrase, encryptionKey);
 
-    // Save to database (Bybit doesn't use passphrase)
+    // Save to database
     console.log('Saving encrypted keys to database...');
     const { error } = await supabaseClient
       .from('user_api_keys')
@@ -117,7 +119,7 @@ Deno.serve(async (req) => {
         user_id: user.id,
         api_key_encrypted: encryptedApiKey,
         secret_key_encrypted: encryptedSecretKey,
-        passphrase_encrypted: null, // Bybit doesn't use passphrase
+        passphrase_encrypted: encryptedPassphrase,
         is_active: true,
         last_validated_at: new Date().toISOString(),
       });

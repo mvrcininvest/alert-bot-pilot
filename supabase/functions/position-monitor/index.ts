@@ -34,9 +34,9 @@ function isPriceBeyondLevel(
   }
 }
 
-// Helper function to get price and volume precision from Bybit API
+// Helper function to get price and volume precision from Bitget API
 async function getSymbolPrecision(supabase: any, symbol: string, apiCredentials: any): Promise<{ pricePlace: number; volumePlace: number }> {
-  const { data: symbolInfoResult } = await supabase.functions.invoke('bybit-api', {
+  const { data: symbolInfoResult } = await supabase.functions.invoke('bitget-api', {
     body: {
       action: 'get_symbol_info',
       params: { symbol },
@@ -67,7 +67,7 @@ async function getPositionSizeFromExchange(
   holdSide: string, 
   apiCredentials: any
 ): Promise<number> {
-  const { data: posData } = await supabase.functions.invoke('bybit-api', {
+  const { data: posData } = await supabase.functions.invoke('bitget-api', {
     body: { action: 'get_position', params: { symbol }, apiCredentials }
   });
   const pos = posData?.data?.find((p: any) => p.holdSide === holdSide);
@@ -98,7 +98,7 @@ async function executeVerifiedClose(
   // 2. Try close_position FIRST with explicit size (more reliable for partial closes)
   console.log(`⚡ Attempting close_position with explicit size=${quantity}`);
   for (let attempt = 1; attempt <= 3; attempt++) {
-    const { data: closeResult } = await supabase.functions.invoke('bybit-api', {
+    const { data: closeResult } = await supabase.functions.invoke('bitget-api', {
       body: {
         action: 'close_position',
         params: { 
@@ -129,7 +129,7 @@ async function executeVerifiedClose(
   // 3. Try flash_close as fallback (may close entire position - use with caution)
   console.warn(`⚠️ close_position failed, trying flash_close (may close more than requested)`);
   for (let attempt = 1; attempt <= 3; attempt++) {
-    const { data: flashResult } = await supabase.functions.invoke('bybit-api', {
+    const { data: flashResult } = await supabase.functions.invoke('bitget-api', {
       body: {
         action: 'flash_close_position',
         params: { symbol: position.symbol, holdSide, size: quantity.toString() },
@@ -159,7 +159,7 @@ async function executeVerifiedClose(
   }
   
   // 4. Last resort: LIMIT order at current price
-  const { data: tickerResult } = await supabase.functions.invoke('bybit-api', {
+  const { data: tickerResult } = await supabase.functions.invoke('bitget-api', {
     body: { action: 'get_ticker', params: { symbol: position.symbol }, apiCredentials }
   });
   
@@ -172,7 +172,7 @@ async function executeVerifiedClose(
     
     const roundedLimitPrice = roundPrice(limitPrice, pricePlace);
     
-    const { data: limitResult } = await supabase.functions.invoke('bybit-api', {
+    const { data: limitResult } = await supabase.functions.invoke('bitget-api', {
       body: {
         action: 'place_order',
         params: {
@@ -198,7 +198,7 @@ async function executeVerifiedClose(
 
 // ============= MINIMUM QUANTITY HELPERS =============
 function getMinQuantityForSymbol(symbol: string): number {
-  // Minimum quantities from Bybit API (notional values converted to quantity)
+  // Minimum quantities from Bitget API (notional values converted to quantity)
   const minQuantities: Record<string, number> = {
     'BTCUSDT': 0.001,
     'ETHUSDT': 0.01,
@@ -318,7 +318,7 @@ interface ResyncResult {
 
 function calculateExpectedSLTP(position: any, settings: any): ExpectedSLTP {
   // ✅ PART 4: PRIORITIZE DB PRICES - Use prices from database as "source of truth"
-  // These prices were calculated by bybit-trader when opening the position
+  // These prices were calculated by bitget-trader when opening the position
   const dbSl = position.sl_price ? Number(position.sl_price) : null;
   const dbTp1 = position.tp1_price ? Number(position.tp1_price) : null;
   const dbTp2 = position.tp2_price ? Number(position.tp2_price) : null;
@@ -993,7 +993,7 @@ async function moveSlToBreakeven(
     // 1. Cancel existing SL order
     if (position.sl_order_id) {
       console.log(`🗑️ Canceling existing SL order: ${position.sl_order_id}`);
-      const { data: cancelResult } = await supabase.functions.invoke('bybit-api', {
+      const { data: cancelResult } = await supabase.functions.invoke('bitget-api', {
         body: {
           action: 'cancel_plan_order',
           params: { 
@@ -1015,7 +1015,7 @@ async function moveSlToBreakeven(
     const holdSide = isBuy ? 'long' : 'short';
     
     console.log(`📊 Placing new SL at breakeven: ${roundedSlPrice}`);
-    const { data: newSlResult } = await supabase.functions.invoke('bybit-api', {
+    const { data: newSlResult } = await supabase.functions.invoke('bitget-api', {
       body: {
         action: 'place_tpsl_order',
         params: {
@@ -1194,7 +1194,7 @@ async function cleanupOrphanOrders(supabase: any, userId: string, apiCredentials
   console.log(`🧹 Checking for orphan orders for user ${userId}`);
   
   // Get ALL plan orders from exchange (both types)
-  const { data: profitLossOrders } = await supabase.functions.invoke('bybit-api', {
+  const { data: profitLossOrders } = await supabase.functions.invoke('bitget-api', {
     body: {
       action: 'get_plan_orders',
       params: { planType: 'profit_loss' },
@@ -1202,7 +1202,7 @@ async function cleanupOrphanOrders(supabase: any, userId: string, apiCredentials
     }
   });
   
-  const { data: normalPlanOrders } = await supabase.functions.invoke('bybit-api', {
+  const { data: normalPlanOrders } = await supabase.functions.invoke('bitget-api', {
     body: {
       action: 'get_plan_orders',
       params: { planType: 'normal_plan' },
@@ -1264,7 +1264,7 @@ async function cleanupOrphanOrders(supabase: any, userId: string, apiCredentials
           ? 'position closed' 
           : 'orphan (no open position)';
         
-        const { data: cancelResult } = await supabase.functions.invoke('bybit-api', {
+        const { data: cancelResult } = await supabase.functions.invoke('bitget-api', {
           body: {
             action: 'cancel_plan_order',
             params: {
@@ -1403,7 +1403,7 @@ async function recoverOrphanPosition(
     }
     
     // 5. Check for existing SL/TP orders on exchange
-    const { data: ordersResult } = await supabase.functions.invoke('bybit-api', {
+    const { data: ordersResult } = await supabase.functions.invoke('bitget-api', {
       body: {
         action: 'get_plan_orders',
         params: { symbol, planType: 'profit_loss' },
@@ -1420,7 +1420,7 @@ async function recoverOrphanPosition(
       console.log(`📊 No existing SL/TP orders - placing new ones for recovered position`);
       
       // Place SL order
-      const { data: slResult } = await supabase.functions.invoke('bybit-api', {
+      const { data: slResult } = await supabase.functions.invoke('bitget-api', {
         body: {
           action: 'place_tpsl_order',
           params: {
@@ -1443,7 +1443,7 @@ async function recoverOrphanPosition(
       
       // Place TP1 order
       if (calculated.tp1_price && calculated.tp1_quantity) {
-        const { data: tp1Result } = await supabase.functions.invoke('bybit-api', {
+        const { data: tp1Result } = await supabase.functions.invoke('bitget-api', {
           body: {
             action: 'place_tpsl_order',
             params: {
@@ -1467,7 +1467,7 @@ async function recoverOrphanPosition(
       
       // Place TP2 order
       if (calculated.tp2_price && calculated.tp2_quantity) {
-        const { data: tp2Result } = await supabase.functions.invoke('bybit-api', {
+        const { data: tp2Result } = await supabase.functions.invoke('bitget-api', {
           body: {
             action: 'place_tpsl_order',
             params: {
@@ -1491,7 +1491,7 @@ async function recoverOrphanPosition(
       
       // Place TP3 order
       if (calculated.tp3_price && calculated.tp3_quantity) {
-        const { data: tp3Result } = await supabase.functions.invoke('bybit-api', {
+        const { data: tp3Result } = await supabase.functions.invoke('bitget-api', {
           body: {
             action: 'place_tpsl_order',
             params: {
@@ -1640,7 +1640,7 @@ async function markPositionAsClosed(supabase: any, position: any, reason: string
     };
     
     // Check for active orders on exchange
-    const { data: ordersCheck } = await supabase.functions.invoke('bybit-api', {
+    const { data: ordersCheck } = await supabase.functions.invoke('bitget-api', {
       body: {
         action: 'get_plan_orders',
         params: { symbol: position.symbol, planType: 'normal_plan' },
@@ -1657,7 +1657,7 @@ async function markPositionAsClosed(supabase: any, position: any, reason: string
       : [];
     
     // Check current position quantity
-    const { data: posCheck } = await supabase.functions.invoke('bybit-api', {
+    const { data: posCheck } = await supabase.functions.invoke('bitget-api', {
       body: {
         action: 'get_position',
         params: { symbol: position.symbol },
@@ -1699,7 +1699,7 @@ async function markPositionAsClosed(supabase: any, position: any, reason: string
       console.log(`🗑️ Position ${position.symbol} closed (qty=${currentQty}) but has ${activeOrders.length} orphan orders - canceling...`);
       
       // Also check for profit_loss orders (SL/TP)
-      const { data: plOrdersCheck } = await supabase.functions.invoke('bybit-api', {
+      const { data: plOrdersCheck } = await supabase.functions.invoke('bitget-api', {
         body: {
           action: 'get_plan_orders',
           params: { symbol: position.symbol, planType: 'profit_loss' },
@@ -1721,7 +1721,7 @@ async function markPositionAsClosed(supabase: any, position: any, reason: string
         try {
           const planType = order.planType === 'pos_loss' || order.planType === 'pos_profit' ? 'profit_loss' : 'normal_plan';
           
-          const { data: cancelResult } = await supabase.functions.invoke('bybit-api', {
+          const { data: cancelResult } = await supabase.functions.invoke('bitget-api', {
             body: {
               action: 'cancel_plan_order',
               params: {
@@ -1778,13 +1778,13 @@ async function markPositionAsClosed(supabase: any, position: any, reason: string
       };
       
       try {
-        // Fetch fill history from Bybit
+        // Fetch fill history from Bitget
         const endTime = Date.now().toString();
         const startTime = (new Date(position.created_at).getTime()).toString();
         
         console.log(`📊 Fetching fill history for ${position.symbol} from ${new Date(Number(startTime)).toISOString()}`);
         
-        const { data: fillsResult } = await supabase.functions.invoke('bybit-api', {
+        const { data: fillsResult } = await supabase.functions.invoke('bitget-api', {
           body: {
             action: 'get_history_positions',
             params: { 
@@ -1847,7 +1847,7 @@ async function markPositionAsClosed(supabase: any, position: any, reason: string
     };
     
     // Fetch ALL orders for this symbol from exchange
-    const { data: ordersResult } = await supabase.functions.invoke('bybit-api', {
+    const { data: ordersResult } = await supabase.functions.invoke('bitget-api', {
       body: {
         action: 'get_plan_orders',
         params: { symbol: position.symbol },
@@ -1867,7 +1867,7 @@ async function markPositionAsClosed(supabase: any, position: any, reason: string
     // Cancel each order
     for (const order of allOrders) {
       try {
-        const { data: cancelResult } = await supabase.functions.invoke('bybit-api', {
+        const { data: cancelResult } = await supabase.functions.invoke('bitget-api', {
           body: {
             action: 'cancel_plan_order',
             params: {
@@ -2050,7 +2050,7 @@ serve(async (req) => {
         const currentUserSettings = await getUserSettings(user_id);
 
         // STEP 1: Get ALL positions from EXCHANGE
-        const { data: exchangePositionsResult, error: exchangeError } = await supabase.functions.invoke('bybit-api', {
+        const { data: exchangePositionsResult, error: exchangeError } = await supabase.functions.invoke('bitget-api', {
           body: {
             action: 'get_positions',
             apiCredentials
@@ -2144,7 +2144,7 @@ serve(async (req) => {
           // Verify EACH position individually
           for (const dbPos of dbPositionsList) {
             try {
-              const { data: verifyResult } = await supabase.functions.invoke('bybit-api', {
+              const { data: verifyResult } = await supabase.functions.invoke('bitget-api', {
                 body: {
                   action: 'get_position',
                   params: { symbol: dbPos.symbol },
@@ -2187,7 +2187,7 @@ serve(async (req) => {
               // DOUBLE CHECK: Verify this specific position directly before closing
               console.log(`⚠️ Position in DB but not in main exchange list: ${dbPos.symbol} - verifying...`);
               
-              const { data: verifyResult } = await supabase.functions.invoke('bybit-api', {
+              const { data: verifyResult } = await supabase.functions.invoke('bitget-api', {
                 body: {
                   action: 'get_position',
                   params: { symbol: dbPos.symbol },
@@ -2341,13 +2341,13 @@ async function checkPositionFullVerification(supabase: any, position: any, setti
   const { pricePlace, volumePlace } = await getSymbolPrecision(supabase, position.symbol, apiCredentials);
   console.log(`📏 Precision for ${position.symbol}: price=${pricePlace}, volume=${volumePlace} decimals`);
 
-  // 1. Get current position from Bybit with retry logic
+  // 1. Get current position from Bitget with retry logic
   let positionResult: any = null;
   let retryCount = 0;
   const maxRetries = 3;
   
   while (retryCount < maxRetries) {
-    const { data } = await supabase.functions.invoke('bybit-api', {
+    const { data } = await supabase.functions.invoke('bitget-api', {
       body: {
         action: 'get_position',
         params: { symbol: position.symbol },
@@ -2371,7 +2371,7 @@ async function checkPositionFullVerification(supabase: any, position: any, setti
   if (!positionResult?.success || !positionResult.data || !positionResult.data[0]) {
     console.log(`⚠️ Position not found after ${maxRetries} retries, checking all positions...`);
     
-    const { data: allPositionsResult } = await supabase.functions.invoke('bybit-api', {
+    const { data: allPositionsResult } = await supabase.functions.invoke('bitget-api', {
       body: {
         action: 'get_positions',
         apiCredentials
@@ -2400,7 +2400,7 @@ async function checkPositionFullVerification(supabase: any, position: any, setti
     const now = Date.now();
     const fiveMinutesAgo = now - (5 * 60 * 1000);
     
-    const { data: historyResult } = await supabase.functions.invoke('bybit-api', {
+    const { data: historyResult } = await supabase.functions.invoke('bitget-api', {
       body: {
         action: 'get_history_positions',
         params: { 
@@ -2463,7 +2463,7 @@ async function checkPositionFullVerification(supabase: any, position: any, setti
     const fillNow = Date.now();
     const fillFiveMinutesAgo = fillNow - (5 * 60 * 1000);
     
-    const { data: fillsResult } = await supabase.functions.invoke('bybit-api', {
+    const { data: fillsResult } = await supabase.functions.invoke('bitget-api', {
       body: {
         action: 'get_fills',
         params: {
@@ -2531,7 +2531,7 @@ async function checkPositionFullVerification(supabase: any, position: any, setti
       }
     } else {
       // Fallback to ticker if fills not available
-      const { data: tickerResult } = await supabase.functions.invoke('bybit-api', {
+      const { data: tickerResult } = await supabase.functions.invoke('bitget-api', {
         body: {
           action: 'get_ticker',
           params: { symbol: position.symbol },
@@ -2642,10 +2642,10 @@ async function checkPositionFullVerification(supabase: any, position: any, setti
     return;
   }
 
-  const bybitPosition = positionResult.data[0];
+  const bitgetPosition = positionResult.data[0];
   
   // 2. Get current price
-  const { data: tickerResult } = await supabase.functions.invoke('bybit-api', {
+  const { data: tickerResult } = await supabase.functions.invoke('bitget-api', {
     body: {
       action: 'get_ticker',
       params: { symbol: position.symbol },
@@ -2661,7 +2661,7 @@ async function checkPositionFullVerification(supabase: any, position: any, setti
   console.log(`Current price for ${position.symbol}: ${currentPrice}`);
 
   // Get all open orders - fetch BOTH profit_loss and normal_plan types
-  const { data: profitLossResult } = await supabase.functions.invoke('bybit-api', {
+  const { data: profitLossResult } = await supabase.functions.invoke('bitget-api', {
     body: {
       action: 'get_plan_orders',
       params: { 
@@ -2672,7 +2672,7 @@ async function checkPositionFullVerification(supabase: any, position: any, setti
     }
   });
 
-  const { data: normalPlanResult } = await supabase.functions.invoke('bybit-api', {
+  const { data: normalPlanResult } = await supabase.functions.invoke('bitget-api', {
     body: {
       action: 'get_plan_orders',
       params: { 
@@ -2701,19 +2701,19 @@ async function checkPositionFullVerification(supabase: any, position: any, setti
   console.log(`Found ${planOrders.length} plan orders for ${position.symbol} (profit_loss: ${profitLossOrders.length}, normal_plan: ${normalPlanOrders.length})`);
 
   // 4. Check quantity match and detect partial closes (TP hits)
-  const bybitQuantity = Number(bybitPosition.total || 0);
+  const bitgetQuantity = Number(bitgetPosition.total || 0);
   const dbQuantity = Number(position.quantity);
   
   // Detect partial close (TP was hit)
-  if (bybitQuantity < dbQuantity * 0.99) {
-    console.log(`📉 Detected partial close: DB=${dbQuantity}, Exchange=${bybitQuantity}`);
+  if (bitgetQuantity < dbQuantity * 0.99) {
+    console.log(`📉 Detected partial close: DB=${dbQuantity}, Exchange=${bitgetQuantity}`);
     
-    const closedQty = dbQuantity - bybitQuantity;
+    const closedQty = dbQuantity - bitgetQuantity;
     const tp1Qty = Number(position.tp1_quantity || 0);
     const tp2Qty = Number(position.tp2_quantity || 0);
     const tp3Qty = Number(position.tp3_quantity || 0);
     
-    const updates: any = { quantity: bybitQuantity };
+    const updates: any = { quantity: bitgetQuantity };
     
     // Check which TP was filled based on closed quantity
     // Check TP3 first (highest), then TP2, then TP1
@@ -2744,7 +2744,7 @@ async function checkPositionFullVerification(supabase: any, position: any, setti
     });
     
     // Update position object with new values for rest of the function
-    position.quantity = bybitQuantity;
+    position.quantity = bitgetQuantity;
     if (updates.tp1_filled) position.tp1_filled = true;
     if (updates.tp2_filled) position.tp2_filled = true;
     if (updates.tp3_filled) position.tp3_filled = true;
@@ -2762,14 +2762,14 @@ async function checkPositionFullVerification(supabase: any, position: any, setti
         await moveSlToBreakeven(supabase, position, apiCredentials, pricePlace, settings);
       }
     }
-  } else if (Math.abs(bybitQuantity - dbQuantity) > 0.0001) {
+  } else if (Math.abs(bitgetQuantity - dbQuantity) > 0.0001) {
     issues.push({
       type: 'quantity_mismatch',
       expected: dbQuantity,
-      actual: bybitQuantity,
+      actual: bitgetQuantity,
       severity: 'high'
     });
-    console.log(`⚠️ Quantity mismatch: DB=${dbQuantity}, Bybit=${bybitQuantity}`);
+    console.log(`⚠️ Quantity mismatch: DB=${dbQuantity}, Bitget=${bitgetQuantity}`);
   }
 
   // 5. VALIDATION & RESYNC LOGIC
@@ -2827,7 +2827,7 @@ async function checkPositionFullVerification(supabase: any, position: any, setti
     await new Promise(r => setTimeout(r, 500));
     
     // Retry fetching orders
-    const { data: retryProfitLoss } = await supabase.functions.invoke('bybit-api', {
+    const { data: retryProfitLoss } = await supabase.functions.invoke('bitget-api', {
       body: {
         action: 'get_plan_orders',
         params: { symbol: position.symbol, planType: 'profit_loss' },
@@ -2835,7 +2835,7 @@ async function checkPositionFullVerification(supabase: any, position: any, setti
       }
     });
     
-    const { data: retryNormalPlan } = await supabase.functions.invoke('bybit-api', {
+    const { data: retryNormalPlan } = await supabase.functions.invoke('bitget-api', {
       body: {
         action: 'get_plan_orders',
         params: { symbol: position.symbol, planType: 'normal_plan' },
@@ -2888,7 +2888,7 @@ async function checkPositionFullVerification(supabase: any, position: any, setti
     console.log(`🔍 CRITICAL: Checking order fill history before resync...`);
     
     // STEP 1: Verify current position quantity on exchange
-    const { data: posCheck } = await supabase.functions.invoke('bybit-api', {
+    const { data: posCheck } = await supabase.functions.invoke('bitget-api', {
       body: {
         action: 'get_position',
         params: { symbol: position.symbol },
@@ -2903,7 +2903,7 @@ async function checkPositionFullVerification(supabase: any, position: any, setti
     console.log(`📊 Quantity check: DB=${dbQuantity}, Exchange=${currentExchangeQty}, Reduced=${quantityReduced}`);
     
     // STEP 2: If quantity reduced, TP was likely filled - fetch fill history
-    const { data: orderHistory } = await supabase.functions.invoke('bybit-api', {
+    const { data: orderHistory } = await supabase.functions.invoke('bitget-api', {
       body: {
         action: 'get_order_fills',
         params: { 
@@ -3036,7 +3036,7 @@ async function checkPositionFullVerification(supabase: any, position: any, setti
           await new Promise(r => setTimeout(r, 3000));
           
           // Re-check fills after delay
-          const { data: recheckHistory } = await supabase.functions.invoke('bybit-api', {
+          const { data: recheckHistory } = await supabase.functions.invoke('bitget-api', {
             body: {
               action: 'get_order_fills',
               params: { 
@@ -3109,7 +3109,7 @@ async function checkPositionFullVerification(supabase: any, position: any, setti
     // ✅ PRE-RESYNC VALIDATION: Verify position still exists and check active orders
     console.log(`🔍 PRE-RESYNC VALIDATION: Checking exchange state before making changes...`);
     
-    const { data: preResyncPosCheck } = await supabase.functions.invoke('bybit-api', {
+    const { data: preResyncPosCheck } = await supabase.functions.invoke('bitget-api', {
       body: {
         action: 'get_position',
         params: { symbol: position.symbol },
@@ -3127,7 +3127,7 @@ async function checkPositionFullVerification(supabase: any, position: any, setti
     }
     
     // Check for active TP orders one more time
-    const { data: preResyncOrders } = await supabase.functions.invoke('bybit-api', {
+    const { data: preResyncOrders } = await supabase.functions.invoke('bitget-api', {
       body: {
         action: 'get_plan_orders',
         params: { symbol: position.symbol, planType: 'normal_plan' },
@@ -3203,7 +3203,7 @@ async function checkPositionFullVerification(supabase: any, position: any, setti
         // Cancel existing SL if it exists
         if (position.sl_order_id) {
           for (const planType of ['pos_loss', 'profit_loss']) {
-            const { data: cancelResult } = await supabase.functions.invoke('bybit-api', {
+            const { data: cancelResult } = await supabase.functions.invoke('bitget-api', {
               body: {
                 action: 'cancel_plan_order',
                 params: { symbol: position.symbol, orderId: position.sl_order_id, planType },
@@ -3225,7 +3225,7 @@ async function checkPositionFullVerification(supabase: any, position: any, setti
         if (slAlreadyTriggered) {
           console.log(`🚨 CRITICAL: Price ${currentPrice} already past SL ${expected.sl_price} - closing position immediately!`);
           
-          const { data: posData } = await supabase.functions.invoke('bybit-api', {
+          const { data: posData } = await supabase.functions.invoke('bitget-api', {
             body: { action: 'get_position', params: { symbol: position.symbol }, apiCredentials }
           });
           
@@ -3249,7 +3249,7 @@ async function checkPositionFullVerification(supabase: any, position: any, setti
         } else {
           // Place new SL
           const roundedSlPrice = roundPrice(expected.sl_price, pricePlace);
-          const { data: newSlResult } = await supabase.functions.invoke('bybit-api', {
+          const { data: newSlResult } = await supabase.functions.invoke('bitget-api', {
             body: {
               action: 'place_tpsl_order',
               params: {
@@ -3284,7 +3284,7 @@ async function checkPositionFullVerification(supabase: any, position: any, setti
       }
     }
     
-    // 2. Handle all TP orders in PARALLEL (like bybit-trader does)
+    // 2. Handle all TP orders in PARALLEL (like bitget-trader does)
     // First, collect all TPs that need fixing
     const tpsToFix: Array<{
       level: number;
@@ -3372,7 +3372,7 @@ async function checkPositionFullVerification(supabase: any, position: any, setti
       const cancelPromises = tpsToFix
         .filter(tp => tp.existingOrderId)
         .map(tp => 
-          supabase.functions.invoke('bybit-api', {
+          supabase.functions.invoke('bitget-api', {
             body: {
               action: 'cancel_plan_order',
               params: { 
@@ -3412,7 +3412,7 @@ async function checkPositionFullVerification(supabase: any, position: any, setti
           orderIdKey: tp.orderIdKey,
           price: tp.price,
           quantity: tp.quantity,
-          promise: supabase.functions.invoke('bybit-api', {
+          promise: supabase.functions.invoke('bitget-api', {
             body: {
               action: 'place_plan_order',
               params: {

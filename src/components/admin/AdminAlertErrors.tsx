@@ -36,7 +36,7 @@ interface ErrorStats {
 }
 
 const ERROR_DESCRIPTIONS: Record<string, string> = {
-  'User API keys not found or inactive': 'Użytkownik nie skonfigurował kluczy API Bybit',
+  'User API keys not found or inactive': 'Użytkownik nie skonfigurował kluczy API Bitget',
   'Max open positions reached': 'Przekroczono limit otwartych pozycji',
   'Edge Function returned a non-2xx status code': 'Błąd edge function (sprawdź szczegóły)',
   'Bot not active': 'Bot użytkownika jest wyłączony',

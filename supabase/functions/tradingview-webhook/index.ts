@@ -191,7 +191,7 @@ serve(async (req) => {
           metadata: { userId }
         });
 
-        const { data: tradeResult, error: tradeError } = await supabase.functions.invoke('bybit-trader', {
+        const { data: tradeResult, error: tradeError } = await supabase.functions.invoke('bitget-trader', {
           body: { 
             alert_id: alert.id, 
             alert_data: alertData, 

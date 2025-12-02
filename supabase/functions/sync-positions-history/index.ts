@@ -21,7 +21,7 @@ serve(async (req) => {
 
     await log({
       functionName: 'sync-positions-history',
-      message: 'Starting position history synchronization with Bybit data',
+      message: 'Starting position history synchronization with Bitget data',
       level: 'info'
     });
 
@@ -84,13 +84,13 @@ serve(async (req) => {
       };
 
       try {
-        // Get position history from Bybit (last 30 days to cover all positions)
+        // Get position history from Bitget (last 30 days to cover all positions)
         const endTime = Date.now();
         const startTime = endTime - (30 * 24 * 60 * 60 * 1000); // 30 days ago
 
         console.log(`Fetching position history for user ${userId} from ${new Date(startTime).toISOString()}`);
 
-        const { data: historyResult } = await supabase.functions.invoke('bybit-api', {
+        const { data: historyResult } = await supabase.functions.invoke('bitget-api', {
           body: {
             action: 'get_position_history',
             params: {
@@ -107,134 +107,134 @@ serve(async (req) => {
           continue;
         }
 
-        const bybitPositions = historyResult.data.list;
-        console.log(`Got ${bybitPositions.length} positions from Bybit for user ${userId}`);
+        const bitgetPositions = historyResult.data.list;
+        console.log(`Got ${bitgetPositions.length} positions from Bitget for user ${userId}`);
         
-        // Debug: Log sample Bybit position structure
-        if (bybitPositions.length > 0) {
-          console.log(`Sample Bybit position: ${JSON.stringify(bybitPositions[0])}`);
+        // Debug: Log sample Bitget position structure
+        if (bitgetPositions.length > 0) {
+          console.log(`Sample Bitget position: ${JSON.stringify(bitgetPositions[0])}`);
         }
 
-        // Process each DB position and find matching Bybit data
+        // Process each DB position and find matching Bitget data
         for (const dbPos of userPositions) {
           const symbol = normalizeSymbol(dbPos.symbol);
           const dbCloseTime = new Date(dbPos.closed_at).getTime();
           
           console.log(`Processing DB position: ${dbPos.id}, symbol=${symbol}, closed_at=${dbPos.closed_at}`);
 
-          // Find matching Bybit position by symbol and approximate time
-          const bybitPos = bybitPositions.find((bp: any) => {
+          // Find matching Bitget position by symbol and approximate time
+          const bitgetPos = bitgetPositions.find((bp: any) => {
             const bpSymbol = normalizeSymbol(bp.symbol);
             if (bpSymbol !== symbol) return false;
             
             // Use utime (update time) as close time, fallback to ctime if needed - LOWERCASE!
-            const bybitCloseTime = Number(bp.utime || bp.ctime);
-            if (isNaN(bybitCloseTime)) return false;
+            const bitgetCloseTime = Number(bp.utime || bp.ctime);
+            if (isNaN(bitgetCloseTime)) return false;
             
-            const timeDiff = Math.abs(dbCloseTime - bybitCloseTime);
+            const timeDiff = Math.abs(dbCloseTime - bitgetCloseTime);
             const withinWindow = timeDiff < (5 * 60 * 1000); // 5 minutes tolerance
             
             if (withinWindow) {
-              console.log(`✅ Time match for ${symbol}: DB=${new Date(dbCloseTime).toISOString()}, Bybit=${new Date(bybitCloseTime).toISOString()}, diff=${Math.round(timeDiff/1000)}s`);
+              console.log(`✅ Time match for ${symbol}: DB=${new Date(dbCloseTime).toISOString()}, Bitget=${new Date(bitgetCloseTime).toISOString()}, diff=${Math.round(timeDiff/1000)}s`);
             }
             
             return withinWindow;
           });
 
-          if (!bybitPos) {
-            console.log(`❌ No matching Bybit position found for ${symbol}`);
+          if (!bitgetPos) {
+            console.log(`❌ No matching Bitget position found for ${symbol}`);
             continue;
           }
 
-          console.log(`Found matching Bybit position for ${dbPos.id}`);
+          console.log(`Found matching Bitget position for ${dbPos.id}`);
 
-          // Extract real data from Bybit using CORRECT field names
-          const bybitEntryPrice = Number(bybitPos.openAvgPrice);
-          const bybitClosePrice = Number(bybitPos.closeAvgPrice);
-          const bybitRealizedPnl = Number(bybitPos.netProfit); // netProfit includes fees
-          const bybitSide = bybitPos.holdSide === 'long' ? 'BUY' : 'SELL';
+          // Extract real data from Bitget using CORRECT field names
+          const bitgetEntryPrice = Number(bitgetPos.openAvgPrice);
+          const bitgetClosePrice = Number(bitgetPos.closeAvgPrice);
+          const bitgetRealizedPnl = Number(bitgetPos.netProfit); // netProfit includes fees
+          const bitgetSide = bitgetPos.holdSide === 'long' ? 'BUY' : 'SELL';
 
           // Determine close reason
           let closeReason = 'manual_close';
           
-          if (bybitPos.closeType === 'sl') {
+          if (bitgetPos.closeType === 'sl') {
             closeReason = 'sl_hit';
-          } else if (bybitPos.closeType === 'tp') {
+          } else if (bitgetPos.closeType === 'tp') {
             // Check which TP was hit
             const tp1Price = dbPos.tp1_price ? Number(dbPos.tp1_price) : null;
             const tp2Price = dbPos.tp2_price ? Number(dbPos.tp2_price) : null;
             const tp3Price = dbPos.tp3_price ? Number(dbPos.tp3_price) : null;
 
-            if (bybitSide === 'BUY') {
-              if (tp3Price && bybitClosePrice >= tp3Price * 0.995) {
+            if (bitgetSide === 'BUY') {
+              if (tp3Price && bitgetClosePrice >= tp3Price * 0.995) {
                 closeReason = 'tp3_hit';
-              } else if (tp2Price && bybitClosePrice >= tp2Price * 0.995) {
+              } else if (tp2Price && bitgetClosePrice >= tp2Price * 0.995) {
                 closeReason = 'tp2_hit';
-              } else if (tp1Price && bybitClosePrice >= tp1Price * 0.995) {
+              } else if (tp1Price && bitgetClosePrice >= tp1Price * 0.995) {
                 closeReason = 'tp1_hit';
               } else {
                 closeReason = 'tp_hit';
               }
             } else {
-              if (tp3Price && bybitClosePrice <= tp3Price * 1.005) {
+              if (tp3Price && bitgetClosePrice <= tp3Price * 1.005) {
                 closeReason = 'tp3_hit';
-              } else if (tp2Price && bybitClosePrice <= tp2Price * 1.005) {
+              } else if (tp2Price && bitgetClosePrice <= tp2Price * 1.005) {
                 closeReason = 'tp2_hit';
-              } else if (tp1Price && bybitClosePrice <= tp1Price * 1.005) {
+              } else if (tp1Price && bitgetClosePrice <= tp1Price * 1.005) {
                 closeReason = 'tp1_hit';
               } else {
                 closeReason = 'tp_hit';
               }
             }
-          } else if (bybitPos.closeType === 'liquidation') {
+          } else if (bitgetPos.closeType === 'liquidation') {
             closeReason = 'liquidated';
           }
 
           // Check if data needs updating
           const needsUpdate = 
-            Math.abs(Number(dbPos.entry_price) - bybitEntryPrice) > 0.01 ||
-            Math.abs(Number(dbPos.close_price || 0) - bybitClosePrice) > 0.01 ||
-            Math.abs(Number(dbPos.realized_pnl || 0) - bybitRealizedPnl) > 0.01 ||
+            Math.abs(Number(dbPos.entry_price) - bitgetEntryPrice) > 0.01 ||
+            Math.abs(Number(dbPos.close_price || 0) - bitgetClosePrice) > 0.01 ||
+            Math.abs(Number(dbPos.realized_pnl || 0) - bitgetRealizedPnl) > 0.01 ||
             !dbPos.close_price ||
             !dbPos.realized_pnl;
 
           console.log(`Position ${symbol} - needsUpdate: ${needsUpdate}`);
-          console.log(`  Entry: DB=${dbPos.entry_price} vs Bybit=${bybitEntryPrice}`);
-          console.log(`  Close: DB=${dbPos.close_price} vs Bybit=${bybitClosePrice}`);
-          console.log(`  PnL: DB=${dbPos.realized_pnl} vs Bybit=${bybitRealizedPnl}`);
-          console.log(`  Reason: DB=${dbPos.close_reason} vs Bybit=${closeReason}`);
+          console.log(`  Entry: DB=${dbPos.entry_price} vs Bitget=${bitgetEntryPrice}`);
+          console.log(`  Close: DB=${dbPos.close_price} vs Bitget=${bitgetClosePrice}`);
+          console.log(`  PnL: DB=${dbPos.realized_pnl} vs Bitget=${bitgetRealizedPnl}`);
+          console.log(`  Reason: DB=${dbPos.close_reason} vs Bitget=${closeReason}`);
 
           if (needsUpdate) {
             await supabase
               .from('positions')
               .update({
-                entry_price: bybitEntryPrice,
-                close_price: bybitClosePrice,
-                realized_pnl: bybitRealizedPnl,
+                entry_price: bitgetEntryPrice,
+                close_price: bitgetClosePrice,
+                realized_pnl: bitgetRealizedPnl,
                 metadata: {
                   ...dbPos.metadata,
-                  synced_from_bybit: true,
+                  synced_from_bitget: true,
                   sync_time: new Date().toISOString(),
-                  bybit_close_type: bybitPos.closeType
+                  bitget_close_type: bitgetPos.closeType
                 }
               })
               .eq('id', dbPos.id);
 
             updatedCount++;
-            console.log(`✅ Updated ${symbol}: Entry=${bybitEntryPrice}, Close=${bybitClosePrice}, PnL=${bybitRealizedPnl.toFixed(2)}, Reason=${closeReason}`);
+            console.log(`✅ Updated ${symbol}: Entry=${bitgetEntryPrice}, Close=${bitgetClosePrice}, PnL=${bitgetRealizedPnl.toFixed(2)}, Reason=${closeReason}`);
 
             await log({
               functionName: 'sync-positions-history',
-              message: `Synced position ${symbol} with Bybit data`,
+              message: `Synced position ${symbol} with Bitget data`,
               level: 'info',
               positionId: dbPos.id,
               metadata: {
                 old_entry: dbPos.entry_price,
-                new_entry: bybitEntryPrice,
+                new_entry: bitgetEntryPrice,
                 old_close: dbPos.close_price,
-                new_close: bybitClosePrice,
+                new_close: bitgetClosePrice,
                 old_pnl: dbPos.realized_pnl,
-                new_pnl: bybitRealizedPnl,
+                new_pnl: bitgetRealizedPnl,
                 old_reason: dbPos.close_reason,
                 new_reason: closeReason
               }

@@ -236,11 +236,11 @@ export default function Settings() {
     }
   };
 
-  // Fetch balance from Bybit
+  // Fetch balance from Bitget
   const fetchAccountBalance = async () => {
     setIsFetchingBalance(true);
     try {
-      const { data, error } = await supabase.functions.invoke('bybit-api', {
+      const { data, error } = await supabase.functions.invoke('bitget-api', {
         body: { 
           action: 'get_account', 
           params: {} 
@@ -263,7 +263,7 @@ export default function Settings() {
         } else {
           toast({
             title: "Nie znaleziono konta",
-            description: "Nie znaleziono konta USDT na Bybit",
+            description: "Nie znaleziono konta USDT na Bitget",
             variant: "destructive",
           });
         }
@@ -2138,7 +2138,7 @@ export default function Settings() {
                   <strong>ℹ️ Jak to działa:</strong>
                   <ul className="list-disc list-inside mt-2 space-y-1 text-sm">
                     <li>Backend automatycznie stosuje te ustawienia na podstawie symbolu</li>
-                    <li>Kategorie mają różne limity max leverage zgodnie z Bybit</li>
+                    <li>Kategorie mają różne limity max leverage zgodnie z Bitget</li>
                     <li>Możesz ustawić osobne strategie TP/SL dla każdej kategorii</li>
                     {(() => {
                       const allEnabled = 

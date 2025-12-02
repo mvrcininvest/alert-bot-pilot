@@ -2,7 +2,7 @@
 
 **Profesjonalny system tradingowy z zaawansowanym zarządzaniem ryzykiem, fee-aware calculations i multi-category leverage management**
 
-System łączy alerty z TradingView z automatycznym wykonywaniem na Bybit, oferując sophisticated position sizing, inteligentne kalkulatory SL/TP oraz kompleksowy monitoring 24/7.
+System łączy alerty z TradingView z automatycznym wykonywaniem na Bitget, oferując sophisticated position sizing, inteligentne kalkulatory SL/TP oraz kompleksowy monitoring 24/7.
 
 ---
 
@@ -258,7 +258,7 @@ Overrides:
 Edge function `position-monitor` sprawdza wszystkie otwarte pozycje:
 
 **Weryfikacja:**
-1. ✅ Czy quantity się zgadza z Bybit
+1. ✅ Czy quantity się zgadza z Bitget
 2. ✅ Czy SL jest ustawiony
 3. ✅ Czy wszystkie TP są ustawione
 4. ✅ Czy ceny SL/TP są prawidłowe (±1% tolerancja)
@@ -396,7 +396,7 @@ Zakładka "Ustawienia Użytkownika" (`/user-settings`):
 ```
 Frontend:  React 18 + TypeScript + Tailwind CSS + Shadcn/ui
 Backend:   Supabase (PostgreSQL 15 + Edge Functions)
-Trading:   Bybit Futures API v5
+Trading:   Bitget Futures API v1
 Alerts:    TradingView Webhooks
 Charts:    Recharts
 State:     TanStack Query (React Query)
@@ -419,7 +419,7 @@ latency_execution_ms, user_id, position_id, is_test
 id, symbol, side, entry_price, quantity, leverage, sl_price,
 tp1_price, tp2_price, tp3_price, tp1_quantity, tp2_quantity, tp3_quantity,
 tp1_filled, tp2_filled, tp3_filled, sl_order_id, tp1_order_id, 
-tp2_order_id, tp3_order_id, bybit_order_id, status, close_reason,
+tp2_order_id, tp3_order_id, bitget_order_id, status, close_reason,
 close_price, current_price, unrealized_pnl, realized_pnl,
 created_at, closed_at, updated_at, last_check_at, check_errors,
 last_error, metadata, user_id, alert_id
@@ -528,10 +528,10 @@ Flow:
 8. Daily loss limit check
 9. Duplicate alert handling
 10. Zapis do `alerts` table
-11. Invoke `bybit-trader`
+11. Invoke `bitget-trader`
 
-#### `bybit-trader`
-**Wykonuje trade na Bybit**
+#### `bitget-trader`
+**Wykonuje trade na Bitget**
 
 Flow:
 1. Pobranie user settings (getUserSettings)
@@ -540,9 +540,9 @@ Flow:
 4. Leverage determination (alert/global_max/custom/per-symbol)
 5. SL/TP calculation (simple_percent/risk_reward/atr_based)
 6. Adaptive systems (adaptive_rr, momentum_tp, adaptive_spacing)
-7. Minimum position size check (5 USDT notional dla Bybit)
+7. Minimum position size check (5 USDT notional dla Bitget)
 8. Symbol quantity precision handling
-9. Create market order na Bybit
+9. Create market order na Bitget
 10. Set SL order (stop-loss market)
 11. Set TP orders (take-profit market) - 1/2/3 levels
 12. Zapis pozycji do `positions` table
@@ -552,13 +552,13 @@ Flow:
 **Minimum Position Size** (from `minimums.ts`):
 ```typescript
 BTCUSDT, ETHUSDT, wszystkie major: 5 USDT notional minimum
-Wszystkie symbole: 5 USDT (Bybit requirement)
+Wszystkie symbole: 5 USDT (Bitget requirement)
 
 adjustPositionSizeToMinimum() automatycznie zwiększa quantity jeśli < 5 USDT
 ```
 
-#### `bybit-api`
-**Helper functions dla Bybit API**
+#### `bitget-api`
+**Helper functions dla Bitget API**
 
 Actions:
 - `get_account` - Pobiera saldo i marginy
@@ -578,7 +578,7 @@ Features:
 **Cron job - monitoring pozycji co minutę**
 
 Checks:
-1. Quantity verification (DB vs Bybit)
+1. Quantity verification (DB vs Bitget)
 2. SL order exists & price correct (±1% tolerance)
 3. TP orders exist & prices correct
 4. Unrealized PnL update
@@ -619,7 +619,7 @@ Dezaktywuje bota (bot_active = false)
 #### Utility Functions
 
 **`import-history`** - Import historii tradów z CSV
-**`sync-positions-history`** - Sync pozycji z Bybit
+**`sync-positions-history`** - Sync pozycji z Bitget
 **`repair-history-data`** - Naprawa danych historycznych
 **`repair-positions-history`** - Naprawa pozycji
 **`link-positions-alerts`** - Linkowanie pozycji do alertów
@@ -791,8 +791,9 @@ Projekt używa **Lovable Cloud** - Supabase jest już skonfigurowany automatyczn
 
 **Secrets** (Ustawione via Lovable UI → Cloud → Secrets):
 ```
-BYBIT_API_KEY          - API Key z Bybit
-BYBIT_SECRET_KEY       - Secret Key z Bybit
+BITGET_API_KEY         - API Key z Bitget
+BITGET_SECRET_KEY      - Secret Key z Bitget  
+BITGET_PASSPHRASE      - Passphrase z Bitget
 ENCRYPTION_KEY         - Do szyfrowania user API keys (auto-generated)
 TRADINGVIEW_WEBHOOK_SECRET - Opcjonalny webhook auth (dobra praktyka)
 ```
@@ -804,7 +805,7 @@ VITE_SUPABASE_PUBLISHABLE_KEY  - Anon/public key
 SUPABASE_SERVICE_ROLE_KEY      - Service role (tylko edge functions)
 ```
 
-### 2. Bybit API Keys
+### 2. Bitget API Keys
 
 **Wymagane uprawnienia:**
 - ✅ Read (odczyt konta, pozycji)
@@ -813,7 +814,7 @@ SUPABASE_SERVICE_ROLE_KEY      - Service role (tylko edge functions)
 
 **Gdzie dodać:**
 1. Admin → Settings → API Keys
-2. Lub Settings → Secrets → Add Bybit keys
+2. Lub Settings → Secrets → Add Bitget keys
 
 ### 3. TradingView Webhook
 
@@ -992,7 +993,7 @@ Per-user settings z copy_admin mode
 - Last seen activity
 
 ### `/api-keys` - API Keys Management
-- Dodawanie/edycja Bybit API keys
+- Dodawanie/edycja Bitget API keys
 - Encryption/Decryption
 - Validation status
 
@@ -1097,9 +1098,9 @@ USING (public.has_role(auth.uid(), 'admin'));
 
 ### API Security
 
-**Bybit API:**
+**Bitget API:**
 - Read + Trade permissions (NIE Withdraw!)
-- IP Whitelist (opcjonalnie w Bybit)
+- IP Whitelist (opcjonalnie w Bitget)
 - Signature verification (HMAC-SHA256)
 - Timestamp validation
 
@@ -1164,7 +1165,7 @@ Sprawdź:
 4. Strength threshold spełniony?
 5. Max open positions nie przekroczony?
 6. Daily loss limit nie przekroczony?
-7. Quantity >= 5 USDT (Bybit minimum)?
+7. Quantity >= 5 USDT (Bitget minimum)?
 
 Debug:
 - Sprawdź bot_logs w /logs
@@ -1175,7 +1176,7 @@ Debug:
 **"SL/TP not set"**
 ```
 Możliwe przyczyny:
-1. Bybit API error (rate limit?)
+1. Bitget API error (rate limit?)
 2. Nieprawidłowa cena SL/TP (poza dozwolonym %?)
 3. Quantity precision error
 4. Insufficient margin
@@ -1191,10 +1192,10 @@ Latency > 30s to problem!
 
 Sprawdź:
 1. TradingView → Supabase latency (webhook_latency_ms)
-2. Supabase → Bybit latency (execution_latency_ms)
+2. Supabase → Bitget latency (execution_latency_ms)
 
 Fix:
-- Może być Bybit API przeciążenie (peak hours)
+- Może być Bitget API przeciążenie (peak hours)
 - Może być problem z Supabase edge functions (cold start)
 - Może być zbyt wolny internet TradingView servera
 ```
@@ -1256,7 +1257,7 @@ WHERE created_at > NOW() - INTERVAL '7 days';
 ### Documentation
 - [Lovable Docs](https://docs.lovable.dev)
 - [Supabase Docs](https://supabase.com/docs)
-- [Bybit API Docs](https://bybit-exchange.github.io/docs/v5/intro)
+- [Bitget API Docs](https://www.bitget.com/api-doc)
 - [TradingView Webhooks](https://www.tradingview.com/support/solutions/43000529348-about-webhooks/)
 
 ### Code Structure
@@ -1276,8 +1277,8 @@ WHERE created_at > NOW() - INTERVAL '7 days';
 ├── supabase/
 │   ├── functions/           # Edge functions
 │   │   ├── tradingview-webhook/
-│   │   ├── bybit-trader/
-│   │   ├── bybit-api/
+│   │   ├── bitget-trader/
+│   │   ├── bitget-api/
 │   │   ├── position-monitor/
 │   │   └── ...
 │   ├── migrations/          # Database migrations
@@ -1307,7 +1308,7 @@ cd <project-name>
 npm install
 ```
 
-2. **Dodaj Bybit API Keys**
+2. **Dodaj Bitget API Keys**
 ```
 Admin → Settings → API Keys
 Lub via Lovable UI → Secrets
@@ -1339,7 +1340,7 @@ Sprawdź /history czy pozycja otwarta
 
 ### V2.0 (Planned)
 - [ ] Machine Learning signal filtering
-- [ ] Multi-exchange support (Binance, OKX, Bitget)
+- [ ] Multi-exchange support (Binance, OKX, Bybit)
 - [ ] Backtesting engine
 - [ ] Strategy optimizer (genetic algorithms)
 - [ ] Mobile app (React Native)
