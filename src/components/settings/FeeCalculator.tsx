@@ -109,7 +109,7 @@ interface Recommendation {
   action: () => void;
 }
 
-const BITGET_TAKER_FEE = 0.06; // 0.06% per side
+const BYBIT_TAKER_FEE = 0.06; // 0.06% per side
 
 export function FeeCalculator({
   margin,
@@ -179,14 +179,14 @@ export function FeeCalculator({
 
   // Calculate minimum margin needed for target Real R:R
   const calculateMinMarginForTargetRR = (targetRealRR: number, currentMaxLoss: number, currentLeverage: number, tpRatio: number): number => {
-    const feeRate = BITGET_TAKER_FEE / 100;
+    const feeRate = BYBIT_TAKER_FEE / 100;
     const minMargin = (currentMaxLoss * (tpRatio - targetRealRR)) / (currentLeverage * feeRate * 2 * (targetRealRR + 1));
     return Math.max(minMargin, 0.5);
   };
 
   // Calculate minimum R:R ratio for target Real R:R
   const calculateMinRRForTargetRR = (targetRealRR: number, currentMargin: number, currentLeverage: number, currentMaxLoss: number): number => {
-    const feeRate = BITGET_TAKER_FEE / 100;
+    const feeRate = BYBIT_TAKER_FEE / 100;
     const notional = currentMargin * currentLeverage;
     const roundTripFees = notional * feeRate * 2;
     const realMaxLoss = currentMaxLoss + roundTripFees;
@@ -196,7 +196,7 @@ export function FeeCalculator({
 
   // Calculate optimal leverage
   const calculateOptimalLeverage = (currentMargin: number, currentMaxLoss: number, targetFeeImpact: number): number => {
-    const feeRate = BITGET_TAKER_FEE / 100;
+    const feeRate = BYBIT_TAKER_FEE / 100;
     const optimalLev = (targetFeeImpact * currentMaxLoss) / (currentMargin * feeRate * 2 * 100);
     return Math.max(Math.round(optimalLev / 5) * 5, 10);
   };
@@ -204,7 +204,7 @@ export function FeeCalculator({
   // Calculate Real R:R with fees (exact same as simulation)
   const calculateRealRR = (margin: number, leverage: number, maxLoss: number, mathRR: number) => {
     const notional = margin * leverage;
-    const feeRate = BITGET_TAKER_FEE / 100;
+    const feeRate = BYBIT_TAKER_FEE / 100;
     const roundTripFees = notional * feeRate * 2;
     const realMaxLoss = maxLoss + roundTripFees;
     const slPercent = maxLoss / notional;
@@ -231,7 +231,7 @@ export function FeeCalculator({
     targetRealRR: number = 1.0
   ): number => {
     const notional = margin * leverage;
-    const feeRate = BITGET_TAKER_FEE / 100;
+    const feeRate = BYBIT_TAKER_FEE / 100;
     const roundTripFees = notional * feeRate * 2;
     const realMaxLoss = maxLoss + roundTripFees;
     // Solving: (notional * slPercent * mathRR - fees) / realMaxLoss = targetRealRR
@@ -243,10 +243,10 @@ export function FeeCalculator({
   useEffect(() => {
     // Calculate real-time values
     const notional = margin * leverage;
-    const feeRate = (takerFeeRate || BITGET_TAKER_FEE) / 100;
+    const feeRate = (takerFeeRate || BYBIT_TAKER_FEE) / 100;
     const roundTripFees = notional * feeRate * 2;
     const realMaxLoss = maxLoss + roundTripFees;
-    const breakEvenPercent = BITGET_TAKER_FEE * 2; // 0.12%
+    const breakEvenPercent = BYBIT_TAKER_FEE * 2; // 0.12%
     const feeImpactPercent = maxLoss > 0 ? (roundTripFees / maxLoss) * 100 : 0;
     const minProfitableTpPercent = breakEvenPercent + 0.05;
 
@@ -548,7 +548,7 @@ export function FeeCalculator({
         {/* Fixed Information */}
         <div className="p-4 bg-muted/50 rounded-lg">
           <div className="flex items-center justify-between text-sm">
-            <span className="text-muted-foreground">Bitget Taker Fee:</span>
+            <span className="text-muted-foreground">Bybit Taker Fee:</span>
             <span className="font-mono font-semibold">0.06%</span>
           </div>
           <div className="flex items-center justify-between text-sm mt-2">
@@ -587,7 +587,7 @@ export function FeeCalculator({
                   ) : (
                     <>
                       <RefreshCw className="w-4 h-4 mr-2" />
-                      Pobierz z Bitget
+                      Pobierz z Bybit
                     </>
                   )}
                 </Button>
@@ -1006,7 +1006,7 @@ export function FeeCalculator({
                   step="0.01"
                 />
                 <p className="text-xs text-muted-foreground">
-                  Bitget default: 0.06%
+                  Bybit default: 0.06%
                 </p>
               </div>
               

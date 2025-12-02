@@ -98,7 +98,7 @@ export default function MigrateApiKeys() {
           </div>
           <CardTitle className="text-2xl">Migracja kluczy API wymagana</CardTitle>
           <CardDescription>
-            Aktualizujemy system zabezpieczeń. Twoje istniejące klucze API Bitget muszą zostać przeniesione do nowego zaszyfrowanego magazynu.
+            Aktualizujemy system zabezpieczeń. Twoje istniejące klucze API Bybit muszą zostać przeniesione do nowego zaszyfrowanego magazynu.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">

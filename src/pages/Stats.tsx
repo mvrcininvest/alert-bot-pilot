@@ -371,7 +371,7 @@ export default function Stats() {
       }
     });
 
-    // Calculate closing transactions (like Bitget counts)
+    // Calculate closing transactions (like Bybit counts)
     const closingTransactions = filteredPositions.reduce((sum, p) => {
       let count = 1; // base: final close
       if (p.tp1_filled) count++;

@@ -18,7 +18,7 @@ interface Position {
   metadata: any;
 }
 
-interface BitgetOrder {
+interface BybitOrder {
   orderId: string;
   symbol: string;
   leverage: string;
@@ -200,15 +200,15 @@ Deno.serve(async (req) => {
       message: `📊 Found ${positionsNeedingLeverage.length} positions with leverage=10 to fix`,
     });
 
-    // Fetch orders history from Bitget with pagination
-    const allOrders: BitgetOrder[] = [];
+    // Fetch orders history from Bybit with pagination
+    const allOrders: BybitOrder[] = [];
     let hasMore = true;
     let idLessThan: string | undefined = undefined;
     const startTime = Date.now() - 90 * 24 * 60 * 60 * 1000; // 90 days
     const endTime = Date.now();
 
     while (hasMore && allOrders.length < 1000) { // Limit to 1000 orders max
-      const response: any = await supabase.functions.invoke("bitget-api", {
+      const response: any = await supabase.functions.invoke("bybit-api", {
         body: {
           action: "get_orders_history",
           params: {
@@ -250,7 +250,7 @@ Deno.serve(async (req) => {
     await log({
       functionName: FUNCTION_NAME,
       level: "info",
-      message: `📥 Fetched ${allOrders.length} orders from Bitget`,
+      message: `📥 Fetched ${allOrders.length} orders from Bybit`,
     });
 
     // Match orders to positions and update leverage

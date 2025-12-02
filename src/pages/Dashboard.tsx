@@ -131,7 +131,7 @@ export default function Dashboard() {
       console.log(`📦 Sending batch request with ${batchActions.length} actions`);
       
       try {
-        const batchResponse = await supabase.functions.invoke('bitget-api', {
+        const batchResponse = await supabase.functions.invoke('bybit-api', {
           body: { 
             action: 'batch_actions', 
             params: { actions: batchActions } 
@@ -401,7 +401,7 @@ export default function Dashboard() {
   const { data: accountBalance } = useQuery({
     queryKey: ["account-balance"],
     queryFn: async () => {
-      const { data, error } = await supabase.functions.invoke('bitget-api', {
+      const { data, error } = await supabase.functions.invoke('bybit-api', {
         body: { action: 'get_account' }
       });
       
