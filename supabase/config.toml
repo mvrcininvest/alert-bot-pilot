@@ -44,3 +44,6 @@ verify_jwt = true
 
 [functions.keep-warm]
 verify_jwt = false
+
+[functions.repair-close-reasons]
+verify_jwt = false

@@ -190,15 +190,24 @@ serve(async (req) => {
             closeReason = 'liquidated';
           }
 
-          // Check if data needs updating
+          // Determine which TP levels were filled based on close_reason
+          const tp1Filled = closeReason.includes('tp');
+          const tp2Filled = closeReason === 'tp2_hit' || closeReason === 'tp3_hit';
+          const tp3Filled = closeReason === 'tp3_hit';
+
+          // Check if data needs updating (including close_reason fix)
+          const closeReasonNeedsFix = dbPos.close_reason !== closeReason && 
+            (dbPos.close_reason?.includes('tp') || closeReason.includes('tp'));
+          
           const needsUpdate = 
             Math.abs(Number(dbPos.entry_price) - bitgetEntryPrice) > 0.01 ||
             Math.abs(Number(dbPos.close_price || 0) - bitgetClosePrice) > 0.01 ||
             Math.abs(Number(dbPos.realized_pnl || 0) - bitgetRealizedPnl) > 0.01 ||
             !dbPos.close_price ||
-            !dbPos.realized_pnl;
+            !dbPos.realized_pnl ||
+            closeReasonNeedsFix;
 
-          console.log(`Position ${symbol} - needsUpdate: ${needsUpdate}`);
+          console.log(`Position ${symbol} - needsUpdate: ${needsUpdate}, closeReasonNeedsFix: ${closeReasonNeedsFix}`);
           console.log(`  Entry: DB=${dbPos.entry_price} vs Bitget=${bitgetEntryPrice}`);
           console.log(`  Close: DB=${dbPos.close_price} vs Bitget=${bitgetClosePrice}`);
           console.log(`  PnL: DB=${dbPos.realized_pnl} vs Bitget=${bitgetRealizedPnl}`);
@@ -211,11 +220,16 @@ serve(async (req) => {
                 entry_price: bitgetEntryPrice,
                 close_price: bitgetClosePrice,
                 realized_pnl: bitgetRealizedPnl,
+                close_reason: closeReason,
+                tp1_filled: tp1Filled,
+                tp2_filled: tp2Filled,
+                tp3_filled: tp3Filled,
                 metadata: {
                   ...dbPos.metadata,
                   synced_from_bitget: true,
                   sync_time: new Date().toISOString(),
-                  bitget_close_type: bitgetPos.closeType
+                  bitget_close_type: bitgetPos.closeType,
+                  calculated_close_reason: closeReason
                 }
               })
               .eq('id', dbPos.id);
