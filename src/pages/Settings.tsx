@@ -2844,6 +2844,89 @@ export default function Settings() {
             </CardContent>
           </Card>
 
+          {/* Session Filtering */}
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                🕐 Filtrowanie Sesji
+              </CardTitle>
+              <CardDescription>Ogranicz handel do wybranych sesji giełdowych</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="flex items-center justify-between">
+                <div className="space-y-0.5">
+                  <Label>Włącz filtrowanie sesji</Label>
+                  <div className="text-sm text-muted-foreground">
+                    Bot będzie handlować tylko w dozwolonych sesjach
+                  </div>
+                </div>
+                <Switch
+                  checked={localSettings.session_filtering_enabled ?? false}
+                  onCheckedChange={(checked) => updateLocal("session_filtering_enabled", checked)}
+                />
+              </div>
+
+              {localSettings.session_filtering_enabled && (
+                <>
+                  <Separator />
+                  
+                  <div className="space-y-3">
+                    <Label>Wykluczone sesje (NIE handluj w tych sesjach)</Label>
+                    <p className="text-sm text-muted-foreground">
+                      Zaznacz sesje, w których bot <strong>nie powinien</strong> otwierać nowych pozycji.
+                    </p>
+                    <div className="grid grid-cols-2 gap-3">
+                      {['Asia', 'London', 'NY', 'Sydney'].map((session) => {
+                        const isExcluded = (localSettings.excluded_sessions || []).includes(session);
+                        return (
+                          <div key={session} className="flex items-center space-x-3 p-3 rounded-lg border bg-card hover:bg-muted/50 transition-colors">
+                            <Checkbox
+                              id={`exclude-session-${session}`}
+                              checked={isExcluded}
+                              onCheckedChange={(checked) => {
+                                const current = localSettings.excluded_sessions || [];
+                                if (checked) {
+                                  updateLocal("excluded_sessions", [...current, session]);
+                                } else {
+                                  updateLocal("excluded_sessions", current.filter((s: string) => s !== session));
+                                }
+                              }}
+                            />
+                            <Label htmlFor={`exclude-session-${session}`} className="cursor-pointer flex items-center gap-2 flex-1">
+                              <span className="text-lg">
+                                {session === 'Asia' && '🌅'}
+                                {session === 'London' && '🇬🇧'}
+                                {session === 'NY' && '🗽'}
+                                {session === 'Sydney' && '🇦🇺'}
+                              </span>
+                              <span className="font-medium">{session}</span>
+                              {isExcluded && (
+                                <Badge variant="destructive" className="ml-auto text-xs">Wyłączona</Badge>
+                              )}
+                            </Label>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+
+                  <div className="p-4 bg-muted/50 rounded-lg space-y-2">
+                    <div className="font-medium text-sm">📊 Godziny sesji (UTC):</div>
+                    <div className="grid grid-cols-2 gap-2 text-xs text-muted-foreground">
+                      <div>🇦🇺 <strong>Sydney:</strong> 22:00 - 07:00</div>
+                      <div>🌅 <strong>Asia:</strong> 00:00 - 09:00</div>
+                      <div>🇬🇧 <strong>London:</strong> 08:00 - 17:00</div>
+                      <div>🗽 <strong>NY:</strong> 13:00 - 22:00</div>
+                    </div>
+                    <div className="text-xs text-muted-foreground mt-2">
+                      Sesje mogą się nakładać. Sprawdź statystyki sesji na stronie <strong>Stats</strong> aby zobaczyć wydajność każdej sesji.
+                    </div>
+                  </div>
+                </>
+              )}
+            </CardContent>
+          </Card>
+
           <Card>
             <CardHeader>
               <CardTitle>Obsługa Duplikatów Alertów</CardTitle>
