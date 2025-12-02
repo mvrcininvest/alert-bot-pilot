@@ -21,8 +21,8 @@ serve(async (req) => {
 
     const functions = [
       'tradingview-webhook',
-      'bybit-trader',
-      'bybit-api',
+      'bitget-trader',
+      'bitget-api',
       'position-monitor'
     ];
 

@@ -6,7 +6,7 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
-interface BybitHistoricalPosition {
+interface BitgetHistoricalPosition {
   positionId: string;
   symbol: string;
   holdSide: 'long' | 'short';
@@ -25,58 +25,58 @@ interface BybitHistoricalPosition {
   marginCoin: string;
 }
 
-function signBybitRequest(
-  timestamp: string,
-  apiKey: string,
-  recvWindow: string,
+async function signBitgetRequest(
+  method: string,
+  requestPath: string,
   queryString: string,
-  secretKey: string
-): string {
-  // Bybit signature: HMAC_SHA256(timestamp + apiKey + recvWindow + queryString, secretKey)
-  const message = timestamp + apiKey + recvWindow + queryString;
+  body: string,
+  timestamp: string
+): Promise<string> {
+  const secretKey = Deno.env.get('BITGET_SECRET_KEY');
+
+  if (!secretKey) {
+    throw new Error('Missing Bitget SECRET_KEY');
+  }
+
+  const message = timestamp + method + requestPath + queryString + body;
   const hmac = createHmac('sha256', secretKey);
   hmac.update(message);
-  return hmac.digest('hex');
+  return hmac.digest('base64');
 }
 
-async function fetchBybitHistory(startTime: number, endTime: number): Promise<BybitHistoricalPosition[]> {
-  const apiKey = Deno.env.get('BYBIT_API_KEY');
-  const secretKey = Deno.env.get('BYBIT_SECRET_KEY');
+async function fetchBitgetHistory(startTime: number, endTime: number): Promise<BitgetHistoricalPosition[]> {
+  const apiKey = Deno.env.get('BITGET_API_KEY');
+  const passphrase = Deno.env.get('BITGET_PASSPHRASE');
+  const baseUrl = 'https://api.bitget.com';
+  const path = '/api/v2/mix/position/history-position';
   
-  if (!apiKey || !secretKey) {
-    throw new Error('Missing Bybit API credentials');
-  }
-  
-  const baseUrl = 'https://api.bybit.com';
-  const path = '/v5/position/closed-pnl';
-  const recvWindow = '5000';
+  const queryString = `?productType=USDT-FUTURES&startTime=${startTime}&endTime=${endTime}&pageSize=100`;
   const timestamp = Date.now().toString();
-  
-  const queryParams = `category=linear&startTime=${startTime}&endTime=${endTime}&limit=100`;
-  const signature = signBybitRequest(timestamp, apiKey, recvWindow, queryParams, secretKey);
+  const signature = await signBitgetRequest('GET', path, queryString, '', timestamp);
 
-  console.log('Fetching from:', `${baseUrl}${path}?${queryParams}`);
+  console.log('Fetching from:', `${baseUrl}${path}${queryString}`);
 
-  const response = await fetch(`${baseUrl}${path}?${queryParams}`, {
+  const response = await fetch(`${baseUrl}${path}${queryString}`, {
     method: 'GET',
     headers: {
-      'X-BAPI-API-KEY': apiKey,
-      'X-BAPI-SIGN': signature,
-      'X-BAPI-TIMESTAMP': timestamp,
-      'X-BAPI-RECV-WINDOW': recvWindow,
+      'ACCESS-KEY': apiKey!,
+      'ACCESS-SIGN': signature,
+      'ACCESS-TIMESTAMP': timestamp,
+      'ACCESS-PASSPHRASE': passphrase!,
       'Content-Type': 'application/json',
+      'locale': 'en-US',
     },
   });
 
   const data = await response.json();
-  console.log('Bybit response:', JSON.stringify(data));
+  console.log('Bitget response:', JSON.stringify(data));
   
-  if (data.retCode !== 0) {
-    console.error('Bybit API error:', data);
-    throw new Error(`Bybit API error: ${data.retMsg}`);
+  if (data.code !== '00000') {
+    console.error('Bitget API error:', data);
+    throw new Error(`Bitget API error: ${data.msg}`);
   }
 
-  return data.result?.list || [];
+  return data.data?.list || [];
 }
 
 Deno.serve(async (req) => {
@@ -95,14 +95,14 @@ Deno.serve(async (req) => {
 
     console.log(`Fetching history from ${new Date(startTime).toISOString()} to ${new Date(endTime).toISOString()}`);
 
-    const positions = await fetchBybitHistory(startTime, endTime);
-    console.log(`Fetched ${positions.length} positions from Bybit`);
+    const positions = await fetchBitgetHistory(startTime, endTime);
+    console.log(`Fetched ${positions.length} positions from Bitget`);
     
     if (positions.length > 0) {
       console.log('Sample position:', JSON.stringify(positions[0]));
     }
 
-    // Map Bybit positions to our database format
+    // Map Bitget positions to our database format
     const dbPositions = positions.map(pos => {
       // Validate and parse timestamps - ctime and utime are in milliseconds
       const createdTime = pos.ctime ? parseInt(pos.ctime) : Date.now();
@@ -114,7 +114,7 @@ Deno.serve(async (req) => {
       }
 
       return {
-        symbol: pos.symbol, // Keep full symbol from Bybit (e.g. BTCUSDT)
+        symbol: pos.symbol, // Keep full symbol from Bitget (e.g. BTCUSDT)
         side: pos.holdSide === 'long' ? 'BUY' : 'SELL',
         entry_price: parseFloat(pos.openAvgPrice),
         close_price: parseFloat(pos.closeAvgPrice),
@@ -124,12 +124,12 @@ Deno.serve(async (req) => {
         status: 'closed',
         created_at: new Date(createdTime).toISOString(),
         closed_at: new Date(updatedTime).toISOString(),
-        close_reason: 'imported_from_bybit',
+        close_reason: 'imported_from_bitget',
         sl_price: 0,
         metadata: {
           imported: true,
           import_date: new Date().toISOString(),
-          bybit_position_id: pos.positionId,
+          bitget_position_id: pos.positionId,
           margin_mode: pos.marginMode,
           pnl: pos.pnl,
           total_fee: pos.totalFee || '0',

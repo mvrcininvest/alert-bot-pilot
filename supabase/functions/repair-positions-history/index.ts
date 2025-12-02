@@ -5,7 +5,7 @@ import { getUserApiKeys } from "../_shared/userKeys.ts";
 
 const FUNCTION_NAME = "repair-positions-history";
 
-interface BybitHistoryPosition {
+interface BitgetHistoryPosition {
   symbol: string;
   netProfit: string;
   openAvgPrice: string;
@@ -17,13 +17,13 @@ interface BybitHistoryPosition {
   leverage: string;
 }
 
-async function getBybitHistory(
+async function getBitgetHistory(
   apiCredentials: { apiKey: string; secretKey: string; passphrase: string },
   supabase: any,
   startTime: number,
   endTime: number
-): Promise<{ list: BybitHistoryPosition[] }> {
-  const { data, error } = await supabase.functions.invoke("bybit-api", {
+): Promise<{ list: BitgetHistoryPosition[] }> {
+  const { data, error } = await supabase.functions.invoke("bitget-api", {
     body: {
       action: "get_position_history",
       params: {
@@ -98,8 +98,8 @@ Deno.serve(async (req) => {
       message: `📊 Found ${dbPositions?.length || 0} closed positions in DB`,
     });
 
-    // Fetch ALL positions from Bybit with cursor-based pagination
-    const allBybitPositions: BybitHistoryPosition[] = [];
+    // Fetch ALL positions from Bitget with cursor-based pagination
+    const allBitgetPositions: BitgetHistoryPosition[] = [];
     let hasMore = true;
     let idLessThan: string | undefined = undefined;
     const startTime = Date.now() - 90 * 24 * 60 * 60 * 1000; // 90 days ago
@@ -108,11 +108,11 @@ Deno.serve(async (req) => {
     await log({
       functionName: FUNCTION_NAME,
       level: "info",
-      message: "🔄 Fetching all positions from Bybit using cursor-based pagination...",
+      message: "🔄 Fetching all positions from Bitget using cursor-based pagination...",
     });
 
     while (hasMore) {
-      const response: any = await supabase.functions.invoke("bybit-api", {
+      const response: any = await supabase.functions.invoke("bitget-api", {
         body: {
           action: "get_position_history",
           params: {
@@ -130,18 +130,18 @@ Deno.serve(async (req) => {
       }
       
       const list = response.data.data?.list || [];
-      const cursor: string | undefined = response.data.data?.cursor || response.data.data?.endId;  // Bybit may return cursor or endId
+      const cursor: string | undefined = response.data.data?.cursor || response.data.data?.endId;  // Bitget may return cursor or endId
       
       if (list.length > 0) {
-        allBybitPositions.push(...list);
+        allBitgetPositions.push(...list);
         await log({
           functionName: FUNCTION_NAME,
           level: "info",
-          message: `📥 Fetched ${list.length} positions (total: ${allBybitPositions.length}, cursor: ${cursor})`,
+          message: `📥 Fetched ${list.length} positions (total: ${allBitgetPositions.length}, cursor: ${cursor})`,
         });
         
         // Continue if there's a cursor and we got a full page
-        if (cursor && list.length >= 20) {  // 20 is Bybit's default page size
+        if (cursor && list.length >= 20) {  // 20 is Bitget's default page size
           idLessThan = cursor;
         } else {
           hasMore = false;
@@ -154,28 +154,28 @@ Deno.serve(async (req) => {
     await log({
       functionName: FUNCTION_NAME,
       level: "info",
-      message: `✅ Fetched total ${allBybitPositions.length} positions from Bybit`,
+      message: `✅ Fetched total ${allBitgetPositions.length} positions from Bitget`,
     });
 
-    // Now match each Bybit position with DB positions
+    // Now match each Bitget position with DB positions
     const verifiedIds = new Set<string>();
-    const matchedBybitIndices = new Set<number>();
+    const matchedBitgetIndices = new Set<number>();
     let updatedCount = 0;
 
-    for (let i = 0; i < allBybitPositions.length; i++) {
-      const bybitPos = allBybitPositions[i];
-      const bybitCloseTime = Number(bybitPos.utime);
-      const bybitSide = bybitPos.holdSide === 'long' ? 'BUY' : 'SELL';
+    for (let i = 0; i < allBitgetPositions.length; i++) {
+      const bitgetPos = allBitgetPositions[i];
+      const bitgetCloseTime = Number(bitgetPos.utime);
+      const bitgetSide = bitgetPos.holdSide === 'long' ? 'BUY' : 'SELL';
 
       // Find all potential matches in DB
       const candidates = (dbPositions || []).filter(db => {
         if (!db.closed_at) return false;
         const dbCloseTime = new Date(db.closed_at).getTime();
-        const timeDiff = Math.abs(dbCloseTime - bybitCloseTime);
+        const timeDiff = Math.abs(dbCloseTime - bitgetCloseTime);
         
         return (
-          db.symbol === bybitPos.symbol &&
-          db.side === bybitSide &&
+          db.symbol === bitgetPos.symbol &&
+          db.side === bitgetSide &&
           timeDiff < 10 * 60 * 1000 // 10 minute tolerance
         );
       });
@@ -186,23 +186,23 @@ Deno.serve(async (req) => {
         .sort((a, b) => {
           const aTime = new Date(a.closed_at!).getTime();
           const bTime = new Date(b.closed_at!).getTime();
-          return Math.abs(aTime - bybitCloseTime) - Math.abs(bTime - bybitCloseTime);
+          return Math.abs(aTime - bitgetCloseTime) - Math.abs(bTime - bitgetCloseTime);
         })[0];
 
       if (bestMatch) {
         verifiedIds.add(bestMatch.id);
-        matchedBybitIndices.add(i);  // Track matched Bybit position
+        matchedBitgetIndices.add(i);  // Track matched Bitget position
         
-        // Validate quantity before update - only update if Bybit data looks reasonable
+        // Validate quantity before update - only update if Bitget data looks reasonable
         const originalQuantity = bestMatch.quantity;
-        const bybitQuantity = Number(bybitPos.closeTotalPos);
-        const quantityRatio = bybitQuantity / originalQuantity;
+        const bitgetQuantity = Number(bitgetPos.closeTotalPos);
+        const quantityRatio = bitgetQuantity / originalQuantity;
         
         // Preserve original quantity if in metadata, otherwise use current
         const originalQtyFromMetadata = bestMatch.metadata?.original_quantity;
         const useQuantity = (quantityRatio > 0.5 && quantityRatio < 2) 
-          ? bybitQuantity 
-          : (originalQtyFromMetadata || originalQuantity); // Keep original if Bybit data looks wrong
+          ? bitgetQuantity 
+          : (originalQtyFromMetadata || originalQuantity); // Keep original if Bitget data looks wrong
         
         if (quantityRatio <= 0.5 || quantityRatio >= 2) {
           await log({
@@ -212,26 +212,26 @@ Deno.serve(async (req) => {
             metadata: { 
               positionId: bestMatch.id, 
               originalQuantity, 
-              bybitQuantity,
+              bitgetQuantity,
               usingQuantity: useQuantity
             },
           });
         }
         
-        // Update position with accurate Bybit data
+        // Update position with accurate Bitget data
         const { error: updateError } = await supabase
           .from("positions")
           .update({
-            entry_price: Number(bybitPos.openAvgPrice),
-            close_price: Number(bybitPos.closeAvgPrice),
-            realized_pnl: Number(bybitPos.netProfit),
+            entry_price: Number(bitgetPos.openAvgPrice),
+            close_price: Number(bitgetPos.closeAvgPrice),
+            realized_pnl: Number(bitgetPos.netProfit),
             quantity: useQuantity,
-            leverage: Number(bybitPos.leverage),
-            closed_at: new Date(bybitCloseTime).toISOString(),
+            leverage: Number(bitgetPos.leverage),
+            closed_at: new Date(bitgetCloseTime).toISOString(),
             updated_at: new Date().toISOString(),
             metadata: {
               ...bestMatch.metadata,
-              synced_from_bybit: true,
+              synced_from_bitget: true,
               sync_time: new Date().toISOString(),
               quantity_validation: quantityRatio > 0.5 && quantityRatio < 2 ? 'passed' : 'failed_kept_original'
             }
@@ -250,37 +250,37 @@ Deno.serve(async (req) => {
       message: `✅ Verified and updated ${verifiedIds.size} positions`,
     });
 
-    // Create new positions for unmatched Bybit positions
-    const unmatchedBybitPositions = allBybitPositions.filter((_, i) => !matchedBybitIndices.has(i));
+    // Create new positions for unmatched Bitget positions
+    const unmatchedBitgetPositions = allBitgetPositions.filter((_, i) => !matchedBitgetIndices.has(i));
     let createdCount = 0;
 
-    if (unmatchedBybitPositions.length > 0) {
+    if (unmatchedBitgetPositions.length > 0) {
       await log({
         functionName: FUNCTION_NAME,
         level: "info",
-        message: `📝 Creating ${unmatchedBybitPositions.length} missing positions from Bybit history`,
+        message: `📝 Creating ${unmatchedBitgetPositions.length} missing positions from Bitget history`,
       });
 
       // Create position objects
-      const newPositions = unmatchedBybitPositions.map(bybitPos => ({
+      const newPositions = unmatchedBitgetPositions.map(bitgetPos => ({
         user_id: user.id,
-        symbol: bybitPos.symbol,
-        side: bybitPos.holdSide === 'long' ? 'BUY' : 'SELL',
-        entry_price: Number(bybitPos.openAvgPrice) || 0,
-        close_price: Number(bybitPos.closeAvgPrice) || 0,
-        quantity: Number(bybitPos.closeTotalPos) || 0,
-        leverage: Number(bybitPos.leverage) || 10,
-        realized_pnl: Number(bybitPos.netProfit),
+        symbol: bitgetPos.symbol,
+        side: bitgetPos.holdSide === 'long' ? 'BUY' : 'SELL',
+        entry_price: Number(bitgetPos.openAvgPrice) || 0,
+        close_price: Number(bitgetPos.closeAvgPrice) || 0,
+        quantity: Number(bitgetPos.closeTotalPos) || 0,
+        leverage: Number(bitgetPos.leverage) || 10,
+        realized_pnl: Number(bitgetPos.netProfit),
         sl_price: 0,  // Placeholder - no SL info in history
         status: 'closed',
-        closed_at: new Date(Number(bybitPos.utime)).toISOString(),
-        created_at: new Date(Number(bybitPos.ctime)).toISOString(),
-        close_reason: 'imported_from_bybit',
+        closed_at: new Date(Number(bitgetPos.utime)).toISOString(),
+        created_at: new Date(Number(bitgetPos.ctime)).toISOString(),
+        close_reason: 'imported_from_bitget',
         metadata: {
-          imported_from_bybit: true,
+          imported_from_bitget: true,
           import_time: new Date().toISOString(),
-          bybit_close_time: bybitPos.utime,
-          bybit_create_time: bybitPos.ctime
+          bitget_close_time: bitgetPos.utime,
+          bitget_create_time: bitgetPos.ctime
         }
       }));
 
@@ -312,7 +312,7 @@ Deno.serve(async (req) => {
       await log({
         functionName: FUNCTION_NAME,
         level: "info",
-        message: `✅ Created ${createdCount} new positions from Bybit history`,
+        message: `✅ Created ${createdCount} new positions from Bitget history`,
       });
     }
 
@@ -355,7 +355,7 @@ Deno.serve(async (req) => {
     }
 
     const summary = {
-      bybitPositions: allBybitPositions.length,
+      bitgetPositions: allBitgetPositions.length,
       dbPositionsBefore: dbPositions?.length || 0,
       verified: verifiedIds.size,
       updated: updatedCount,
