@@ -106,8 +106,8 @@ serve(async (req) => {
       try {
         console.log(`Closing position ${position.symbol}...`);
 
-        // Get current position data from Bitget
-        const { data: positionResult } = await supabase.functions.invoke('bitget-api', {
+        // Get current position data from Bybit
+        const { data: positionResult } = await supabase.functions.invoke('bybit-api', {
           body: {
             action: 'get_position',
             params: { symbol: position.symbol },
@@ -119,7 +119,7 @@ serve(async (req) => {
           console.log(`Position ${position.symbol} not found on exchange, determining close reason...`);
           
           // Get current price to determine close reason
-          const { data: tickerResult } = await supabase.functions.invoke('bitget-api', {
+          const { data: tickerResult } = await supabase.functions.invoke('bybit-api', {
             body: {
               action: 'get_ticker',
               params: { symbol: position.symbol },
@@ -186,10 +186,10 @@ serve(async (req) => {
           continue;
         }
 
-        const bitgetPosition = positionResult.data[0];
-        const bitgetQuantity = Number(bitgetPosition.total || 0);
+        const bybitPosition = positionResult.data[0];
+        const bybitQuantity = Number(bybitPosition.total || 0);
 
-        if (bitgetQuantity === 0) {
+        if (bybitQuantity === 0) {
           console.log(`Position ${position.symbol} has 0 quantity, skipping...`);
           closedPositions.push(position.symbol);
           continue;
@@ -197,7 +197,7 @@ serve(async (req) => {
 
         // Cancel all SL/TP orders
         if (position.sl_order_id) {
-          await supabase.functions.invoke('bitget-api', {
+          await supabase.functions.invoke('bybit-api', {
             body: {
               action: 'cancel_plan_order',
               params: {
@@ -211,7 +211,7 @@ serve(async (req) => {
         }
 
         if (position.tp1_order_id) {
-          await supabase.functions.invoke('bitget-api', {
+          await supabase.functions.invoke('bybit-api', {
             body: {
               action: 'cancel_plan_order',
               params: {
@@ -228,12 +228,12 @@ serve(async (req) => {
         const isBuy = position.side === 'BUY';
         const closeSide = isBuy ? 'close_long' : 'close_short';
 
-        const { data: closeResult } = await supabase.functions.invoke('bitget-api', {
+        const { data: closeResult } = await supabase.functions.invoke('bybit-api', {
           body: {
             action: 'place_order',
             params: {
               symbol: position.symbol,
-              size: bitgetQuantity.toString(),
+              size: bybitQuantity.toString(),
               side: closeSide,
             },
             apiCredentials
@@ -249,8 +249,8 @@ serve(async (req) => {
         // Wait for fills to be recorded
         await new Promise(resolve => setTimeout(resolve, 2000));
 
-        // Fetch fill history from Bitget
-        const { data: fillsResult } = await supabase.functions.invoke('bitget-api', {
+        // Fetch fill history from Bybit
+        const { data: fillsResult } = await supabase.functions.invoke('bybit-api', {
           body: {
             action: 'get_fills',
             params: { symbol: position.symbol },

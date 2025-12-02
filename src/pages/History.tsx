@@ -146,7 +146,7 @@ export default function History() {
       "SL Price", "TP1 Price", "TP1 Quantity", "TP1 Filled",
       "TP2 Price", "TP2 Quantity", "TP2 Filled",
       "TP3 Price", "TP3 Quantity", "TP3 Filled",
-      "Bitget Order ID", "SL Order ID", "TP1 Order ID", "TP2 Order ID", "TP3 Order ID",
+      "Bybit Order ID", "SL Order ID", "TP1 Order ID", "TP2 Order ID", "TP3 Order ID",
       "Alert ID", "Alert Tier", "Alert Strength", "Alert Mode", "Alert ATR",
       "Alert Entry Price", "Alert SL", "Alert Main TP", 
       "Alert TP1", "Alert TP2", "Alert TP3", "Alert Status",
@@ -577,7 +577,7 @@ export default function History() {
                     
                     // Close reason translation
                     const closeReasonMap: Record<string, string> = {
-                      'imported_from_bitget': 'Import z Bitget',
+                      'imported_from_bybit': 'Import z Bybit',
                       'tp_hit': 'TP osiągnięty',
                       'tp1_hit': 'TP1 osiągnięty',
                       'tp2_hit': 'TP2 osiągnięty',

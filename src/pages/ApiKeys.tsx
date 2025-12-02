@@ -21,13 +21,12 @@ export default function ApiKeys() {
   const [validating, setValidating] = useState(false);
   const [keysExist, setKeysExist] = useState(false);
   const [keysInfo, setKeysInfo] = useState<any>(null);
-  const [showKeys, setShowKeys] = useState({ apiKey: false, secretKey: false, passphrase: false });
+  const [showKeys, setShowKeys] = useState({ apiKey: false, secretKey: false });
   const isRedirecting = useRef(false);
   
   const [formData, setFormData] = useState({
     apiKey: "",
     secretKey: "",
-    passphrase: "",
   });
 
   useEffect(() => {
@@ -64,7 +63,7 @@ export default function ApiKeys() {
     
     if (isRedirecting.current) return;
     
-    if (!formData.apiKey || !formData.secretKey || !formData.passphrase) {
+    if (!formData.apiKey || !formData.secretKey) {
       toast({
         title: "Błąd walidacji",
         description: "Wszystkie pola są wymagane",
@@ -81,7 +80,6 @@ export default function ApiKeys() {
           action: 'save',
           apiKey: formData.apiKey,
           secretKey: formData.secretKey,
-          passphrase: formData.passphrase,
         }
       });
 
@@ -101,7 +99,7 @@ export default function ApiKeys() {
         description: "Klucze API zapisane i zwalidowane pomyślnie!",
       });
       
-      setFormData({ apiKey: "", secretKey: "", passphrase: "" });
+      setFormData({ apiKey: "", secretKey: "" });
       await checkExistingKeys();
       
       // Redirect to dashboard after successful setup with full reload
@@ -202,7 +200,7 @@ export default function ApiKeys() {
           <AlertDescription>
             <p className="font-medium">Klucze API wymagane</p>
             <p className="text-sm text-muted-foreground mt-1">
-              Musisz skonfigurować i zwalidować swoje klucze API Bitget przed uzyskaniem dostępu do bota tradingowego.
+              Musisz skonfigurować i zwalidować swoje klucze API Bybit przed uzyskaniem dostępu do bota tradingowego.
             </p>
           </AlertDescription>
         </Alert>
@@ -211,7 +209,7 @@ export default function ApiKeys() {
       <div className="flex items-center gap-3">
         <Shield className="h-8 w-8 text-primary" />
         <div>
-          <h1 className="text-3xl font-bold">Klucze API Bitget</h1>
+          <h1 className="text-3xl font-bold">Klucze API Bybit</h1>
           <p className="text-muted-foreground">Bezpiecznie zarządzaj swoimi danymi uwierzytelniającymi do tradingu</p>
         </div>
       </div>
@@ -278,7 +276,7 @@ export default function ApiKeys() {
                 <Input
                   id="apiKey"
                   type={showKeys.apiKey ? "text" : "password"}
-                  placeholder="Wprowadź swój klucz API Bitget"
+                  placeholder="Wprowadź swój klucz API Bybit"
                   value={formData.apiKey}
                   onChange={(e) => setFormData({ ...formData, apiKey: e.target.value })}
                   required
@@ -301,7 +299,7 @@ export default function ApiKeys() {
                 <Input
                   id="secretKey"
                   type={showKeys.secretKey ? "text" : "password"}
-                  placeholder="Wprowadź swój klucz sekretny Bitget"
+                  placeholder="Wprowadź swój klucz sekretny Bybit"
                   value={formData.secretKey}
                   onChange={(e) => setFormData({ ...formData, secretKey: e.target.value })}
                   required
@@ -318,35 +316,12 @@ export default function ApiKeys() {
               </div>
             </div>
 
-            <div className="space-y-2">
-              <Label htmlFor="passphrase">Hasło</Label>
-              <div className="relative">
-                <Input
-                  id="passphrase"
-                  type={showKeys.passphrase ? "text" : "password"}
-                  placeholder="Wprowadź swoje hasło Bitget"
-                  value={formData.passphrase}
-                  onChange={(e) => setFormData({ ...formData, passphrase: e.target.value })}
-                  required
-                />
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="sm"
-                  className="absolute right-2 top-1/2 -translate-y-1/2"
-                  onClick={() => setShowKeys({ ...showKeys, passphrase: !showKeys.passphrase })}
-                >
-                  {showKeys.passphrase ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                </Button>
-              </div>
-            </div>
-
             <Alert>
               <AlertCircle className="h-4 w-4" />
               <AlertDescription className="text-sm">
                 <strong>Informacja bezpieczeństwa:</strong> Twoje klucze API będą zaszyfrowane
                 przy użyciu szyfrowania AES-256 przed zapisaniem. Są one walidowane
-                z API Bitget aby upewnić się, że działają poprawnie.
+                z API Bybit aby upewnić się, że działają poprawnie.
               </AlertDescription>
             </Alert>
 
@@ -373,10 +348,10 @@ export default function ApiKeys() {
         </CardHeader>
         <CardContent className="space-y-4">
           <ol className="list-decimal list-inside space-y-2 text-sm">
-            <li>Zaloguj się na swoje konto Bitget</li>
-            <li>Przejdź do sekcji zarządzania API</li>
-            <li>Utwórz nowy klucz API z uprawnieniami do tradingu</li>
-            <li>Skopiuj klucz API, klucz sekretny i hasło</li>
+            <li>Zaloguj się na swoje konto Bybit</li>
+            <li>Przejdź do sekcji zarządzania API (Account & Security → API)</li>
+            <li>Utwórz nowy klucz API z uprawnieniami do tradingu (Contract Trade)</li>
+            <li>Skopiuj klucz API i klucz sekretny</li>
             <li>Wklej je do formularza powyżej</li>
           </ol>
           
