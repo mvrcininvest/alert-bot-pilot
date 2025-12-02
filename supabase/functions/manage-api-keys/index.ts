@@ -77,35 +77,37 @@ async function decrypt(encryptedHex: string, key: string): Promise<string> {
   return decoder.decode(decrypted);
 }
 
-// Validate Bitget API keys by making a test API call
-async function validateBitgetKeys(apiKey: string, secretKey: string, passphrase: string): Promise<boolean> {
+// Validate Bybit API keys by making a test API call
+async function validateBybitKeys(apiKey: string, secretKey: string): Promise<boolean> {
   try {
     const timestamp = Date.now().toString();
+    const recvWindow = '5000';
     const method = 'GET';
-    const requestPath = '/api/v2/mix/account/accounts?productType=USDT-FUTURES';
+    const requestPath = '/v5/account/wallet-balance';
+    const queryString = 'accountType=UNIFIED';
     
-    // Create signature
-    const prehash = timestamp + method + requestPath;
+    // Create signature for Bybit v5 API
+    // Signature = HMAC_SHA256(timestamp + api_key + recv_window + queryString, secret_key)
+    const paramStr = timestamp + apiKey + recvWindow + queryString;
     const signature = createHmac('sha256', secretKey)
-      .update(prehash)
-      .digest('base64');
+      .update(paramStr)
+      .digest('hex');
     
-    const response = await fetch(`https://api.bitget.com${requestPath}`, {
+    const response = await fetch(`https://api.bybit.com${requestPath}?${queryString}`, {
       method: method,
       headers: {
-        'ACCESS-KEY': apiKey,
-        'ACCESS-SIGN': signature,
-        'ACCESS-TIMESTAMP': timestamp,
-        'ACCESS-PASSPHRASE': passphrase,
-        'Content-Type': 'application/json',
-        'locale': 'en-US'
+        'X-BAPI-API-KEY': apiKey,
+        'X-BAPI-SIGN': signature,
+        'X-BAPI-TIMESTAMP': timestamp,
+        'X-BAPI-RECV-WINDOW': recvWindow,
+        'Content-Type': 'application/json'
       }
     });
     
     const data = await response.json();
     
-    // Check if the response is successful
-    return data.code === '00000';
+    // Check if the response is successful (Bybit returns retCode: 0 for success)
+    return data.retCode === 0;
   } catch (error) {
     console.error('Validation error:', error);
     return false;
@@ -138,7 +140,7 @@ Deno.serve(async (req) => {
       throw new Error('Not authenticated');
     }
 
-    const { action, apiKey, secretKey, passphrase } = await req.json();
+    const { action, apiKey, secretKey } = await req.json();
     const encryptionKey = Deno.env.get('ENCRYPTION_KEY');
     
     if (!encryptionKey) {
@@ -147,8 +149,8 @@ Deno.serve(async (req) => {
 
     if (action === 'save') {
       // Validate keys first
-      console.log('Validating Bitget API keys...');
-      const isValid = await validateBitgetKeys(apiKey, secretKey, passphrase);
+      console.log('Validating Bybit API keys...');
+      const isValid = await validateBybitKeys(apiKey, secretKey);
       
       if (!isValid) {
         return new Response(
@@ -168,16 +170,15 @@ Deno.serve(async (req) => {
       // Encrypt keys
       const encryptedApiKey = await encrypt(apiKey, encryptionKey);
       const encryptedSecretKey = await encrypt(secretKey, encryptionKey);
-      const encryptedPassphrase = await encrypt(passphrase, encryptionKey);
 
-      // Save to database
+      // Save to database (passphrase_encrypted will be null for Bybit)
       const { error } = await supabaseClient
         .from('user_api_keys')
         .upsert({
           user_id: user.id,
           api_key_encrypted: encryptedApiKey,
           secret_key_encrypted: encryptedSecretKey,
-          passphrase_encrypted: encryptedPassphrase,
+          passphrase_encrypted: null, // Bybit doesn't use passphrase
           is_active: true,
           last_validated_at: new Date().toISOString(),
         });
@@ -250,9 +251,8 @@ Deno.serve(async (req) => {
 
       const decryptedApiKey = await decrypt(data.api_key_encrypted, encryptionKey);
       const decryptedSecretKey = await decrypt(data.secret_key_encrypted, encryptionKey);
-      const decryptedPassphrase = await decrypt(data.passphrase_encrypted, encryptionKey);
 
-      const isValid = await validateBitgetKeys(decryptedApiKey, decryptedSecretKey, decryptedPassphrase);
+      const isValid = await validateBybitKeys(decryptedApiKey, decryptedSecretKey);
 
       // Update validation timestamp if successful
       if (isValid) {

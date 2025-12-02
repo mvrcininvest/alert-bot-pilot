@@ -106,7 +106,7 @@ Deno.serve(async (req) => {
       // 1. Fix close_reason if incorrect
       if (
         !position.close_reason ||
-        ['not_found_on_exchange', 'imported_from_bitget', 'unknown'].includes(position.close_reason)
+        ['not_found_on_exchange', 'imported_from_bybit', 'unknown'].includes(position.close_reason)
       ) {
         const correctReason = determineCloseReason(position);
         positionUpdates.close_reason = correctReason;

@@ -87,7 +87,7 @@ serve(async (req) => {
       metadata: { symbol: position.symbol }
     });
     
-    const { data: tickerResult } = await supabase.functions.invoke('bitget-api', {
+    const { data: tickerResult } = await supabase.functions.invoke('bybit-api', {
       body: {
         action: 'get_ticker',
         params: { symbol: position.symbol },
@@ -99,10 +99,10 @@ serve(async (req) => {
       ? Number(tickerResult.data.last) 
       : Number(position.entry_price);
 
-    // Close position on Bitget
+    // Close position on Bybit
     await log({
       functionName: 'close-position',
-      message: 'Closing position on Bitget',
+      message: 'Closing position on Bybit',
       level: 'info',
       positionId: position_id,
       metadata: { symbol: position.symbol, closePrice }
@@ -110,7 +110,7 @@ serve(async (req) => {
     
     const closeSide = position.side === 'BUY' ? 'close_long' : 'close_short';
     
-    const { data: closeResult, error: closeError } = await supabase.functions.invoke('bitget-api', {
+    const { data: closeResult, error: closeError } = await supabase.functions.invoke('bybit-api', {
       body: {
         action: 'close_position',
         params: {
@@ -123,7 +123,7 @@ serve(async (req) => {
     });
 
     // Detailed logging for close result
-    console.log('Close result from bitget-api:', JSON.stringify(closeResult));
+    console.log('Close result from bybit-api:', JSON.stringify(closeResult));
     if (closeError) {
       console.error('Close error:', closeError);
     }
@@ -139,7 +139,7 @@ serve(async (req) => {
       });
       
       // Try flash_close as fallback
-      const { data: flashResult, error: flashError } = await supabase.functions.invoke('bitget-api', {
+      const { data: flashResult, error: flashError } = await supabase.functions.invoke('bybit-api', {
         body: {
           action: 'flash_close_position',
           params: {
@@ -160,7 +160,7 @@ serve(async (req) => {
           positionId: position_id,
           metadata: { closeResult, flashResult, closeError, flashError }
         });
-        throw new Error('Failed to close position on Bitget (both market and flash close failed)');
+        throw new Error('Failed to close position on Bybit (both market and flash close failed)');
       }
       
       await log({
@@ -188,7 +188,7 @@ serve(async (req) => {
 
     for (const orderId of orderIds) {
       try {
-        await supabase.functions.invoke('bitget-api', {
+        await supabase.functions.invoke('bybit-api', {
           body: {
             action: 'cancel_plan_order',
             params: {
@@ -213,15 +213,15 @@ serve(async (req) => {
     // Wait a moment for fills to be recorded
     await new Promise(resolve => setTimeout(resolve, 2000));
 
-    // Fetch fill history from Bitget to get accurate close data
+    // Fetch fill history from Bybit to get accurate close data
     await log({
       functionName: 'close-position',
-      message: 'Fetching fill history from Bitget',
+      message: 'Fetching fill history from Bybit',
       level: 'info',
       positionId: position_id
     });
 
-    const { data: fillsResult } = await supabase.functions.invoke('bitget-api', {
+    const { data: fillsResult } = await supabase.functions.invoke('bybit-api', {
       body: {
         action: 'get_fills',
         params: { symbol: position.symbol },
@@ -394,19 +394,19 @@ serve(async (req) => {
     });
     console.log('Position closed successfully:', position_id, 'PnL:', realizedPnl);
 
-    // Wait for Bitget to process the position into history
+    // Wait for Bybit to process the position into history
     await new Promise(resolve => setTimeout(resolve, 3000));
 
-    // Fetch accurate data from Bitget history
+    // Fetch accurate data from Bybit history
     await log({
       functionName: 'close-position',
-      message: 'Syncing with Bitget position history',
+      message: 'Syncing with Bybit position history',
       level: 'info',
       positionId: position_id
     });
 
     try {
-      const { data: historyResult } = await supabase.functions.invoke('bitget-api', {
+      const { data: historyResult } = await supabase.functions.invoke('bybit-api', {
         body: {
           action: 'get_position_history',
           params: { 
@@ -420,36 +420,36 @@ serve(async (req) => {
 
       if (historyResult?.success && historyResult.data?.list?.length > 0) {
         // Find the matching position
-        const bitgetPosition = historyResult.data.list.find((p: any) => 
+        const bybitPosition = historyResult.data.list.find((p: any) => 
           p.symbol === position.symbol && 
           p.holdSide === (position.side === 'BUY' ? 'long' : 'short') &&
           Math.abs(Number(p.utime) - Date.now()) < 120000 // Within last 2 minutes
         );
         
-        if (bitgetPosition) {
-          // Update with accurate Bitget data
+        if (bybitPosition) {
+          // Update with accurate Bybit data
           await supabase.from('positions').update({
-            entry_price: Number(bitgetPosition.openAvgPrice),
-            close_price: Number(bitgetPosition.closeAvgPrice),
-            quantity: Number(bitgetPosition.total),
-            realized_pnl: Number(bitgetPosition.netProfit),
-            closed_at: new Date(Number(bitgetPosition.utime)).toISOString(),
+            entry_price: Number(bybitPosition.openAvgPrice),
+            close_price: Number(bybitPosition.closeAvgPrice),
+            quantity: Number(bybitPosition.total),
+            realized_pnl: Number(bybitPosition.netProfit),
+            closed_at: new Date(Number(bybitPosition.utime)).toISOString(),
             metadata: {
               ...position.metadata,
-              synced_from_bitget: true,
+              synced_from_bybit: true,
               sync_time: new Date().toISOString()
             }
           }).eq('id', position_id);
 
           await log({
             functionName: 'close-position',
-            message: 'Position synced with Bitget history',
+            message: 'Position synced with Bybit history',
             level: 'info',
             positionId: position_id,
             metadata: { 
-              bitgetEntryPrice: bitgetPosition.openAvgPrice,
-              bitgetClosePrice: bitgetPosition.closeAvgPrice,
-              bitgetPnl: bitgetPosition.netProfit
+              bybitEntryPrice: bybitPosition.openAvgPrice,
+              bybitClosePrice: bybitPosition.closeAvgPrice,
+              bybitPnl: bybitPosition.netProfit
             }
           });
         }
@@ -457,7 +457,7 @@ serve(async (req) => {
     } catch (syncError) {
       await log({
         functionName: 'close-position',
-        message: 'Failed to sync with Bitget history (non-critical)',
+        message: 'Failed to sync with Bybit history (non-critical)',
         level: 'warn',
         positionId: position_id,
         metadata: { error: syncError instanceof Error ? syncError.message : 'Unknown' }
