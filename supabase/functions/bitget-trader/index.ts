@@ -937,6 +937,76 @@ serve(async (req) => {
       console.log(`   Adjusted: quantity=${adjustedQuantity}, notional=${adjustedNotional.toFixed(2)} USDT, margin=${adjustedMargin.toFixed(2)} USDT`);
       
       quantity = adjustedQuantity;
+      
+      // ⚠️ CRITICAL: Recalculate SL if quantity was increased to maintain max_loss
+      if (settings.position_sizing_type === 'scalping_mode' && scalpingResult) {
+        const originalQuantity = scalpingResult.actualMargin * effectiveLeverage / alert_data.price;
+        const quantityIncreaseFactor = quantity / originalQuantity;
+        
+        if (quantityIncreaseFactor > 1.01) { // More than 1% increase
+          const maxLoss = settings.max_loss_per_trade || 0.25;
+          const slMin = (settings.sl_percent_min || 0.3) / 100;
+          
+          // Calculate new SL distance to maintain max_loss with new quantity
+          const newSlDistance = maxLoss / quantity;
+          const newSlPercent = newSlDistance / alert_data.price;
+          
+          // Check if new SL would be too close (below minimum)
+          if (newSlPercent < slMin) {
+            // SL would be too close - log warning but keep original SL
+            const actualMaxLoss = quantity * Math.abs(scalpingResult.sl_price - alert_data.price);
+            console.log(`⚠️ WARNING: Cannot maintain max_loss=${maxLoss} USDT with minimum SL=${slMin*100}%`);
+            console.log(`   Actual potential loss: ${actualMaxLoss.toFixed(4)} USDT (${((actualMaxLoss/maxLoss-1)*100).toFixed(0)}% higher than target)`);
+            
+            await log({
+              functionName: 'bitget-trader',
+              message: 'Position size increased but SL too close - accepting higher potential loss',
+              level: 'warn',
+              alertId: alert_id,
+              metadata: {
+                symbol: alert_data.symbol,
+                maxLossTarget: maxLoss,
+                actualMaxLoss: actualMaxLoss,
+                quantityIncreaseFactor,
+                newSlPercent: newSlPercent * 100,
+                minSlPercent: slMin * 100,
+                originalSlPrice: scalpingResult.sl_price
+              }
+            });
+          } else {
+            // Recalculate SL with new quantity to maintain max_loss
+            const originalSlPrice = scalpingResult.sl_price;
+            const newSlPrice = alert_data.side === 'BUY'
+              ? alert_data.price - newSlDistance
+              : alert_data.price + newSlDistance;
+            
+            console.log(`🔧 SL recalculated after quantity increase to maintain max_loss:`);
+            console.log(`   Original SL: ${originalSlPrice.toFixed(6)} (potential loss: ${(scalpingResult.actualLoss * quantityIncreaseFactor).toFixed(4)} USDT)`);
+            console.log(`   New SL: ${newSlPrice.toFixed(6)} (potential loss: ${maxLoss.toFixed(4)} USDT)`);
+            console.log(`   Quantity increased by ${((quantityIncreaseFactor-1)*100).toFixed(1)}%`);
+            
+            // Update scalpingResult
+            scalpingResult.sl_price = newSlPrice;
+            scalpingResult.slPercent = newSlPercent * 100;
+            scalpingResult.actualLoss = maxLoss;
+            
+            await log({
+              functionName: 'bitget-trader',
+              message: 'SL recalculated after position size increase to maintain max_loss',
+              level: 'info',
+              alertId: alert_id,
+              metadata: {
+                symbol: alert_data.symbol,
+                originalSlPrice,
+                newSlPrice,
+                quantityIncreaseFactor: quantityIncreaseFactor.toFixed(3),
+                maxLoss,
+                newSlPercent: newSlPercent * 100
+              }
+            });
+          }
+        }
+      }
     } else {
       // Still apply volumePlace rounding even if we meet minimums
       const originalQuantity = quantity;
@@ -954,7 +1024,7 @@ serve(async (req) => {
     let sl_price, tp1_price, tp2_price, tp3_price;
     
     if (settings.position_sizing_type === 'scalping_mode' && scalpingResult) {
-      // Use pre-calculated scalping results
+      // Use pre-calculated scalping results (potentially with recalculated SL)
       ({ sl_price, tp1_price, tp2_price, tp3_price } = scalpingResult);
       console.log('✓ Using scalping mode SL/TP prices:', {
         entry: alert_data.price,
@@ -963,7 +1033,8 @@ serve(async (req) => {
         tp1_price,
         tp2_price,
         tp3_price,
-        quantity
+        quantity,
+        actualLoss: scalpingResult.actualLoss
       });
     } else {
       // Use normal calculation
