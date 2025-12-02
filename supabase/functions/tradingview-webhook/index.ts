@@ -182,6 +182,43 @@ serve(async (req) => {
           return { userId, alertId: alert.id, status: 'ignored', reason: `Tier ${alertData.tier} excluded` };
         }
 
+        // Check session filtering
+        if (userSettings.session_filtering_enabled) {
+          const alertSession = alertData.timing?.session || alertData.session;
+          
+          // Check if session is in excluded list
+          if (alertSession && userSettings.excluded_sessions?.includes(alertSession)) {
+            await log({
+              functionName: 'tradingview-webhook',
+              message: `Session ${alertSession} excluded - alert ignored`,
+              level: 'info',
+              alertId: alert.id,
+              metadata: { session: alertSession, excludedSessions: userSettings.excluded_sessions, userId }
+            });
+            await supabase
+              .from('alerts')
+              .update({ status: 'ignored', error_message: `Session ${alertSession} excluded from trading` })
+              .eq('id', alert.id);
+            return { userId, alertId: alert.id, status: 'ignored', reason: `Session ${alertSession} excluded` };
+          }
+          
+          // Check if session is in allowed list (if allowed list has items)
+          if (alertSession && userSettings.allowed_sessions?.length > 0 && !userSettings.allowed_sessions.includes(alertSession)) {
+            await log({
+              functionName: 'tradingview-webhook',
+              message: `Session ${alertSession} not in allowed sessions - alert ignored`,
+              level: 'info',
+              alertId: alert.id,
+              metadata: { session: alertSession, allowedSessions: userSettings.allowed_sessions, userId }
+            });
+            await supabase
+              .from('alerts')
+              .update({ status: 'ignored', error_message: `Session ${alertSession} not in allowed sessions` })
+              .eq('id', alert.id);
+            return { userId, alertId: alert.id, status: 'ignored', reason: `Session ${alertSession} not allowed` };
+          }
+        }
+
         // All validation passed, invoke trader
         await log({
           functionName: 'tradingview-webhook',

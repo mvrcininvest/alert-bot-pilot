@@ -553,6 +553,7 @@ export type Database = {
           adaptive_tp_low_volatility_multiplier: number | null
           adaptive_tp_spacing: boolean | null
           alert_strength_threshold: number | null
+          allowed_sessions: string[] | null
           allowed_tiers: string[] | null
           atr_sl_multiplier: number | null
           atr_tp_multiplier: number | null
@@ -568,6 +569,7 @@ export type Database = {
           daily_loss_percent: number | null
           default_leverage: number | null
           duplicate_alert_handling: boolean | null
+          excluded_sessions: string[] | null
           excluded_tiers: string[] | null
           fee_aware_breakeven: boolean | null
           filter_by_tier: boolean | null
@@ -589,6 +591,7 @@ export type Database = {
           rr_adaptive: boolean | null
           rr_ratio: number | null
           rr_sl_percent_margin: number | null
+          session_filtering_enabled: boolean | null
           simple_sl_percent: number | null
           simple_tp_percent: number | null
           simple_tp2_percent: number | null
@@ -623,6 +626,7 @@ export type Database = {
           adaptive_tp_low_volatility_multiplier?: number | null
           adaptive_tp_spacing?: boolean | null
           alert_strength_threshold?: number | null
+          allowed_sessions?: string[] | null
           allowed_tiers?: string[] | null
           atr_sl_multiplier?: number | null
           atr_tp_multiplier?: number | null
@@ -638,6 +642,7 @@ export type Database = {
           daily_loss_percent?: number | null
           default_leverage?: number | null
           duplicate_alert_handling?: boolean | null
+          excluded_sessions?: string[] | null
           excluded_tiers?: string[] | null
           fee_aware_breakeven?: boolean | null
           filter_by_tier?: boolean | null
@@ -659,6 +664,7 @@ export type Database = {
           rr_adaptive?: boolean | null
           rr_ratio?: number | null
           rr_sl_percent_margin?: number | null
+          session_filtering_enabled?: boolean | null
           simple_sl_percent?: number | null
           simple_tp_percent?: number | null
           simple_tp2_percent?: number | null
@@ -693,6 +699,7 @@ export type Database = {
           adaptive_tp_low_volatility_multiplier?: number | null
           adaptive_tp_spacing?: boolean | null
           alert_strength_threshold?: number | null
+          allowed_sessions?: string[] | null
           allowed_tiers?: string[] | null
           atr_sl_multiplier?: number | null
           atr_tp_multiplier?: number | null
@@ -708,6 +715,7 @@ export type Database = {
           daily_loss_percent?: number | null
           default_leverage?: number | null
           duplicate_alert_handling?: boolean | null
+          excluded_sessions?: string[] | null
           excluded_tiers?: string[] | null
           fee_aware_breakeven?: boolean | null
           filter_by_tier?: boolean | null
@@ -729,6 +737,7 @@ export type Database = {
           rr_adaptive?: boolean | null
           rr_ratio?: number | null
           rr_sl_percent_margin?: number | null
+          session_filtering_enabled?: boolean | null
           simple_sl_percent?: number | null
           simple_tp_percent?: number | null
           simple_tp2_percent?: number | null
@@ -823,6 +832,7 @@ export type Database = {
           adaptive_tp_low_volatility_multiplier: number | null
           adaptive_tp_spacing: boolean | null
           alert_strength_threshold: number | null
+          allowed_sessions: string[] | null
           allowed_tiers: string[] | null
           atr_sl_multiplier: number | null
           atr_tp_multiplier: number | null
@@ -837,6 +847,7 @@ export type Database = {
           daily_loss_percent: number | null
           default_leverage: number | null
           duplicate_alert_handling: boolean | null
+          excluded_sessions: string[] | null
           excluded_tiers: string[] | null
           fee_aware_breakeven: boolean | null
           filter_by_tier: boolean | null
@@ -859,6 +870,7 @@ export type Database = {
           rr_adaptive: boolean | null
           rr_ratio: number | null
           rr_sl_percent_margin: number | null
+          session_filtering_enabled: boolean | null
           simple_sl_percent: number | null
           simple_tp_percent: number | null
           simple_tp2_percent: number | null
@@ -897,6 +909,7 @@ export type Database = {
           adaptive_tp_low_volatility_multiplier?: number | null
           adaptive_tp_spacing?: boolean | null
           alert_strength_threshold?: number | null
+          allowed_sessions?: string[] | null
           allowed_tiers?: string[] | null
           atr_sl_multiplier?: number | null
           atr_tp_multiplier?: number | null
@@ -913,6 +926,7 @@ export type Database = {
           daily_loss_percent?: number | null
           default_leverage?: number | null
           duplicate_alert_handling?: boolean | null
+          excluded_sessions?: string[] | null
           excluded_tiers?: string[] | null
           fee_aware_breakeven?: boolean | null
           filter_by_tier?: boolean | null
@@ -935,6 +949,7 @@ export type Database = {
           rr_adaptive?: boolean | null
           rr_ratio?: number | null
           rr_sl_percent_margin?: number | null
+          session_filtering_enabled?: boolean | null
           simple_sl_percent?: number | null
           simple_tp_percent?: number | null
           simple_tp2_percent?: number | null
@@ -973,6 +988,7 @@ export type Database = {
           adaptive_tp_low_volatility_multiplier?: number | null
           adaptive_tp_spacing?: boolean | null
           alert_strength_threshold?: number | null
+          allowed_sessions?: string[] | null
           allowed_tiers?: string[] | null
           atr_sl_multiplier?: number | null
           atr_tp_multiplier?: number | null
@@ -989,6 +1005,7 @@ export type Database = {
           daily_loss_percent?: number | null
           default_leverage?: number | null
           duplicate_alert_handling?: boolean | null
+          excluded_sessions?: string[] | null
           excluded_tiers?: string[] | null
           fee_aware_breakeven?: boolean | null
           filter_by_tier?: boolean | null
@@ -1011,6 +1028,7 @@ export type Database = {
           rr_adaptive?: boolean | null
           rr_ratio?: number | null
           rr_sl_percent_margin?: number | null
+          session_filtering_enabled?: boolean | null
           simple_sl_percent?: number | null
           simple_tp_percent?: number | null
           simple_tp2_percent?: number | null

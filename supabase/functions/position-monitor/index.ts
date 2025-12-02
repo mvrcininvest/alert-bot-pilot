@@ -332,31 +332,39 @@ function calculateExpectedSLTP(position: any, settings: any): ExpectedSLTP {
   // If we have prices in DB - use them (they are the "source of truth" for this position)
   if (dbSl && dbTp1) {
     console.log(`📍 Using DB prices: SL=${dbSl}, TP1=${dbTp1}, TP2=${dbTp2}, TP3=${dbTp3}`);
+    console.log(`📍 DB quantities: TP1=${dbTp1Qty}, TP2=${dbTp2Qty}, TP3=${dbTp3Qty}`);
+    console.log(`📍 TP filled status: TP1=${position.tp1_filled}, TP2=${position.tp2_filled}, TP3=${position.tp3_filled}`);
     
     // Calculate quantities with smart redistribution if not in DB
     const totalQty = position.quantity;
     const minQuantity = getMinQuantityForSymbol(position.symbol);
     
-    if (dbTp1Qty && dbTp2Qty) {
-      // ✅ Validate that DB quantities sum to total
-      const sumQty = dbTp1Qty + (dbTp2Qty || 0) + (dbTp3Qty || 0);
-      const tolerance = 0.0001;
+    // ✅ FIX: Always return DB quantities if they exist, even if TP1 is filled
+    // This ensures resync can recreate TP2/TP3 after TP1 fills
+    const hasValidDbQuantities = (dbTp1Qty && dbTp1Qty > 0) || (dbTp2Qty && dbTp2Qty > 0) || (dbTp3Qty && dbTp3Qty > 0);
+    
+    if (hasValidDbQuantities) {
+      // Calculate remaining quantity (what's left after filled TPs)
+      let remainingQty = totalQty;
+      if (position.tp1_filled && dbTp1Qty) remainingQty -= dbTp1Qty;
+      if (position.tp2_filled && dbTp2Qty) remainingQty -= dbTp2Qty;
+      if (position.tp3_filled && dbTp3Qty) remainingQty -= dbTp3Qty;
       
-      if (Math.abs(sumQty - totalQty) > tolerance) {
-        console.log(`⚠️ DB quantities mismatch! Sum=${sumQty} vs Total=${totalQty} (diff=${Math.abs(sumQty - totalQty).toFixed(6)}) - RECALCULATING`);
-        // Fall through to recalculate instead of returning DB values
-      } else {
-        // Use DB quantities as-is - they're valid
-        return {
-          sl_price: dbSl,
-          tp1_price: !position.tp1_filled ? dbTp1 : undefined,
-          tp2_price: !position.tp2_filled && dbTp2 ? dbTp2 : undefined,
-          tp3_price: !position.tp3_filled && dbTp3 ? dbTp3 : undefined,
-          tp1_quantity: dbTp1Qty > 0 ? dbTp1Qty : undefined,
-          tp2_quantity: dbTp2Qty > 0 ? dbTp2Qty : undefined,
-          tp3_quantity: dbTp3Qty && dbTp3Qty > 0 ? dbTp3Qty : undefined,
-        };
-      }
+      console.log(`📍 Remaining quantity after filled TPs: ${remainingQty}`);
+      
+      // Return quantities for unfilled TPs only
+      const result: ExpectedSLTP = {
+        sl_price: dbSl,
+        tp1_price: !position.tp1_filled ? dbTp1 : undefined,
+        tp2_price: !position.tp2_filled && dbTp2 ? dbTp2 : undefined,
+        tp3_price: !position.tp3_filled && dbTp3 ? dbTp3 : undefined,
+        tp1_quantity: !position.tp1_filled && dbTp1Qty && dbTp1Qty > 0 ? dbTp1Qty : undefined,
+        tp2_quantity: !position.tp2_filled && dbTp2Qty && dbTp2Qty > 0 ? dbTp2Qty : undefined,
+        tp3_quantity: !position.tp3_filled && dbTp3Qty && dbTp3Qty > 0 ? dbTp3Qty : undefined,
+      };
+      
+      console.log(`📍 Expected SLTP result:`, JSON.stringify(result));
+      return result;
     }
     
     // Calculate with smart redistribution using settings_snapshot if available
@@ -3316,10 +3324,20 @@ async function checkPositionFullVerification(supabase: any, position: any, setti
       }
       
       const tpPrice = expected[tpPriceKey] as number | undefined;
-      const tpQty = expected[tpQtyKey] as number | undefined;
+      let tpQty = expected[tpQtyKey] as number | undefined;
+      
+      // ✅ FIX: Fallback to DB quantity if expected quantity is missing
+      if (!tpQty) {
+        const dbQtyKey = `tp${i}_quantity` as 'tp1_quantity' | 'tp2_quantity' | 'tp3_quantity';
+        const dbQty = position[dbQtyKey] ? Number(position[dbQtyKey]) : undefined;
+        if (dbQty && dbQty > 0) {
+          console.log(`📦 Using DB quantity for TP${i}: ${dbQty} (expected was missing)`);
+          tpQty = dbQty;
+        }
+      }
       
       if (!tpPrice || !tpQty) {
-        console.log(`⏭️ Skipping TP${i} - no expected values`);
+        console.log(`⏭️ Skipping TP${i} - no expected values (price: ${tpPrice}, qty: ${tpQty})`);
         continue;
       }
       

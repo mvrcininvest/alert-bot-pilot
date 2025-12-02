@@ -97,6 +97,11 @@ export interface UserSettings {
   min_profitable_tp_percent: number;
   fee_aware_breakeven: boolean;
   
+  // Session filtering
+  session_filtering_enabled: boolean;
+  allowed_sessions: string[];
+  excluded_sessions: string[];
+  
   // Modes (not needed for runtime, just for tracking)
   money_mode?: string;
   sltp_mode?: string;
@@ -211,6 +216,9 @@ export async function getUserSettings(userId: string, symbol?: string): Promise<
     include_fees_in_calculations: userSettings.include_fees_in_calculations ?? true,
     min_profitable_tp_percent: userSettings.min_profitable_tp_percent ?? 0.2,
     fee_aware_breakeven: userSettings.fee_aware_breakeven ?? true,
+    session_filtering_enabled: userSettings.session_filtering_enabled ?? false,
+    allowed_sessions: userSettings.allowed_sessions ?? ['Asia', 'London', 'NY', 'Sydney'],
+    excluded_sessions: userSettings.excluded_sessions ?? [],
   };
 
   // Money Management settings (copy_admin mode)
@@ -282,6 +290,10 @@ export async function getUserSettings(userId: string, symbol?: string): Promise<
     finalSettings.duplicate_alert_handling = adminSettings.duplicate_alert_handling ?? true;
     finalSettings.require_profit_for_same_direction = adminSettings.require_profit_for_same_direction ?? true;
     finalSettings.pnl_threshold_percent = adminSettings.pnl_threshold_percent ?? 0.5;
+    // Session filtering also follows tier_mode (since it's about filtering alerts)
+    finalSettings.session_filtering_enabled = adminSettings.session_filtering_enabled ?? false;
+    finalSettings.allowed_sessions = adminSettings.allowed_sessions ?? ['Asia', 'London', 'NY', 'Sydney'];
+    finalSettings.excluded_sessions = adminSettings.excluded_sessions ?? [];
   }
 
   // Apply category-specific overrides if symbol provided
