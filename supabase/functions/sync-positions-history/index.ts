@@ -8,6 +8,58 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
+// Determine close reason by comparing close price with TP/SL levels
+function determineCloseReasonFromPrices(
+  closePrice: number,
+  side: string,
+  tp1Price: number | null,
+  tp2Price: number | null,
+  tp3Price: number | null,
+  slPrice: number | null,
+  entryPrice: number
+): string {
+  const tolerance = 0.005; // 0.5% tolerance for price matching
+  const isBuy = side === 'BUY';
+  
+  if (isBuy) {
+    // BUY position: TP above entry, SL below entry
+    // Check SL first (price dropped below SL)
+    if (slPrice && closePrice <= slPrice * (1 + tolerance)) {
+      return 'sl_hit';
+    }
+    // Check TPs from highest to lowest
+    if (tp3Price && closePrice >= tp3Price * (1 - tolerance)) {
+      return 'tp3_hit';
+    }
+    if (tp2Price && closePrice >= tp2Price * (1 - tolerance)) {
+      return 'tp2_hit';
+    }
+    if (tp1Price && closePrice >= tp1Price * (1 - tolerance)) {
+      return 'tp1_hit';
+    }
+    // Manual close - determine if profit or loss
+    return closePrice > entryPrice ? 'manual_profit' : 'manual_loss';
+  } else {
+    // SELL position: TP below entry, SL above entry
+    // Check SL first (price rose above SL)
+    if (slPrice && closePrice >= slPrice * (1 - tolerance)) {
+      return 'sl_hit';
+    }
+    // Check TPs from lowest to highest
+    if (tp3Price && closePrice <= tp3Price * (1 + tolerance)) {
+      return 'tp3_hit';
+    }
+    if (tp2Price && closePrice <= tp2Price * (1 + tolerance)) {
+      return 'tp2_hit';
+    }
+    if (tp1Price && closePrice <= tp1Price * (1 + tolerance)) {
+      return 'tp1_hit';
+    }
+    // Manual close - determine if profit or loss
+    return closePrice < entryPrice ? 'manual_profit' : 'manual_loss';
+  }
+}
+
 serve(async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response(null, { headers: corsHeaders });
@@ -154,50 +206,30 @@ serve(async (req) => {
           const bitgetRealizedPnl = Number(bitgetPos.netProfit); // netProfit includes fees
           const bitgetSide = bitgetPos.holdSide === 'long' ? 'BUY' : 'SELL';
 
-          // Determine close reason
-          let closeReason = 'manual_close';
-          
-          if (bitgetPos.closeType === 'sl') {
-            closeReason = 'sl_hit';
-          } else if (bitgetPos.closeType === 'tp') {
-            // Check which TP was hit
-            const tp1Price = dbPos.tp1_price ? Number(dbPos.tp1_price) : null;
-            const tp2Price = dbPos.tp2_price ? Number(dbPos.tp2_price) : null;
-            const tp3Price = dbPos.tp3_price ? Number(dbPos.tp3_price) : null;
+          // Get TP/SL prices from DB position
+          const tp1Price = dbPos.tp1_price ? Number(dbPos.tp1_price) : null;
+          const tp2Price = dbPos.tp2_price ? Number(dbPos.tp2_price) : null;
+          const tp3Price = dbPos.tp3_price ? Number(dbPos.tp3_price) : null;
+          const slPrice = dbPos.sl_price ? Number(dbPos.sl_price) : null;
 
-            if (bitgetSide === 'BUY') {
-              if (tp3Price && bitgetClosePrice >= tp3Price * 0.995) {
-                closeReason = 'tp3_hit';
-              } else if (tp2Price && bitgetClosePrice >= tp2Price * 0.995) {
-                closeReason = 'tp2_hit';
-              } else if (tp1Price && bitgetClosePrice >= tp1Price * 0.995) {
-                closeReason = 'tp1_hit';
-              } else {
-                closeReason = 'tp_hit';
-              }
-            } else {
-              if (tp3Price && bitgetClosePrice <= tp3Price * 1.005) {
-                closeReason = 'tp3_hit';
-              } else if (tp2Price && bitgetClosePrice <= tp2Price * 1.005) {
-                closeReason = 'tp2_hit';
-              } else if (tp1Price && bitgetClosePrice <= tp1Price * 1.005) {
-                closeReason = 'tp1_hit';
-              } else {
-                closeReason = 'tp_hit';
-              }
-            }
-          } else if (bitgetPos.closeType === 'liquidation') {
-            closeReason = 'liquidated';
-          }
+          // Determine close reason by comparing prices (NOT from Bitget closeType which doesn't exist)
+          const closeReason = determineCloseReasonFromPrices(
+            bitgetClosePrice,
+            bitgetSide,
+            tp1Price,
+            tp2Price,
+            tp3Price,
+            slPrice,
+            bitgetEntryPrice
+          );
 
           // Determine which TP levels were filled based on close_reason
           const tp1Filled = closeReason.includes('tp');
           const tp2Filled = closeReason === 'tp2_hit' || closeReason === 'tp3_hit';
           const tp3Filled = closeReason === 'tp3_hit';
 
-          // Check if data needs updating (including close_reason fix)
-          const closeReasonNeedsFix = dbPos.close_reason !== closeReason && 
-            (dbPos.close_reason?.includes('tp') || closeReason.includes('tp'));
+          // Check if data needs updating
+          const closeReasonNeedsFix = dbPos.close_reason !== closeReason;
           
           const needsUpdate = 
             Math.abs(Number(dbPos.entry_price) - bitgetEntryPrice) > 0.01 ||
@@ -211,7 +243,8 @@ serve(async (req) => {
           console.log(`  Entry: DB=${dbPos.entry_price} vs Bitget=${bitgetEntryPrice}`);
           console.log(`  Close: DB=${dbPos.close_price} vs Bitget=${bitgetClosePrice}`);
           console.log(`  PnL: DB=${dbPos.realized_pnl} vs Bitget=${bitgetRealizedPnl}`);
-          console.log(`  Reason: DB=${dbPos.close_reason} vs Bitget=${closeReason}`);
+          console.log(`  Reason: DB=${dbPos.close_reason} vs Calculated=${closeReason}`);
+          console.log(`  TP1=${tp1Price}, TP2=${tp2Price}, TP3=${tp3Price}, SL=${slPrice}`);
 
           if (needsUpdate) {
             await supabase
@@ -228,8 +261,14 @@ serve(async (req) => {
                   ...dbPos.metadata,
                   synced_from_bitget: true,
                   sync_time: new Date().toISOString(),
-                  bitget_close_type: bitgetPos.closeType,
-                  calculated_close_reason: closeReason
+                  calculated_close_reason: closeReason,
+                  price_comparison: {
+                    close_price: bitgetClosePrice,
+                    tp1_price: tp1Price,
+                    tp2_price: tp2Price,
+                    tp3_price: tp3Price,
+                    sl_price: slPrice
+                  }
                 }
               })
               .eq('id', dbPos.id);
