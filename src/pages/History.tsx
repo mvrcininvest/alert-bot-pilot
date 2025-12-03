@@ -1,6 +1,8 @@
-import { useState, useEffect, useRef } from "react";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useState, useEffect, useRef, useMemo } from "react";
+import { useInfiniteQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
+
+const PAGE_SIZE = 50;
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -35,10 +37,19 @@ export default function History() {
   const bottomScrollRef = useRef<HTMLDivElement>(null);
   const [tableWidth, setTableWidth] = useState(1800);
 
-  const { data: closedPositions, isLoading } = useQuery({
+  const {
+    data,
+    fetchNextPage,
+    hasNextPage,
+    isFetchingNextPage,
+    isLoading,
+  } = useInfiniteQuery({
     queryKey: ["closed-positions"],
-    queryFn: async () => {
-      const { data, error } = await supabase
+    queryFn: async ({ pageParam = 0 }) => {
+      const from = pageParam * PAGE_SIZE;
+      const to = from + PAGE_SIZE - 1;
+
+      const { data, error, count } = await supabase
         .from("positions")
         .select(`
           *,
@@ -70,16 +81,27 @@ export default function History() {
             latency_ms,
             position_id
           )
-        `)
+        `, { count: 'exact' })
         .eq("status", "closed")
         .order("closed_at", { ascending: false })
-        .limit(200);
-      
+        .range(from, to);
+
       if (error) throw error;
-      return data || [];
+      return { positions: data || [], count: count || 0, pageParam };
     },
-    refetchInterval: 30000, // Refresh every 30 seconds
+    getNextPageParam: (lastPage, allPages) => {
+      const totalLoaded = allPages.reduce((sum, page) => sum + page.positions.length, 0);
+      return totalLoaded < lastPage.count ? allPages.length : undefined;
+    },
+    initialPageParam: 0,
+    refetchInterval: 30000,
   });
+
+  const closedPositions = useMemo(() => {
+    return data?.pages.flatMap(page => page.positions) || [];
+  }, [data]);
+
+  const totalCount = data?.pages[0]?.count || 0;
 
 
   // Update scrollbar width when table renders using ResizeObserver
@@ -493,7 +515,11 @@ export default function History() {
         <CardHeader>
           <CardTitle>
             Zamknięte Pozycje ({filteredPositions?.length || 0}
-            {dateFrom || dateTo ? ` z ${closedPositions?.length || 0}` : ""})
+            {dateFrom || dateTo 
+              ? ` filtrowane z ${closedPositions?.length || 0} załadowanych` 
+              : totalCount > closedPositions.length 
+                ? ` z ${totalCount} w bazie`
+                : ""})
           </CardTitle>
         </CardHeader>
         <CardContent>
@@ -800,6 +826,21 @@ export default function History() {
               </TableBody>
             </Table>
             </div>
+            
+            {/* Load more button */}
+            {hasNextPage && (
+              <div className="flex justify-center mt-4 pt-4 border-t">
+                <Button 
+                  onClick={() => fetchNextPage()} 
+                  disabled={isFetchingNextPage}
+                  variant="outline"
+                >
+                  {isFetchingNextPage 
+                    ? "Ładowanie..." 
+                    : `Załaduj więcej (${closedPositions.length} z ${totalCount})`}
+                </Button>
+              </div>
+            )}
           </div>
         </CardContent>
       </Card>
