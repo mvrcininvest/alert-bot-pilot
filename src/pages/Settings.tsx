@@ -2875,8 +2875,8 @@ export default function Settings() {
                     <p className="text-sm text-muted-foreground">
                       Zaznacz sesje, w których bot <strong>nie powinien</strong> otwierać nowych pozycji.
                     </p>
-                    <div className="grid grid-cols-2 gap-3">
-                      {['Asia', 'London', 'NY', 'Sydney'].map((session) => {
+                    <div className="grid grid-cols-3 gap-3">
+                      {['Asia', 'London', 'NY'].map((session) => {
                         const isExcluded = (localSettings.excluded_sessions || []).includes(session);
                         return (
                           <div key={session} className="flex items-center space-x-3 p-3 rounded-lg border bg-card hover:bg-muted/50 transition-colors">
@@ -2897,7 +2897,6 @@ export default function Settings() {
                                 {session === 'Asia' && '🌅'}
                                 {session === 'London' && '🇬🇧'}
                                 {session === 'NY' && '🗽'}
-                                {session === 'Sydney' && '🇦🇺'}
                               </span>
                               <span className="font-medium">{session}</span>
                               {isExcluded && (
@@ -2912,14 +2911,14 @@ export default function Settings() {
 
                   <div className="p-4 bg-muted/50 rounded-lg space-y-2">
                     <div className="font-medium text-sm">📊 Godziny sesji (UTC):</div>
-                    <div className="grid grid-cols-2 gap-2 text-xs text-muted-foreground">
-                      <div>🇦🇺 <strong>Sydney:</strong> 22:00 - 07:00</div>
+                    <div className="grid grid-cols-3 gap-2 text-xs text-muted-foreground">
                       <div>🌅 <strong>Asia:</strong> 00:00 - 09:00</div>
                       <div>🇬🇧 <strong>London:</strong> 08:00 - 17:00</div>
                       <div>🗽 <strong>NY:</strong> 13:00 - 22:00</div>
                     </div>
-                    <div className="text-xs text-muted-foreground mt-2">
-                      Sesje mogą się nakładać. Sprawdź statystyki sesji na stronie <strong>Stats</strong> aby zobaczyć wydajność każdej sesji.
+                    <div className="text-xs text-amber-500 mt-2 flex items-start gap-1.5">
+                      <span>ℹ️</span>
+                      <span>Sesje pochodzą bezpośrednio z TradingView. Asia obejmuje również godziny nocne (Sydney overlap). Sprawdź statystyki na stronie <strong>Stats</strong>.</span>
                     </div>
                   </div>
                 </>
