@@ -24,6 +24,11 @@ import { ModeAnalysisCard } from "@/components/stats/ModeAnalysisCard";
 import { VolatilityAnalysisCard } from "@/components/stats/VolatilityAnalysisCard";
 import { LatencyAnalysisCard } from "@/components/stats/LatencyAnalysisCard";
 import { MoneyManagementAnalysisCard } from "@/components/stats/MoneyManagementAnalysisCard";
+import { TechnicalIndicatorsCard } from "@/components/stats/TechnicalIndicatorsCard";
+import { FiltersScoreCard } from "@/components/stats/FiltersScoreCard";
+import { ZoneAgeAnalysisCard } from "@/components/stats/ZoneAgeAnalysisCard";
+import { StructureAnalysisCard } from "@/components/stats/StructureAnalysisCard";
+import { VolumeAnalysisCard } from "@/components/stats/VolumeAnalysisCard";
 import { useTradingStats } from "@/hooks/useTradingStats";
 import { exportToCSV, exportStatsToCSV } from "@/lib/exportStats";
 import { startOfDay, subDays, isAfter, isBefore, format, getDay, startOfMonth, endOfMonth } from "date-fns";
@@ -1222,6 +1227,415 @@ export default function Stats() {
       .filter(Boolean) as any[];
   }, [filteredPositions]);
 
+  // ========== INSIGHTS TAB DATA ==========
+  
+  // Technical indicators analysis (ADX, MFI, EMA, VWAP)
+  const technicalIndicatorsData = useMemo(() => {
+    if (!filteredPositions) return { adx: [], mfi: [], ema: [], vwap: [] };
+    
+    const adxRanges = [
+      { min: 0, max: 20, label: "<20 (Słaby)" },
+      { min: 20, max: 30, label: "20-30 (Umiarkowany)" },
+      { min: 30, max: 40, label: "30-40 (Silny)" },
+      { min: 40, max: Infinity, label: ">40 (B. Silny)" },
+    ];
+    
+    const mfiRanges = [
+      { min: 0, max: 20, label: "<20 (Oversold)" },
+      { min: 20, max: 40, label: "20-40" },
+      { min: 40, max: 60, label: "40-60 (Neutral)" },
+      { min: 60, max: 80, label: "60-80" },
+      { min: 80, max: 100, label: ">80 (Overbought)" },
+    ];
+
+    const adxMap = new Map<string, { trades: number; wins: number; totalPnL: number }>();
+    const mfiMap = new Map<string, { trades: number; wins: number; totalPnL: number }>();
+    const emaMap = new Map<string, { trades: number; wins: number; totalPnL: number }>();
+    const vwapMap = new Map<string, { trades: number; wins: number; totalPnL: number }>();
+
+    filteredPositions.forEach(p => {
+      const rawData = getRawDataWithFallback(p);
+      const technical = rawData?.technical || {};
+      const pnl = Number(p.realized_pnl || 0);
+      const isWin = pnl > 0;
+
+      // ADX
+      if (technical.adx !== undefined) {
+        const adx = Number(technical.adx);
+        const range = adxRanges.find(r => adx >= r.min && adx < r.max);
+        if (range) {
+          const stats = adxMap.get(range.label) || { trades: 0, wins: 0, totalPnL: 0 };
+          stats.trades++;
+          stats.totalPnL += pnl;
+          if (isWin) stats.wins++;
+          adxMap.set(range.label, stats);
+        }
+      }
+
+      // MFI
+      if (technical.mfi !== undefined) {
+        const mfi = Number(technical.mfi);
+        const range = mfiRanges.find(r => mfi >= r.min && mfi < r.max);
+        if (range) {
+          const stats = mfiMap.get(range.label) || { trades: 0, wins: 0, totalPnL: 0 };
+          stats.trades++;
+          stats.totalPnL += pnl;
+          if (isWin) stats.wins++;
+          mfiMap.set(range.label, stats);
+        }
+      }
+
+      // EMA alignment
+      if (technical.ema_alignment) {
+        const alignment = technical.ema_alignment.toUpperCase();
+        const stats = emaMap.get(alignment) || { trades: 0, wins: 0, totalPnL: 0 };
+        stats.trades++;
+        stats.totalPnL += pnl;
+        if (isWin) stats.wins++;
+        emaMap.set(alignment, stats);
+      }
+
+      // VWAP position
+      if (technical.vwap_position) {
+        const position = technical.vwap_position.toUpperCase();
+        const stats = vwapMap.get(position) || { trades: 0, wins: 0, totalPnL: 0 };
+        stats.trades++;
+        stats.totalPnL += pnl;
+        if (isWin) stats.wins++;
+        vwapMap.set(position, stats);
+      }
+    });
+
+    const mapToStats = (map: Map<string, any>, ranges?: any[]) => {
+      const result = Array.from(map.entries()).map(([value, stats]) => ({
+        category: "technical",
+        value,
+        trades: stats.trades,
+        wins: stats.wins,
+        winRate: stats.trades > 0 ? (stats.wins / stats.trades) * 100 : 0,
+        avgPnL: stats.trades > 0 ? stats.totalPnL / stats.trades : 0,
+        totalPnL: stats.totalPnL,
+      }));
+      if (ranges) {
+        return ranges.map(r => result.find(s => s.value === r.label)).filter(Boolean) as typeof result;
+      }
+      return result;
+    };
+
+    return {
+      adx: mapToStats(adxMap, adxRanges),
+      mfi: mapToStats(mfiMap, mfiRanges),
+      ema: mapToStats(emaMap),
+      vwap: mapToStats(vwapMap),
+    };
+  }, [filteredPositions]);
+
+  // Filters analysis (volume_multiplier, room_to_target, fake_breakout_penalty)
+  const filtersData = useMemo(() => {
+    if (!filteredPositions) return { volumeMultiplier: [], roomToTarget: [], fakePenalty: [] };
+    
+    const volumeRanges = [
+      { min: 0, max: 0.8, label: "<0.8" },
+      { min: 0.8, max: 1.0, label: "0.8-1.0" },
+      { min: 1.0, max: 1.2, label: "1.0-1.2" },
+      { min: 1.2, max: 1.5, label: "1.2-1.5" },
+      { min: 1.5, max: Infinity, label: ">1.5" },
+    ];
+    
+    const roomRanges = [
+      { min: 0, max: 2, label: "<2%" },
+      { min: 2, max: 3, label: "2-3%" },
+      { min: 3, max: 5, label: "3-5%" },
+      { min: 5, max: Infinity, label: ">5%" },
+    ];
+
+    const volumeMap = new Map<string, { trades: number; wins: number; totalPnL: number }>();
+    const roomMap = new Map<string, { trades: number; wins: number; totalPnL: number }>();
+    const penaltyMap = new Map<string, { trades: number; wins: number; totalPnL: number }>();
+
+    filteredPositions.forEach(p => {
+      const rawData = getRawDataWithFallback(p);
+      const filters = rawData?.filters || {};
+      const pnl = Number(p.realized_pnl || 0);
+      const isWin = pnl > 0;
+
+      // Volume multiplier
+      if (filters.volume_multiplier !== undefined) {
+        const vol = Number(filters.volume_multiplier);
+        const range = volumeRanges.find(r => vol >= r.min && vol < r.max);
+        if (range) {
+          const stats = volumeMap.get(range.label) || { trades: 0, wins: 0, totalPnL: 0 };
+          stats.trades++;
+          stats.totalPnL += pnl;
+          if (isWin) stats.wins++;
+          volumeMap.set(range.label, stats);
+        }
+      }
+
+      // Room to target
+      if (filters.room_to_target !== undefined) {
+        const room = Number(filters.room_to_target) * 100; // Convert to percentage
+        const range = roomRanges.find(r => room >= r.min && room < r.max);
+        if (range) {
+          const stats = roomMap.get(range.label) || { trades: 0, wins: 0, totalPnL: 0 };
+          stats.trades++;
+          stats.totalPnL += pnl;
+          if (isWin) stats.wins++;
+          roomMap.set(range.label, stats);
+        }
+      }
+
+      // Fake breakout penalty
+      if (filters.fake_breakout_penalty !== undefined) {
+        const penalty = Number(filters.fake_breakout_penalty);
+        const label = penalty >= 1 ? "Brak (=1)" : "Z penalizacją (<1)";
+        const stats = penaltyMap.get(label) || { trades: 0, wins: 0, totalPnL: 0 };
+        stats.trades++;
+        stats.totalPnL += pnl;
+        if (isWin) stats.wins++;
+        penaltyMap.set(label, stats);
+      }
+    });
+
+    const mapToStats = (map: Map<string, any>, ranges?: any[]) => {
+      const result = Array.from(map.entries()).map(([range, stats]) => ({
+        range,
+        trades: stats.trades,
+        wins: stats.wins,
+        winRate: stats.trades > 0 ? (stats.wins / stats.trades) * 100 : 0,
+        avgPnL: stats.trades > 0 ? stats.totalPnL / stats.trades : 0,
+        totalPnL: stats.totalPnL,
+      }));
+      if (ranges) {
+        return ranges.map(r => result.find(s => s.range === r.label)).filter(Boolean) as typeof result;
+      }
+      return result;
+    };
+
+    return {
+      volumeMultiplier: mapToStats(volumeMap, volumeRanges),
+      roomToTarget: mapToStats(roomMap, roomRanges),
+      fakePenalty: mapToStats(penaltyMap),
+    };
+  }, [filteredPositions]);
+
+  // Zone age analysis
+  const zoneAgeData = useMemo(() => {
+    if (!filteredPositions) return { age: [], retests: [] };
+    
+    const ageRanges = [
+      { min: 1, max: 3, label: "1-3" },
+      { min: 4, max: 10, label: "4-10" },
+      { min: 11, max: 20, label: "11-20" },
+      { min: 21, max: Infinity, label: ">20" },
+    ];
+    
+    const retestRanges = [
+      { min: 1, max: 2, label: "1-2" },
+      { min: 3, max: 5, label: "3-5" },
+      { min: 6, max: Infinity, label: ">5" },
+    ];
+
+    const ageMap = new Map<string, { trades: number; wins: number; totalPnL: number }>();
+    const retestMap = new Map<string, { trades: number; wins: number; totalPnL: number }>();
+
+    filteredPositions.forEach(p => {
+      const rawData = getRawDataWithFallback(p);
+      const zoneDetails = rawData?.zone_details || {};
+      const pnl = Number(p.realized_pnl || 0);
+      const isWin = pnl > 0;
+
+      // Zone age
+      if (zoneDetails.zone_age !== undefined) {
+        const age = Number(zoneDetails.zone_age);
+        const range = ageRanges.find(r => age >= r.min && age <= r.max);
+        if (range) {
+          const stats = ageMap.get(range.label) || { trades: 0, wins: 0, totalPnL: 0 };
+          stats.trades++;
+          stats.totalPnL += pnl;
+          if (isWin) stats.wins++;
+          ageMap.set(range.label, stats);
+        }
+      }
+
+      // Zone retests
+      if (zoneDetails.zone_retests !== undefined) {
+        const retests = Number(zoneDetails.zone_retests);
+        const range = retestRanges.find(r => retests >= r.min && retests <= r.max);
+        if (range) {
+          const stats = retestMap.get(range.label) || { trades: 0, wins: 0, totalPnL: 0 };
+          stats.trades++;
+          stats.totalPnL += pnl;
+          if (isWin) stats.wins++;
+          retestMap.set(range.label, stats);
+        }
+      }
+    });
+
+    const mapToStats = (map: Map<string, any>, ranges: any[]) => {
+      return ranges.map(r => {
+        const stats = map.get(r.label);
+        if (!stats) return null;
+        return {
+          range: r.label,
+          trades: stats.trades,
+          wins: stats.wins,
+          winRate: stats.trades > 0 ? (stats.wins / stats.trades) * 100 : 0,
+          avgPnL: stats.trades > 0 ? stats.totalPnL / stats.trades : 0,
+          totalPnL: stats.totalPnL,
+        };
+      }).filter(Boolean) as any[];
+    };
+
+    return {
+      age: mapToStats(ageMap, ageRanges),
+      retests: mapToStats(retestMap, retestRanges),
+    };
+  }, [filteredPositions]);
+
+  // Structure analysis (BOS, liquidity sweep)
+  const structureData = useMemo(() => {
+    if (!filteredPositions) return { bosAge: [], bosAlignment: [], liquiditySweep: [] };
+    
+    const bosAgeRanges = [
+      { min: 1, max: 5, label: "1-5" },
+      { min: 6, max: 15, label: "6-15" },
+      { min: 16, max: Infinity, label: ">15" },
+    ];
+
+    const bosAgeMap = new Map<string, { trades: number; wins: number; totalPnL: number }>();
+    const alignmentMap = new Map<string, { trades: number; wins: number; totalPnL: number }>();
+    const sweepMap = new Map<string, { trades: number; wins: number; totalPnL: number }>();
+
+    filteredPositions.forEach(p => {
+      const rawData = getRawDataWithFallback(p);
+      const smcContext = rawData?.smc_context || {};
+      const pnl = Number(p.realized_pnl || 0);
+      const isWin = pnl > 0;
+      const side = p.side;
+
+      // BOS age
+      if (smcContext.bos_age !== undefined) {
+        const age = Number(smcContext.bos_age);
+        const range = bosAgeRanges.find(r => age >= r.min && age <= r.max);
+        if (range) {
+          const stats = bosAgeMap.get(range.label) || { trades: 0, wins: 0, totalPnL: 0 };
+          stats.trades++;
+          stats.totalPnL += pnl;
+          if (isWin) stats.wins++;
+          bosAgeMap.set(range.label, stats);
+        }
+      }
+
+      // BOS direction alignment
+      if (smcContext.bos_direction) {
+        const bosDir = smcContext.bos_direction.toUpperCase();
+        const aligned = (side === "BUY" && bosDir === "BULLISH") || (side === "SELL" && bosDir === "BEARISH");
+        const label = aligned ? "Zgodny" : "Przeciwny";
+        const stats = alignmentMap.get(label) || { trades: 0, wins: 0, totalPnL: 0 };
+        stats.trades++;
+        stats.totalPnL += pnl;
+        if (isWin) stats.wins++;
+        alignmentMap.set(label, stats);
+      }
+
+      // Liquidity sweep
+      if (smcContext.liquidity_sweep !== undefined) {
+        const label = smcContext.liquidity_sweep ? "Po sweep" : "Bez sweep";
+        const stats = sweepMap.get(label) || { trades: 0, wins: 0, totalPnL: 0 };
+        stats.trades++;
+        stats.totalPnL += pnl;
+        if (isWin) stats.wins++;
+        sweepMap.set(label, stats);
+      }
+    });
+
+    const mapToStats = (map: Map<string, any>, ranges?: any[]) => {
+      const result = Array.from(map.entries()).map(([category, stats]) => ({
+        category,
+        trades: stats.trades,
+        wins: stats.wins,
+        winRate: stats.trades > 0 ? (stats.wins / stats.trades) * 100 : 0,
+        avgPnL: stats.trades > 0 ? stats.totalPnL / stats.trades : 0,
+        totalPnL: stats.totalPnL,
+      }));
+      if (ranges) {
+        return ranges.map(r => result.find(s => s.category === r.label)).filter(Boolean) as typeof result;
+      }
+      return result;
+    };
+
+    return {
+      bosAge: mapToStats(bosAgeMap, bosAgeRanges),
+      bosAlignment: mapToStats(alignmentMap),
+      liquiditySweep: mapToStats(sweepMap),
+    };
+  }, [filteredPositions]);
+
+  // Volume analysis (volume_climax, volume_ratio)
+  const volumeData = useMemo(() => {
+    if (!filteredPositions) return { climax: [], ratio: [] };
+    
+    const ratioRanges = [
+      { min: 0, max: 0.5, label: "<0.5" },
+      { min: 0.5, max: 1.0, label: "0.5-1.0" },
+      { min: 1.0, max: 1.5, label: "1.0-1.5" },
+      { min: 1.5, max: Infinity, label: ">1.5" },
+    ];
+
+    const climaxMap = new Map<string, { trades: number; wins: number; totalPnL: number }>();
+    const ratioMap = new Map<string, { trades: number; wins: number; totalPnL: number }>();
+
+    filteredPositions.forEach(p => {
+      const rawData = getRawDataWithFallback(p);
+      const pnl = Number(p.realized_pnl || 0);
+      const isWin = pnl > 0;
+
+      // Volume climax
+      if (rawData?.volume_climax !== undefined) {
+        const label = rawData.volume_climax ? "Volume Climax" : "Normalny wolumen";
+        const stats = climaxMap.get(label) || { trades: 0, wins: 0, totalPnL: 0 };
+        stats.trades++;
+        stats.totalPnL += pnl;
+        if (isWin) stats.wins++;
+        climaxMap.set(label, stats);
+      }
+
+      // Volume ratio
+      if (rawData?.volume_ratio !== undefined) {
+        const ratio = Number(rawData.volume_ratio);
+        const range = ratioRanges.find(r => ratio >= r.min && ratio < r.max);
+        if (range) {
+          const stats = ratioMap.get(range.label) || { trades: 0, wins: 0, totalPnL: 0 };
+          stats.trades++;
+          stats.totalPnL += pnl;
+          if (isWin) stats.wins++;
+          ratioMap.set(range.label, stats);
+        }
+      }
+    });
+
+    const mapToStats = (map: Map<string, any>, ranges?: any[]) => {
+      const result = Array.from(map.entries()).map(([category, stats]) => ({
+        category,
+        trades: stats.trades,
+        wins: stats.wins,
+        winRate: stats.trades > 0 ? (stats.wins / stats.trades) * 100 : 0,
+        avgPnL: stats.trades > 0 ? stats.totalPnL / stats.trades : 0,
+        totalPnL: stats.totalPnL,
+      }));
+      if (ranges) {
+        return ranges.map(r => result.find(s => s.category === r.label)).filter(Boolean) as typeof result;
+      }
+      return result;
+    };
+
+    return {
+      climax: mapToStats(climaxMap),
+      ratio: mapToStats(ratioMap, ratioRanges),
+    };
+  }, [filteredPositions]);
+
   // Helper: Get time filter label for export filenames
   const getTimeFilterLabel = () => {
     if (timeFilter === "custom" && customRange.from && customRange.to) {
@@ -1685,11 +2099,12 @@ export default function Stats() {
 
           {/* Tabs for organized sections */}
           <Tabs defaultValue="overview" className="w-full">
-            <TabsList className="grid w-full grid-cols-4">
+            <TabsList className="grid w-full grid-cols-5">
               <TabsTrigger value="overview">Przegląd</TabsTrigger>
               <TabsTrigger value="strategy">Strategia</TabsTrigger>
               <TabsTrigger value="time">Czas</TabsTrigger>
               <TabsTrigger value="advanced">Zaawansowane</TabsTrigger>
+              <TabsTrigger value="insights">Insights</TabsTrigger>
             </TabsList>
             
             <TabsContent value="overview" className="space-y-6 mt-6">
@@ -1787,6 +2202,42 @@ export default function Stats() {
 
               {/* Volatility Analysis */}
               <VolatilityAnalysisCard volatilityStats={volatilityStats} />
+            </TabsContent>
+
+            <TabsContent value="insights" className="space-y-6 mt-6">
+              {/* Technical Indicators Analysis */}
+              <TechnicalIndicatorsCard 
+                adxStats={technicalIndicatorsData.adx}
+                mfiStats={technicalIndicatorsData.mfi}
+                emaStats={technicalIndicatorsData.ema}
+                vwapStats={technicalIndicatorsData.vwap}
+              />
+
+              {/* Filters Score Analysis */}
+              <FiltersScoreCard 
+                volumeMultiplierStats={filtersData.volumeMultiplier}
+                roomToTargetStats={filtersData.roomToTarget}
+                fakePenaltyStats={filtersData.fakePenalty}
+              />
+
+              {/* Zone Age Analysis */}
+              <ZoneAgeAnalysisCard 
+                zoneAgeStats={zoneAgeData.age}
+                zoneRetestsStats={zoneAgeData.retests}
+              />
+
+              {/* Structure Analysis (SMC) */}
+              <StructureAnalysisCard 
+                bosAgeStats={structureData.bosAge}
+                bosAlignmentStats={structureData.bosAlignment}
+                liquiditySweepStats={structureData.liquiditySweep}
+              />
+
+              {/* Volume Analysis */}
+              <VolumeAnalysisCard 
+                volumeClimaxStats={volumeData.climax}
+                volumeRatioStats={volumeData.ratio}
+              />
             </TabsContent>
           </Tabs>
         </>
