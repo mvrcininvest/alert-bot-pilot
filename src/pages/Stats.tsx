@@ -1527,9 +1527,14 @@ export default function Stats() {
         }
       }
 
-      // BOS direction alignment
-      if (smcContext.bos_direction) {
-        const bosDir = smcContext.bos_direction.toUpperCase();
+      // BOS direction alignment (bos_direction can be number: -1=BEARISH, 1=BULLISH or string)
+      if (smcContext.bos_direction !== undefined && smcContext.bos_direction !== null) {
+        let bosDir: string;
+        if (typeof smcContext.bos_direction === 'number') {
+          bosDir = smcContext.bos_direction > 0 ? 'BULLISH' : smcContext.bos_direction < 0 ? 'BEARISH' : 'NEUTRAL';
+        } else {
+          bosDir = String(smcContext.bos_direction).toUpperCase();
+        }
         const aligned = (side === "BUY" && bosDir === "BULLISH") || (side === "SELL" && bosDir === "BEARISH");
         const label = aligned ? "Zgodny" : "Przeciwny";
         const stats = alignmentMap.get(label) || { trades: 0, wins: 0, totalPnL: 0 };
