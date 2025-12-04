@@ -162,6 +162,7 @@ export default function History() {
     }
 
     const headers = [
+      // Position data
       "Symbol", "Side", "Entry Price", "Close Price", "Quantity", "Leverage",
       "Position Value", "Margin Used", "Fees", "Gross PnL", "Net PnL", "ROI %", "Real R:R",
       "Close Reason", "Open Time", "Close Time", "Duration (min)",
@@ -169,13 +170,40 @@ export default function History() {
       "TP2 Price", "TP2 Quantity", "TP2 Filled",
       "TP3 Price", "TP3 Quantity", "TP3 Filled",
       "Bitget Order ID", "SL Order ID", "TP1 Order ID", "TP2 Order ID", "TP3 Order ID",
+      // Alert basic data
       "Alert ID", "Alert Tier", "Alert Strength", "Alert Mode", "Alert ATR",
       "Alert Entry Price", "Alert SL", "Alert Main TP", 
       "Alert TP1", "Alert TP2", "Alert TP3", "Alert Status",
+      // Alert timestamps & latencies
       "Alert TV Timestamp", "Alert Webhook Received At", "Alert Exchange Executed At", "Alert Executed At",
       "Alert TV→Webhook (ms)", "Alert Processing (ms)", "Alert Total Latency (ms)",
-      "MM Position Sizing Type", "MM Margin Bucket", "MM Symbol Category",
-      "Session", "Regime", "Zone Type", "BTC Correlation"
+      // Technical Indicators (from raw_data)
+      "ADX", "ADX Rising", "MFI", "EMA Alignment", "MACD Signal", "VWAP Position", "MTF Agreement",
+      // Filters (from raw_data)
+      "Volume Multiplier", "Regime Multiplier", "Room to Target", "Fake Breakout Penalty", 
+      "Opposite Zone Distance", "Market Condition", "Wave Multiplier",
+      // SMC Context (from raw_data)
+      "BOS Age", "BOS Direction", "BTC Correlation", "Liquidity Sweep", "CVD Divergence", 
+      "Regime", "Regime Confidence",
+      // Zone Details (from raw_data)
+      "Zone Age", "Zone Retests", "Zone Type", "Zone Top", "Zone Bottom",
+      // FVG/OB (from raw_data)
+      "In FVG", "In OB", "FVG Score", "OB Score",
+      // Volume (from raw_data)
+      "Volume Climax", "Volume Ratio",
+      // Timing (from raw_data)
+      "Session", "Bars Since Last Signal",
+      // Diagnostics (from raw_data)
+      "Health", "Zones", "Buy Strength", "Sell Strength", "Inst Flow", "Acc Ratio",
+      // Other raw_data
+      "Distribution", "Institutional Flow", "Tier Numeric", "SL Distance", "Risk Per Unit", "Version",
+      // Metadata - MM settings
+      "MM Position Sizing Type", "MM Calculator Type", "MM SL Method", "MM TP Levels", "MM Max Margin", "MM Max Loss",
+      "MM Margin Bucket", "MM Symbol Category",
+      // Metadata - Bitget times
+      "Bitget Create Time", "Bitget Close Time",
+      // Metadata - Resync/Import
+      "Resync Count", "Resync Reason", "Import Time", "Repair Time", "Old Close Reason"
     ];
 
     const rows = filteredPositions.map((position) => {
@@ -191,9 +219,21 @@ export default function History() {
         ? Math.floor((new Date(position.closed_at).getTime() - new Date(position.created_at).getTime()) / 1000 / 60)
         : 0;
       const alert = Array.isArray(position.alerts) ? position.alerts[0] : position.alerts;
-      const metadata = position.metadata as any;
+      const metadata = position.metadata as any || {};
+      const settingsSnapshot = metadata.settings_snapshot || {};
+      const mmData = metadata.mm_data || {};
+      
+      // Parse raw_data from alert
+      const raw = (alert?.raw_data as any) || {};
+      const technical = raw.technical || {};
+      const filters = raw.filters || {};
+      const smcContext = raw.smc_context || {};
+      const zoneDetails = raw.zone_details || {};
+      const timing = raw.timing || {};
+      const diagnostics = raw.diagnostics || {};
 
       return [
+        // Position data
         position.symbol,
         position.side === 'BUY' ? 'LONG' : 'SHORT',
         Number(position.entry_price).toFixed(8),
@@ -226,6 +266,7 @@ export default function History() {
         position.tp1_order_id || "-",
         position.tp2_order_id || "-",
         position.tp3_order_id || "-",
+        // Alert basic data
         alert?.id || "-",
         alert?.tier || "-",
         alert?.strength || "-",
@@ -238,6 +279,7 @@ export default function History() {
         alert?.tp2 || "-",
         alert?.tp3 || "-",
         alert?.status || "-",
+        // Alert timestamps & latencies
         alert?.tv_timestamp || "-",
         alert?.webhook_received_at ? format(new Date(alert.webhook_received_at), "dd.MM.yyyy HH:mm:ss") : "-",
         alert?.exchange_executed_at || "-",
@@ -245,13 +287,79 @@ export default function History() {
         alert?.latency_webhook_ms || "-",
         alert?.latency_execution_ms || "-",
         alert?.latency_ms || "-",
-        metadata?.settings_snapshot?.position_sizing_type || metadata?.mm_data?.position_sizing_type || "-",
-        metadata?.mm_data?.margin_bucket || "-",
-        metadata?.mm_data?.symbol_category || "-",
-        metadata?.session || "-",
-        metadata?.regime || "-",
-        metadata?.zone_type || "-",
-        metadata?.btc_correlation || "-"
+        // Technical Indicators
+        technical.adx != null ? Number(technical.adx).toFixed(2) : "-",
+        technical.adx_rising != null ? (technical.adx_rising ? "TAK" : "NIE") : "-",
+        technical.mfi != null ? Number(technical.mfi).toFixed(2) : "-",
+        technical.ema_alignment || "-",
+        technical.macd_signal || "-",
+        technical.vwap_position || "-",
+        technical.mtf_agreement != null ? Number(technical.mtf_agreement).toFixed(2) : "-",
+        // Filters
+        filters.volume_multiplier != null ? Number(filters.volume_multiplier).toFixed(4) : "-",
+        filters.regime_multiplier != null ? Number(filters.regime_multiplier).toFixed(4) : "-",
+        filters.room_to_target != null ? Number(filters.room_to_target).toFixed(4) : "-",
+        filters.fake_breakout_penalty != null ? Number(filters.fake_breakout_penalty).toFixed(2) : "-",
+        filters.opposite_zone_distance != null ? Number(filters.opposite_zone_distance).toFixed(4) : "-",
+        filters.market_condition || "-",
+        filters.wave_multiplier != null ? Number(filters.wave_multiplier).toFixed(2) : "-",
+        // SMC Context
+        smcContext.bos_age != null ? smcContext.bos_age : "-",
+        smcContext.bos_direction != null ? (typeof smcContext.bos_direction === 'number' ? (smcContext.bos_direction > 0 ? "BULLISH" : smcContext.bos_direction < 0 ? "BEARISH" : "NEUTRAL") : smcContext.bos_direction) : "-",
+        smcContext.btc_correlation != null ? Number(smcContext.btc_correlation).toFixed(4) : "-",
+        smcContext.liquidity_sweep != null ? (smcContext.liquidity_sweep ? "TAK" : "NIE") : "-",
+        smcContext.cvd_divergence || "-",
+        smcContext.regime || "-",
+        smcContext.regime_confidence != null ? Number(smcContext.regime_confidence).toFixed(4) : "-",
+        // Zone Details
+        zoneDetails.zone_age != null ? zoneDetails.zone_age : "-",
+        zoneDetails.zone_retests != null ? zoneDetails.zone_retests : "-",
+        zoneDetails.zone_type || "-",
+        zoneDetails.zone_top != null ? Number(zoneDetails.zone_top).toFixed(8) : "-",
+        zoneDetails.zone_bottom != null ? Number(zoneDetails.zone_bottom).toFixed(8) : "-",
+        // FVG/OB
+        raw.in_fvg != null ? (raw.in_fvg ? "TAK" : "NIE") : "-",
+        raw.in_ob != null ? (raw.in_ob ? "TAK" : "NIE") : "-",
+        raw.fvg_score != null ? raw.fvg_score : "-",
+        raw.ob_score != null ? raw.ob_score : "-",
+        // Volume
+        raw.volume_climax != null ? (raw.volume_climax ? "TAK" : "NIE") : "-",
+        raw.volume_ratio != null ? Number(raw.volume_ratio).toFixed(4) : "-",
+        // Timing
+        timing.session || "-",
+        timing.bars_since_last_signal != null ? timing.bars_since_last_signal : "-",
+        // Diagnostics
+        diagnostics.health != null ? diagnostics.health : "-",
+        diagnostics.zones != null ? diagnostics.zones : "-",
+        diagnostics.buy_str != null ? Number(diagnostics.buy_str).toFixed(4) : "-",
+        diagnostics.sell_str != null ? Number(diagnostics.sell_str).toFixed(4) : "-",
+        diagnostics.inst_flow != null ? Number(diagnostics.inst_flow).toFixed(4) : "-",
+        diagnostics.acc_ratio != null ? Number(diagnostics.acc_ratio).toFixed(4) : "-",
+        // Other raw_data
+        raw.distribution != null ? raw.distribution : "-",
+        raw.institutional_flow != null ? Number(raw.institutional_flow).toFixed(4) : "-",
+        raw.tier_numeric != null ? raw.tier_numeric : "-",
+        raw.sl_distance != null ? Number(raw.sl_distance).toFixed(8) : "-",
+        raw.risk_per_unit != null ? Number(raw.risk_per_unit).toFixed(8) : "-",
+        raw.version || "-",
+        // Metadata - MM settings
+        settingsSnapshot.position_sizing_type || mmData.position_sizing_type || "-",
+        settingsSnapshot.calculator_type || "-",
+        settingsSnapshot.sl_method || "-",
+        settingsSnapshot.tp_levels != null ? settingsSnapshot.tp_levels : "-",
+        settingsSnapshot.max_margin_per_trade != null ? settingsSnapshot.max_margin_per_trade : "-",
+        settingsSnapshot.max_loss_per_trade != null ? settingsSnapshot.max_loss_per_trade : "-",
+        mmData.margin_bucket || "-",
+        mmData.symbol_category || "-",
+        // Metadata - Bitget times
+        metadata.bitget_create_time || "-",
+        metadata.bitget_close_time || "-",
+        // Metadata - Resync/Import
+        metadata.resync_count != null ? metadata.resync_count : "-",
+        metadata.resync_reason || "-",
+        metadata.import_time || "-",
+        metadata.repair_time || "-",
+        metadata.old_close_reason || "-"
       ];
     });
 
@@ -272,7 +380,7 @@ export default function History() {
 
     toast({
       title: "Eksport zakończony",
-      description: `Wyeksportowano ${filteredPositions.length} pozycji do CSV`,
+      description: `Wyeksportowano ${filteredPositions.length} pozycji do CSV (${headers.length} kolumn)`,
     });
   };
 
