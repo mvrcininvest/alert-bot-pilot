@@ -10,9 +10,10 @@ import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/useAuth";
 import { Separator } from "@/components/ui/separator";
 import { useState, useEffect } from "react";
-import { Settings as SettingsIcon, Copy, User } from "lucide-react";
+import { Settings as SettingsIcon, Copy, User, Clock, Plus, Trash2 } from "lucide-react";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { FeeCalculator } from "@/components/settings/FeeCalculator";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
 export default function UserSettings() {
   const { toast } = useToast();
@@ -470,6 +471,181 @@ export default function UserSettings() {
                   </AlertDescription>
                 </Alert>
               )}
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* Time-based Filtering */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Clock className="h-5 w-5" />
+            Filtrowanie po Godzinach
+          </CardTitle>
+          <CardDescription>
+            Określ w jakich godzinach bot powinien handlować (niezależne od filtrowania sesji)
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="flex items-center justify-between">
+            <div className="space-y-0.5">
+              <Label>Włącz filtrowanie czasowe</Label>
+              <div className="text-sm text-muted-foreground">
+                Bot będzie handlować tylko w określonych godzinach
+              </div>
+            </div>
+            <Switch
+              checked={localSettings.time_filtering_enabled ?? false}
+              onCheckedChange={(checked) => updateLocal("time_filtering_enabled", checked)}
+            />
+          </div>
+
+          {localSettings.time_filtering_enabled && (
+            <div className="space-y-4 pt-4 border-t">
+              <div className="space-y-2">
+                <Label>Strefa czasowa</Label>
+                <Select
+                  value={localSettings.user_timezone || 'Europe/Amsterdam'}
+                  onValueChange={(value) => updateLocal("user_timezone", value)}
+                >
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="Europe/Amsterdam">Europe/Amsterdam (CET)</SelectItem>
+                    <SelectItem value="Europe/Warsaw">Europe/Warsaw (CET)</SelectItem>
+                    <SelectItem value="Europe/London">Europe/London (GMT)</SelectItem>
+                    <SelectItem value="America/New_York">America/New_York (EST)</SelectItem>
+                    <SelectItem value="America/Chicago">America/Chicago (CST)</SelectItem>
+                    <SelectItem value="America/Los_Angeles">America/Los_Angeles (PST)</SelectItem>
+                    <SelectItem value="Asia/Tokyo">Asia/Tokyo (JST)</SelectItem>
+                    <SelectItem value="Asia/Singapore">Asia/Singapore (SGT)</SelectItem>
+                    <SelectItem value="Asia/Hong_Kong">Asia/Hong_Kong (HKT)</SelectItem>
+                    <SelectItem value="Australia/Sydney">Australia/Sydney (AEST)</SelectItem>
+                    <SelectItem value="UTC">UTC</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="space-y-3">
+                <Label>Aktywne przedziały czasowe</Label>
+                <p className="text-sm text-muted-foreground">
+                  Bot będzie handlować tylko w tych godzinach. Przedziały mogą przechodzić przez północ (np. 22:00-01:00).
+                </p>
+                
+                {(localSettings.active_time_ranges || [{ start: '00:00', end: '23:59' }]).map((range: {start: string, end: string}, index: number) => (
+                  <div key={index} className="flex items-center gap-2">
+                    <Input
+                      type="time"
+                      value={range.start}
+                      onChange={(e) => {
+                        const newRanges = [...(localSettings.active_time_ranges || [])];
+                        newRanges[index] = { ...newRanges[index], start: e.target.value };
+                        updateLocal("active_time_ranges", newRanges);
+                      }}
+                      className="w-32"
+                    />
+                    <span className="text-muted-foreground">—</span>
+                    <Input
+                      type="time"
+                      value={range.end}
+                      onChange={(e) => {
+                        const newRanges = [...(localSettings.active_time_ranges || [])];
+                        newRanges[index] = { ...newRanges[index], end: e.target.value };
+                        updateLocal("active_time_ranges", newRanges);
+                      }}
+                      className="w-32"
+                    />
+                    {(localSettings.active_time_ranges?.length || 0) > 1 && (
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        onClick={() => {
+                          const newRanges = localSettings.active_time_ranges.filter((_: any, i: number) => i !== index);
+                          updateLocal("active_time_ranges", newRanges);
+                        }}
+                      >
+                        <Trash2 className="h-4 w-4 text-destructive" />
+                      </Button>
+                    )}
+                  </div>
+                ))}
+                
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => {
+                    const newRanges = [...(localSettings.active_time_ranges || []), { start: '09:00', end: '17:00' }];
+                    updateLocal("active_time_ranges", newRanges);
+                  }}
+                >
+                  <Plus className="h-4 w-4 mr-2" />
+                  Dodaj przedział
+                </Button>
+              </div>
+
+              {/* Visual time bar */}
+              <div className="space-y-2 pt-4">
+                <Label className="text-sm">Podgląd dnia ({localSettings.user_timezone || 'Europe/Amsterdam'})</Label>
+                <div className="relative h-8 bg-muted rounded-lg overflow-hidden">
+                  {(localSettings.active_time_ranges || [{ start: '00:00', end: '23:59' }]).map((range: {start: string, end: string}, index: number) => {
+                    const [startH, startM] = range.start.split(':').map(Number);
+                    const [endH, endM] = range.end.split(':').map(Number);
+                    const startPercent = ((startH * 60 + startM) / 1440) * 100;
+                    const endPercent = ((endH * 60 + endM) / 1440) * 100;
+                    
+                    if (endPercent < startPercent) {
+                      // Spans midnight - render two bars
+                      return (
+                        <div key={index}>
+                          <div
+                            className="absolute h-full bg-primary/60"
+                            style={{ left: `${startPercent}%`, right: '0%' }}
+                          />
+                          <div
+                            className="absolute h-full bg-primary/60"
+                            style={{ left: '0%', width: `${endPercent}%` }}
+                          />
+                        </div>
+                      );
+                    }
+                    
+                    return (
+                      <div
+                        key={index}
+                        className="absolute h-full bg-primary/60"
+                        style={{ left: `${startPercent}%`, width: `${endPercent - startPercent}%` }}
+                      />
+                    );
+                  })}
+                </div>
+                <div className="flex justify-between text-xs text-muted-foreground">
+                  <span>00:00</span>
+                  <span>06:00</span>
+                  <span>12:00</span>
+                  <span>18:00</span>
+                  <span>24:00</span>
+                </div>
+                <div className="flex items-center gap-4 text-xs">
+                  <div className="flex items-center gap-1">
+                    <div className="w-3 h-3 bg-primary/60 rounded" />
+                    <span>Aktywny</span>
+                  </div>
+                  <div className="flex items-center gap-1">
+                    <div className="w-3 h-3 bg-muted rounded border" />
+                    <span>Nieaktywny</span>
+                  </div>
+                </div>
+              </div>
+
+              <Alert>
+                <Clock className="h-4 w-4" />
+                <AlertDescription>
+                  Przykład: jeśli chcesz handlować od 01:00 do 12:00 i od 22:00 do 01:00, dodaj dwa przedziały.
+                  Bot sprawdza Twój lokalny czas przy każdym alercie.
+                </AlertDescription>
+              </Alert>
             </div>
           )}
         </CardContent>

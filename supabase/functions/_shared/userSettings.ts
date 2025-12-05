@@ -102,6 +102,11 @@ export interface UserSettings {
   allowed_sessions: string[];
   excluded_sessions: string[];
   
+  // Time-based filtering
+  time_filtering_enabled: boolean;
+  user_timezone: string;
+  active_time_ranges: Array<{start: string, end: string}>;
+  
   // Modes (not needed for runtime, just for tracking)
   money_mode?: string;
   sltp_mode?: string;
@@ -219,6 +224,9 @@ export async function getUserSettings(userId: string, symbol?: string): Promise<
     session_filtering_enabled: userSettings.session_filtering_enabled ?? false,
     allowed_sessions: userSettings.allowed_sessions ?? ['Asia', 'London', 'NY', 'Sydney'],
     excluded_sessions: userSettings.excluded_sessions ?? [],
+    time_filtering_enabled: userSettings.time_filtering_enabled ?? false,
+    user_timezone: userSettings.user_timezone ?? 'Europe/Amsterdam',
+    active_time_ranges: userSettings.active_time_ranges ?? [{ start: '00:00', end: '23:59' }],
   };
 
   // Money Management settings (copy_admin mode)
