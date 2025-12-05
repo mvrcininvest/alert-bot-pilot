@@ -2841,6 +2841,52 @@ export default function Settings() {
                   </p>
                 </div>
               )}
+
+              <Separator />
+
+              {/* Minimum Signal Strength Filter */}
+              <div className="flex items-center justify-between">
+                <div className="space-y-0.5">
+                  <Label>Filtruj po minimalnej sile sygnału</Label>
+                  <div className="text-sm text-muted-foreground">
+                    Odrzucaj sygnały o sile poniżej progu
+                  </div>
+                </div>
+                <Switch
+                  checked={localSettings.min_signal_strength_enabled ?? false}
+                  onCheckedChange={(checked) => updateLocal("min_signal_strength_enabled", checked)}
+                />
+              </div>
+
+              {localSettings.min_signal_strength_enabled && (
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between">
+                    <Label>Minimalny próg siły sygnału</Label>
+                    <Badge variant="secondary">
+                      {((localSettings.min_signal_strength_threshold ?? 0.50) * 100).toFixed(0)}%
+                    </Badge>
+                  </div>
+                  <input
+                    type="range"
+                    min="0"
+                    max="100"
+                    step="5"
+                    value={(localSettings.min_signal_strength_threshold ?? 0.50) * 100}
+                    onChange={(e) => updateLocal("min_signal_strength_threshold", parseInt(e.target.value) / 100)}
+                    className="w-full h-2 bg-muted rounded-lg appearance-none cursor-pointer accent-primary"
+                  />
+                  <div className="flex justify-between text-xs text-muted-foreground">
+                    <span>0%</span>
+                    <span>25%</span>
+                    <span>50%</span>
+                    <span>75%</span>
+                    <span>100%</span>
+                  </div>
+                  <p className="text-xs text-muted-foreground">
+                    Sygnały z siłą poniżej tego progu będą automatycznie ignorowane. Sygnał ma siłę 0-100%.
+                  </p>
+                </div>
+              )}
             </CardContent>
           </Card>
 

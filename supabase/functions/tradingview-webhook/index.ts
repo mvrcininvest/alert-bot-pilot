@@ -222,6 +222,30 @@ serve(async (req) => {
           return { userId, alertId: alert.id, status: 'ignored', reason: `Tier ${alertData.tier} excluded` };
         }
 
+        // Check minimum signal strength filtering (admin setting)
+        if (userSettings.min_signal_strength_enabled) {
+          const alertStrength = alertData.strength ?? 0;
+          const minStrength = userSettings.min_signal_strength_threshold ?? 0.50;
+          
+          if (alertStrength < minStrength) {
+            await log({
+              functionName: 'tradingview-webhook',
+              message: `Signal strength ${(alertStrength * 100).toFixed(0)}% below minimum ${(minStrength * 100).toFixed(0)}% - alert ignored`,
+              level: 'info',
+              alertId: alert.id,
+              metadata: { alertStrength, minStrength, userId }
+            });
+            await supabase
+              .from('alerts')
+              .update({ 
+                status: 'ignored', 
+                error_message: `Signal strength ${(alertStrength * 100).toFixed(0)}% below minimum ${(minStrength * 100).toFixed(0)}%` 
+              })
+              .eq('id', alert.id);
+            return { userId, alertId: alert.id, status: 'ignored', reason: `Signal too weak (${(alertStrength * 100).toFixed(0)}%)` };
+          }
+        }
+
         // Check session filtering
         if (userSettings.session_filtering_enabled) {
           const alertSession = alertData.timing?.session || alertData.session;
