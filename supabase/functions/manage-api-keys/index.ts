@@ -170,7 +170,7 @@ Deno.serve(async (req) => {
       const encryptedSecretKey = await encrypt(secretKey, encryptionKey);
       const encryptedPassphrase = await encrypt(passphrase, encryptionKey);
 
-      // Save to database
+      // Save to database - use onConflict to handle existing records
       const { error } = await supabaseClient
         .from('user_api_keys')
         .upsert({
@@ -180,6 +180,9 @@ Deno.serve(async (req) => {
           passphrase_encrypted: encryptedPassphrase,
           is_active: true,
           last_validated_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+        }, {
+          onConflict: 'user_id'
         });
 
       if (error) throw error;
