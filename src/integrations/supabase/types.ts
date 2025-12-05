@@ -544,6 +544,7 @@ export type Database = {
       }
       settings: {
         Row: {
+          active_time_ranges: Json | null
           adaptive_rr: boolean | null
           adaptive_rr_standard: number | null
           adaptive_rr_strong: number | null
@@ -601,6 +602,7 @@ export type Database = {
           sl_percent_min: number | null
           sl_to_breakeven: boolean | null
           symbol_leverage_overrides: Json | null
+          time_filtering_enabled: boolean | null
           tp_levels: number | null
           tp_strategy: Database["public"]["Enums"]["tp_strategy"]
           tp1_close_percent: number | null
@@ -615,8 +617,10 @@ export type Database = {
           updated_at: string
           use_alert_leverage: boolean | null
           use_max_leverage_global: boolean | null
+          user_timezone: string | null
         }
         Insert: {
+          active_time_ranges?: Json | null
           adaptive_rr?: boolean | null
           adaptive_rr_standard?: number | null
           adaptive_rr_strong?: number | null
@@ -674,6 +678,7 @@ export type Database = {
           sl_percent_min?: number | null
           sl_to_breakeven?: boolean | null
           symbol_leverage_overrides?: Json | null
+          time_filtering_enabled?: boolean | null
           tp_levels?: number | null
           tp_strategy?: Database["public"]["Enums"]["tp_strategy"]
           tp1_close_percent?: number | null
@@ -688,8 +693,10 @@ export type Database = {
           updated_at?: string
           use_alert_leverage?: boolean | null
           use_max_leverage_global?: boolean | null
+          user_timezone?: string | null
         }
         Update: {
+          active_time_ranges?: Json | null
           adaptive_rr?: boolean | null
           adaptive_rr_standard?: number | null
           adaptive_rr_strong?: number | null
@@ -747,6 +754,7 @@ export type Database = {
           sl_percent_min?: number | null
           sl_to_breakeven?: boolean | null
           symbol_leverage_overrides?: Json | null
+          time_filtering_enabled?: boolean | null
           tp_levels?: number | null
           tp_strategy?: Database["public"]["Enums"]["tp_strategy"]
           tp1_close_percent?: number | null
@@ -761,6 +769,7 @@ export type Database = {
           updated_at?: string
           use_alert_leverage?: boolean | null
           use_max_leverage_global?: boolean | null
+          user_timezone?: string | null
         }
         Relationships: []
       }
