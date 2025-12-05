@@ -8,6 +8,46 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
+// Check if current time is within active trading hours
+function isWithinActiveHours(
+  timezone: string,
+  activeRanges: Array<{start: string, end: string}>
+): boolean {
+  // Get current time in user's timezone
+  const now = new Date();
+  const userTime = new Intl.DateTimeFormat('en-GB', {
+    timeZone: timezone,
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false
+  }).format(now);
+
+  // Convert to minutes from midnight
+  const [hours, minutes] = userTime.split(':').map(Number);
+  const currentMinutes = hours * 60 + minutes;
+
+  // Check each time range
+  for (const range of activeRanges) {
+    const [startH, startM] = range.start.split(':').map(Number);
+    const [endH, endM] = range.end.split(':').map(Number);
+    const startMinutes = startH * 60 + startM;
+    const endMinutes = endH * 60 + endM;
+
+    if (endMinutes < startMinutes) {
+      // Range spans midnight (e.g., 22:00-01:00)
+      if (currentMinutes >= startMinutes || currentMinutes < endMinutes) {
+        return true;
+      }
+    } else {
+      // Normal range (e.g., 01:00-12:00)
+      if (currentMinutes >= startMinutes && currentMinutes < endMinutes) {
+        return true;
+      }
+    }
+  }
+  return false;
+}
+
 serve(async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response(null, { headers: corsHeaders });
@@ -216,6 +256,42 @@ serve(async (req) => {
               .update({ status: 'ignored', error_message: `Session ${alertSession} not in allowed sessions` })
               .eq('id', alert.id);
             return { userId, alertId: alert.id, status: 'ignored', reason: `Session ${alertSession} not allowed` };
+          }
+        }
+
+        // Check time-based filtering
+        if (userSettings.time_filtering_enabled && userSettings.active_time_ranges) {
+          const isActive = isWithinActiveHours(
+            userSettings.user_timezone || 'Europe/Amsterdam',
+            userSettings.active_time_ranges
+          );
+          
+          if (!isActive) {
+            // Get current time in user timezone for logging
+            const userTime = new Intl.DateTimeFormat('en-GB', {
+              timeZone: userSettings.user_timezone || 'Europe/Amsterdam',
+              hour: '2-digit',
+              minute: '2-digit',
+              hour12: false
+            }).format(new Date());
+
+            await log({
+              functionName: 'tradingview-webhook',
+              message: `Outside active hours (${userTime} ${userSettings.user_timezone}) - alert ignored`,
+              level: 'info',
+              alertId: alert.id,
+              metadata: { 
+                currentTime: userTime, 
+                timezone: userSettings.user_timezone,
+                activeRanges: userSettings.active_time_ranges,
+                userId 
+              }
+            });
+            await supabase
+              .from('alerts')
+              .update({ status: 'ignored', error_message: `Outside active hours (${userTime})` })
+              .eq('id', alert.id);
+            return { userId, alertId: alert.id, status: 'ignored', reason: `Outside active hours (${userTime})` };
           }
         }
 

@@ -823,6 +823,7 @@ export type Database = {
       }
       user_settings: {
         Row: {
+          active_time_ranges: Json | null
           adaptive_rr: boolean | null
           adaptive_rr_standard: number | null
           adaptive_rr_strong: number | null
@@ -883,6 +884,7 @@ export type Database = {
           symbol_leverage_overrides: Json | null
           taker_fee_rate: number | null
           tier_mode: Database["public"]["Enums"]["settings_mode"] | null
+          time_filtering_enabled: boolean | null
           tp_levels: number | null
           tp_strategy: Database["public"]["Enums"]["tp_strategy"] | null
           tp1_close_percent: number | null
@@ -898,8 +900,10 @@ export type Database = {
           use_alert_leverage: boolean | null
           use_max_leverage_global: boolean | null
           user_id: string
+          user_timezone: string | null
         }
         Insert: {
+          active_time_ranges?: Json | null
           adaptive_rr?: boolean | null
           adaptive_rr_standard?: number | null
           adaptive_rr_strong?: number | null
@@ -962,6 +966,7 @@ export type Database = {
           symbol_leverage_overrides?: Json | null
           taker_fee_rate?: number | null
           tier_mode?: Database["public"]["Enums"]["settings_mode"] | null
+          time_filtering_enabled?: boolean | null
           tp_levels?: number | null
           tp_strategy?: Database["public"]["Enums"]["tp_strategy"] | null
           tp1_close_percent?: number | null
@@ -977,8 +982,10 @@ export type Database = {
           use_alert_leverage?: boolean | null
           use_max_leverage_global?: boolean | null
           user_id: string
+          user_timezone?: string | null
         }
         Update: {
+          active_time_ranges?: Json | null
           adaptive_rr?: boolean | null
           adaptive_rr_standard?: number | null
           adaptive_rr_strong?: number | null
@@ -1041,6 +1048,7 @@ export type Database = {
           symbol_leverage_overrides?: Json | null
           taker_fee_rate?: number | null
           tier_mode?: Database["public"]["Enums"]["settings_mode"] | null
+          time_filtering_enabled?: boolean | null
           tp_levels?: number | null
           tp_strategy?: Database["public"]["Enums"]["tp_strategy"] | null
           tp1_close_percent?: number | null
@@ -1056,6 +1064,7 @@ export type Database = {
           use_alert_leverage?: boolean | null
           use_max_leverage_global?: boolean | null
           user_id?: string
+          user_timezone?: string | null
         }
         Relationships: []
       }
