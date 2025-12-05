@@ -419,13 +419,34 @@ serve(async (req) => {
     // Check daily loss limit FOR THIS USER (run separately as it may need account data)
     latencyMarkers.daily_loss_check_start = Date.now();
     const today = new Date().toISOString().split('T')[0];
+    const midnightUTC = `${today}T00:00:00.000Z`;
+    
+    // Get drawdown_reset_at from user_settings for manual reset support
+    const { data: userSettingsData } = await supabase
+      .from('user_settings')
+      .select('drawdown_reset_at')
+      .eq('user_id', user_id)
+      .maybeSingle();
+    
+    // Use the later of: midnight UTC or manual reset time (if from today)
+    let countFromTime = midnightUTC;
+    if (userSettingsData?.drawdown_reset_at) {
+      const resetTime = new Date(userSettingsData.drawdown_reset_at);
+      const todayMidnight = new Date(midnightUTC);
+      // Only use reset time if it's after today's midnight
+      if (resetTime > todayMidnight) {
+        countFromTime = resetTime.toISOString();
+        console.log(`Using manual drawdown reset time: ${countFromTime}`);
+      }
+    }
+    
     const { data: todayPositions } = await supabase
       .from('positions')
       .select('realized_pnl')
       .eq('user_id', user_id)
       .eq('status', 'closed')
-      .gte('closed_at', `${today}T00:00:00`)
-      .lte('closed_at', `${today}T23:59:59`);
+      .gte('closed_at', countFromTime)
+      .lte('closed_at', `${today}T23:59:59.999Z`);
 
     const todayPnL = todayPositions?.reduce((sum, pos) => sum + (Number(pos.realized_pnl) || 0), 0) || 0;
     

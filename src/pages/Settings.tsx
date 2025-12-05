@@ -16,11 +16,13 @@ import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { FeeCalculator } from "@/components/settings/FeeCalculator";
 import { useTradingStats } from "@/hooks/useTradingStats";
 import { Alert, AlertDescription } from "@/components/ui/alert";
-import { AlertTriangle, Clock, Plus, Trash2 } from "lucide-react";
+import { AlertTriangle, Clock, Plus, Trash2, RefreshCw } from "lucide-react";
+import { useAuth } from "@/hooks/useAuth";
 
 export default function Settings() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
+  const { user } = useAuth();
   const [localSettings, setLocalSettings] = useState<any>(null);
   const [newSymbolLeverage, setNewSymbolLeverage] = useState<string>("");
   const [leverageSource, setLeverageSource] = useState<"alert" | "global_max" | "custom">("alert");
@@ -284,6 +286,45 @@ export default function Settings() {
   // Refresh trading statistics
   const refreshTradingStats = async () => {
     await queryClient.invalidateQueries({ queryKey: ['trading-stats'] });
+  };
+
+  // Manual drawdown reset
+  const handleResetDrawdown = async () => {
+    if (!user?.id) {
+      toast({
+        title: "Błąd",
+        description: "Nie można zidentyfikować użytkownika",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    try {
+      const { error } = await supabase
+        .from('user_settings')
+        .update({ drawdown_reset_at: new Date().toISOString() })
+        .eq('user_id', user.id);
+      
+      if (error) throw error;
+      
+      // Update local settings
+      setLocalSettings((prev: any) => ({
+        ...prev,
+        drawdown_reset_at: new Date().toISOString()
+      }));
+      
+      toast({
+        title: "Drawdown zresetowany",
+        description: "Bot może teraz kontynuować handel. Automatyczny reset nastąpi o północy UTC.",
+      });
+    } catch (error: any) {
+      console.error("Error resetting drawdown:", error);
+      toast({
+        title: "Błąd",
+        description: `Nie udało się zresetować drawdown: ${error.message}`,
+        variant: "destructive",
+      });
+    }
   };
 
   if (isLoading) {
@@ -2927,6 +2968,38 @@ export default function Settings() {
                   </p>
                 </div>
               )}
+              
+              <Separator className="my-4" />
+              
+              <div className="space-y-3">
+                <div className="flex items-center justify-between">
+                  <div className="space-y-0.5">
+                    <Label>Ręczny Reset Drawdown</Label>
+                    <p className="text-xs text-muted-foreground">
+                      Zresetuj licznik dziennych strat, aby bot mógł kontynuować handel
+                    </p>
+                  </div>
+                  <Button 
+                    variant="outline" 
+                    size="sm"
+                    onClick={handleResetDrawdown}
+                    className="text-orange-600 border-orange-600 hover:bg-orange-100 dark:hover:bg-orange-950"
+                  >
+                    <RefreshCw className="h-4 w-4 mr-2" />
+                    Resetuj teraz
+                  </Button>
+                </div>
+                
+                {localSettings.drawdown_reset_at && (
+                  <div className="text-xs text-muted-foreground bg-muted/50 p-2 rounded">
+                    <span>Ostatni reset: {new Date(localSettings.drawdown_reset_at).toLocaleString('pl-PL')}</span>
+                    <br />
+                    <span className="text-orange-600">
+                      Automatyczny reset nastąpi o północy UTC
+                    </span>
+                  </div>
+                )}
+              </div>
             </CardContent>
           </Card>
 

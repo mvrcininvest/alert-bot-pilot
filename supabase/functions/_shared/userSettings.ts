@@ -115,6 +115,9 @@ export interface UserSettings {
   money_mode?: string;
   sltp_mode?: string;
   tier_mode?: string;
+  
+  // Manual drawdown reset
+  drawdown_reset_at?: string | null;
 }
 
 async function getAdminSettings(supabase: any): Promise<any> {

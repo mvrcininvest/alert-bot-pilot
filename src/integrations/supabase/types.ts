@@ -862,6 +862,7 @@ export type Database = {
           daily_loss_limit: number | null
           daily_loss_percent: number | null
           default_leverage: number | null
+          drawdown_reset_at: string | null
           duplicate_alert_handling: boolean | null
           excluded_sessions: string[] | null
           excluded_tiers: string[] | null
@@ -944,6 +945,7 @@ export type Database = {
           daily_loss_limit?: number | null
           daily_loss_percent?: number | null
           default_leverage?: number | null
+          drawdown_reset_at?: string | null
           duplicate_alert_handling?: boolean | null
           excluded_sessions?: string[] | null
           excluded_tiers?: string[] | null
@@ -1026,6 +1028,7 @@ export type Database = {
           daily_loss_limit?: number | null
           daily_loss_percent?: number | null
           default_leverage?: number | null
+          drawdown_reset_at?: string | null
           duplicate_alert_handling?: boolean | null
           excluded_sessions?: string[] | null
           excluded_tiers?: string[] | null
