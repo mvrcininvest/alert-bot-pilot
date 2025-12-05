@@ -2870,7 +2870,7 @@ export default function Settings() {
                     type="range"
                     min="0"
                     max="100"
-                    step="5"
+                    step="1"
                     value={(localSettings.min_signal_strength_threshold ?? 0.50) * 100}
                     onChange={(e) => updateLocal("min_signal_strength_threshold", parseInt(e.target.value) / 100)}
                     className="w-full h-2 bg-muted rounded-lg appearance-none cursor-pointer accent-primary"
