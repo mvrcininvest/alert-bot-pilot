@@ -579,6 +579,8 @@ export type Database = {
           max_loss_per_trade: number | null
           max_margin_per_trade: number | null
           max_open_positions: number | null
+          min_signal_strength_enabled: boolean | null
+          min_signal_strength_threshold: number | null
           momentum_based_tp: boolean | null
           momentum_moderate_multiplier: number | null
           momentum_strong_multiplier: number | null
@@ -655,6 +657,8 @@ export type Database = {
           max_loss_per_trade?: number | null
           max_margin_per_trade?: number | null
           max_open_positions?: number | null
+          min_signal_strength_enabled?: boolean | null
+          min_signal_strength_threshold?: number | null
           momentum_based_tp?: boolean | null
           momentum_moderate_multiplier?: number | null
           momentum_strong_multiplier?: number | null
@@ -731,6 +735,8 @@ export type Database = {
           max_loss_per_trade?: number | null
           max_margin_per_trade?: number | null
           max_open_positions?: number | null
+          min_signal_strength_enabled?: boolean | null
+          min_signal_strength_threshold?: number | null
           momentum_based_tp?: boolean | null
           momentum_moderate_multiplier?: number | null
           momentum_strong_multiplier?: number | null

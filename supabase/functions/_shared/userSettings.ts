@@ -86,6 +86,10 @@ export interface UserSettings {
   excluded_tiers: string[];
   alert_strength_threshold: number;
   
+  // Minimum signal strength filter (admin setting)
+  min_signal_strength_enabled: boolean;
+  min_signal_strength_threshold: number;
+  
   // Alert handling
   duplicate_alert_handling: boolean;
   require_profit_for_same_direction: boolean;
@@ -147,13 +151,8 @@ export async function getUserSettings(userId: string, symbol?: string): Promise<
     throw new Error('User settings not found');
   }
 
-  // Get admin settings if needed for copy_admin modes
-  let adminSettings = null;
-  if (userSettings.money_mode === 'copy_admin' || 
-      userSettings.sltp_mode === 'copy_admin' || 
-      userSettings.tier_mode === 'copy_admin') {
-    adminSettings = await getAdminSettings(supabase);
-  }
+  // Always get admin settings (needed for copy_admin modes and for admin-only settings like min_signal_strength)
+  const adminSettings = await getAdminSettings(supabase);
 
   // Build final settings object with admin overrides and defaults
   const finalSettings: UserSettings = {
@@ -214,6 +213,8 @@ export async function getUserSettings(userId: string, symbol?: string): Promise<
     allowed_tiers: userSettings.allowed_tiers ?? ['Platinum', 'Premium', 'Standard', 'Quick'],
     excluded_tiers: userSettings.excluded_tiers ?? [],
     alert_strength_threshold: userSettings.alert_strength_threshold ?? 0.20,
+    min_signal_strength_enabled: adminSettings?.min_signal_strength_enabled ?? false,
+    min_signal_strength_threshold: adminSettings?.min_signal_strength_threshold ?? 0.50,
     duplicate_alert_handling: userSettings.duplicate_alert_handling ?? true,
     require_profit_for_same_direction: userSettings.require_profit_for_same_direction ?? true,
     pnl_threshold_percent: userSettings.pnl_threshold_percent ?? 0.5,
@@ -295,6 +296,9 @@ export async function getUserSettings(userId: string, symbol?: string): Promise<
     finalSettings.allowed_tiers = adminSettings.allowed_tiers ?? ['Platinum', 'Premium', 'Standard', 'Quick'];
     finalSettings.excluded_tiers = adminSettings.excluded_tiers ?? [];
     finalSettings.alert_strength_threshold = adminSettings.alert_strength_threshold ?? 0.20;
+    // Min signal strength is always from admin settings
+    finalSettings.min_signal_strength_enabled = adminSettings.min_signal_strength_enabled ?? false;
+    finalSettings.min_signal_strength_threshold = adminSettings.min_signal_strength_threshold ?? 0.50;
     finalSettings.duplicate_alert_handling = adminSettings.duplicate_alert_handling ?? true;
     finalSettings.require_profit_for_same_direction = adminSettings.require_profit_for_same_direction ?? true;
     finalSettings.pnl_threshold_percent = adminSettings.pnl_threshold_percent ?? 0.5;
