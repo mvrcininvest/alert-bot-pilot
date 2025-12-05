@@ -772,12 +772,15 @@ export default function History() {
                         </TableCell>
                         <TableCell className="text-xs">{duration}min</TableCell>
                         <TableCell className={cn("text-xs", {
-                          "text-profit": alert?.latency_ms && alert.latency_ms < 10000,
+                          "text-profit": alert?.latency_ms && alert.latency_ms > 0 && alert.latency_ms < 10000,
                           "text-warning": alert?.latency_ms && alert.latency_ms >= 10000 && alert.latency_ms < 20000,
-                          "text-loss": alert?.latency_ms && alert.latency_ms >= 20000
+                          "text-loss": alert?.latency_ms && alert.latency_ms >= 20000 && alert.latency_ms < 120000,
+                          "text-muted-foreground": alert?.latency_ms && alert.latency_ms >= 120000
                         })}>
                           {alert?.latency_ms 
-                            ? `${(alert.latency_ms / 1000).toFixed(1)}s` 
+                            ? alert.latency_ms >= 120000 
+                              ? "⚠️ outlier" 
+                              : `${(alert.latency_ms / 1000).toFixed(1)}s` 
                             : "-"}
                         </TableCell>
                         <TableCell>
