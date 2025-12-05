@@ -302,6 +302,10 @@ export async function getUserSettings(userId: string, symbol?: string): Promise<
     finalSettings.session_filtering_enabled = adminSettings.session_filtering_enabled ?? false;
     finalSettings.allowed_sessions = adminSettings.allowed_sessions ?? ['Asia', 'London', 'NY', 'Sydney'];
     finalSettings.excluded_sessions = adminSettings.excluded_sessions ?? [];
+    // Time-based filtering also follows tier_mode
+    finalSettings.time_filtering_enabled = adminSettings.time_filtering_enabled ?? false;
+    finalSettings.user_timezone = adminSettings.user_timezone ?? 'Europe/Amsterdam';
+    finalSettings.active_time_ranges = adminSettings.active_time_ranges ?? [{ start: '00:00', end: '23:59' }];
   }
 
   // Apply category-specific overrides if symbol provided

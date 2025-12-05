@@ -16,7 +16,7 @@ import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { FeeCalculator } from "@/components/settings/FeeCalculator";
 import { useTradingStats } from "@/hooks/useTradingStats";
 import { Alert, AlertDescription } from "@/components/ui/alert";
-import { AlertTriangle } from "lucide-react";
+import { AlertTriangle, Clock, Plus, Trash2 } from "lucide-react";
 
 export default function Settings() {
   const { toast } = useToast();
@@ -2921,6 +2921,182 @@ export default function Settings() {
                       <span>Sesje pochodzą bezpośrednio z TradingView. Asia obejmuje również godziny nocne (Sydney overlap). Sprawdź statystyki na stronie <strong>Stats</strong>.</span>
                     </div>
                   </div>
+                </>
+              )}
+            </CardContent>
+          </Card>
+
+          {/* Time-Based Filtering */}
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Clock className="h-5 w-5" />
+                ⏰ Filtrowanie po Godzinach
+              </CardTitle>
+              <CardDescription>Ogranicz handel do określonych godzin w ciągu dnia</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="flex items-center justify-between">
+                <div className="space-y-0.5">
+                  <Label>Włącz filtrowanie czasowe</Label>
+                  <div className="text-sm text-muted-foreground">
+                    Bot będzie handlować tylko w określonych godzinach
+                  </div>
+                </div>
+                <Switch
+                  checked={localSettings.time_filtering_enabled ?? false}
+                  onCheckedChange={(checked) => updateLocal("time_filtering_enabled", checked)}
+                />
+              </div>
+
+              {localSettings.time_filtering_enabled && (
+                <>
+                  <Separator />
+                  
+                  <div className="space-y-2">
+                    <Label>Strefa czasowa</Label>
+                    <Select
+                      value={localSettings.user_timezone || 'Europe/Amsterdam'}
+                      onValueChange={(value) => updateLocal("user_timezone", value)}
+                    >
+                      <SelectTrigger>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="Europe/Amsterdam">Europe/Amsterdam (CET)</SelectItem>
+                        <SelectItem value="Europe/Warsaw">Europe/Warsaw (CET)</SelectItem>
+                        <SelectItem value="Europe/London">Europe/London (GMT)</SelectItem>
+                        <SelectItem value="America/New_York">America/New_York (EST)</SelectItem>
+                        <SelectItem value="America/Chicago">America/Chicago (CST)</SelectItem>
+                        <SelectItem value="America/Los_Angeles">America/Los_Angeles (PST)</SelectItem>
+                        <SelectItem value="Asia/Tokyo">Asia/Tokyo (JST)</SelectItem>
+                        <SelectItem value="Asia/Singapore">Asia/Singapore (SGT)</SelectItem>
+                        <SelectItem value="Asia/Dubai">Asia/Dubai (GST)</SelectItem>
+                        <SelectItem value="UTC">UTC</SelectItem>
+                      </SelectContent>
+                    </Select>
+                    <p className="text-xs text-muted-foreground">
+                      Godziny są interpretowane w tej strefie czasowej
+                    </p>
+                  </div>
+
+                  <div className="space-y-3">
+                    <div className="flex items-center justify-between">
+                      <Label>Aktywne przedziały czasowe</Label>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        onClick={() => {
+                          const ranges = localSettings.active_time_ranges || [{ start: '00:00', end: '23:59' }];
+                          updateLocal("active_time_ranges", [...ranges, { start: '09:00', end: '17:00' }]);
+                        }}
+                      >
+                        <Plus className="h-4 w-4 mr-1" />
+                        Dodaj przedział
+                      </Button>
+                    </div>
+                    
+                    {(localSettings.active_time_ranges || [{ start: '00:00', end: '23:59' }]).map((range: {start: string, end: string}, index: number) => (
+                      <div key={index} className="flex items-center gap-3 p-3 rounded-lg border bg-card">
+                        <div className="flex items-center gap-2">
+                          <Label className="text-sm">Od:</Label>
+                          <Input
+                            type="time"
+                            value={range.start}
+                            onChange={(e) => {
+                              const ranges = [...(localSettings.active_time_ranges || [])];
+                              ranges[index] = { ...ranges[index], start: e.target.value };
+                              updateLocal("active_time_ranges", ranges);
+                            }}
+                            className="w-32"
+                          />
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <Label className="text-sm">Do:</Label>
+                          <Input
+                            type="time"
+                            value={range.end}
+                            onChange={(e) => {
+                              const ranges = [...(localSettings.active_time_ranges || [])];
+                              ranges[index] = { ...ranges[index], end: e.target.value };
+                              updateLocal("active_time_ranges", ranges);
+                            }}
+                            className="w-32"
+                          />
+                        </div>
+                        {(localSettings.active_time_ranges?.length || 1) > 1 && (
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => {
+                              const ranges = localSettings.active_time_ranges.filter((_: any, i: number) => i !== index);
+                              updateLocal("active_time_ranges", ranges);
+                            }}
+                          >
+                            <Trash2 className="h-4 w-4 text-destructive" />
+                          </Button>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+
+                  {/* 24h Visual Bar */}
+                  <div className="space-y-2">
+                    <Label className="text-sm">Wizualizacja (24h)</Label>
+                    <div className="relative h-8 bg-muted rounded-lg overflow-hidden">
+                      {(localSettings.active_time_ranges || [{ start: '00:00', end: '23:59' }]).map((range: {start: string, end: string}, index: number) => {
+                        const [startH, startM] = range.start.split(':').map(Number);
+                        const [endH, endM] = range.end.split(':').map(Number);
+                        const startMinutes = startH * 60 + startM;
+                        const endMinutes = endH * 60 + endM;
+                        const startPercent = (startMinutes / 1440) * 100;
+                        
+                        if (endMinutes > startMinutes) {
+                          const widthPercent = ((endMinutes - startMinutes) / 1440) * 100;
+                          return (
+                            <div
+                              key={index}
+                              className="absolute h-full bg-primary/60"
+                              style={{ left: `${startPercent}%`, width: `${widthPercent}%` }}
+                            />
+                          );
+                        } else {
+                          // Range spans midnight
+                          const width1 = ((1440 - startMinutes) / 1440) * 100;
+                          const width2 = (endMinutes / 1440) * 100;
+                          return (
+                            <>
+                              <div key={`${index}-1`} className="absolute h-full bg-primary/60" style={{ left: `${startPercent}%`, width: `${width1}%` }} />
+                              <div key={`${index}-2`} className="absolute h-full bg-primary/60" style={{ left: '0%', width: `${width2}%` }} />
+                            </>
+                          );
+                        }
+                      })}
+                      <div className="absolute inset-0 flex items-center justify-between px-2 text-xs text-muted-foreground pointer-events-none">
+                        <span>00:00</span>
+                        <span>06:00</span>
+                        <span>12:00</span>
+                        <span>18:00</span>
+                        <span>24:00</span>
+                      </div>
+                    </div>
+                    <p className="text-xs text-muted-foreground">
+                      🟢 Zielone = aktywny handel | ⬜ Szare = brak handlu
+                    </p>
+                  </div>
+
+                  <Alert className="bg-blue-500/10 border-blue-500/30">
+                    <AlertDescription className="text-xs">
+                      <strong>Przykłady użycia:</strong>
+                      <ul className="list-disc list-inside mt-1 space-y-0.5">
+                        <li>09:00-17:00 = handel tylko w godzinach pracy</li>
+                        <li>22:00-06:00 = handel nocny (obsługuje przedziały przez północ)</li>
+                        <li>Wiele przedziałów = np. 08:00-12:00 + 14:00-18:00</li>
+                      </ul>
+                    </AlertDescription>
+                  </Alert>
                 </>
               )}
             </CardContent>
