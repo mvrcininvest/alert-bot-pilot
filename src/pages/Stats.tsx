@@ -35,6 +35,40 @@ import { startOfDay, subDays, isAfter, isBefore, format, getDay, startOfMonth, e
 import { pl } from "date-fns/locale";
 import { FileDown, Wrench } from "lucide-react";
 
+// Type interfaces for stats data
+interface RangeStats {
+  range: string;
+  trades: number;
+  wins: number;
+  winRate: number;
+  avgPnL: number;
+  totalPnL: number;
+}
+
+interface DurationRangeStats extends RangeStats {
+  losses: number;
+}
+
+interface ROIRangeStats {
+  range: string;
+  trades: number;
+  wins: number;
+  avgROI: number;
+  totalPnL: number;
+  avgMarginUsed: number;
+}
+
+interface VolatilityRangeStats extends RangeStats {
+  avgATR: number;
+}
+
+interface SymbolStats {
+  symbol: string;
+  trades: number;
+  pnl: number;
+  wins: number;
+}
+
 // Helper function: Get raw data with fallback to metadata
 function getRawDataWithFallback(position: any): any {
   const alert = Array.isArray(position.alerts) ? position.alerts[0] : position.alerts;
@@ -610,7 +644,7 @@ export default function Stats() {
           totalPnL: stats.totalPnL,
         };
       })
-      .filter(Boolean) as any[];
+      .filter((item): item is RangeStats => item !== null);
   }, [filteredPositions]);
 
   // Duration analysis
@@ -675,7 +709,7 @@ export default function Stats() {
           totalPnL: stats.totalPnL,
         };
       })
-      .filter(Boolean) as any[];
+      .filter((item): item is DurationRangeStats => item !== null);
   }, [filteredPositions]);
 
   // Regime analysis
@@ -880,7 +914,7 @@ export default function Stats() {
           avgMarginUsed: avgMargin,
         };
       })
-      .filter(Boolean) as any[];
+      .filter((item): item is ROIRangeStats => item !== null);
   }, [filteredPositions]);
 
   // Advanced metrics
@@ -1072,7 +1106,7 @@ export default function Stats() {
           totalPnL: stats.totalPnL,
         };
       })
-      .filter(Boolean) as any[];
+      .filter((item): item is RangeStats => item !== null);
   }, [filteredPositions]);
 
   // Zone Type analysis
@@ -1224,7 +1258,7 @@ export default function Stats() {
           avgATR: stats.totalATR / stats.trades,
         };
       })
-      .filter(Boolean) as any[];
+      .filter((item): item is VolatilityRangeStats => item !== null);
   }, [filteredPositions]);
 
   // ========== INSIGHTS TAB DATA ==========
@@ -1484,7 +1518,7 @@ export default function Stats() {
           avgPnL: stats.trades > 0 ? stats.totalPnL / stats.trades : 0,
           totalPnL: stats.totalPnL,
         };
-      }).filter(Boolean) as any[];
+      }).filter((item): item is RangeStats => item !== null);
     };
 
     return {
@@ -1833,7 +1867,7 @@ export default function Stats() {
   }, [filteredPositions]);
 
   // Group by symbol
-  const symbolStats = useMemo(() => {
+  const symbolStats = useMemo((): SymbolStats[] => {
     if (!filteredPositions) return [];
     
     const bySymbol = filteredPositions.reduce((acc, pos) => {
@@ -1849,9 +1883,9 @@ export default function Stats() {
       acc[pos.symbol].pnl += Number(pos.realized_pnl || 0);
       if (Number(pos.realized_pnl || 0) > 0) acc[pos.symbol].wins++;
       return acc;
-    }, {} as Record<string, { symbol: string; trades: number; pnl: number; wins: number }>);
+    }, {} as Record<string, SymbolStats>);
 
-    return Object.values(bySymbol).sort((a, b) => b.pnl - a.pnl);
+    return (Object.values(bySymbol) as SymbolStats[]).sort((a, b) => b.pnl - a.pnl);
   }, [filteredPositions]);
 
   return (
