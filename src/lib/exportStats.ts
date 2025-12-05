@@ -120,6 +120,18 @@ export function exportToCSV(positions: Position[], filename: string = "trading-s
   document.body.removeChild(link);
 }
 
+// Generic breakdown stats interface
+interface BreakdownStats {
+  range?: string;
+  category?: string;
+  value?: string;
+  trades: number;
+  wins?: number;
+  winRate: number;
+  avgPnL: number;
+  totalPnL: number;
+}
+
 export interface StatsExport {
   summary: {
     totalTrades: number;
@@ -225,6 +237,53 @@ export interface StatsExport {
     trades: number;
     winRate: number;
   }>;
+  // ============= NEW BREAKDOWN SECTIONS =============
+  // Technical Indicators
+  byADX?: BreakdownStats[];
+  byMFI?: BreakdownStats[];
+  byEMA?: BreakdownStats[];
+  byVWAP?: BreakdownStats[];
+  // Filters
+  byVolumeMultiplier?: BreakdownStats[];
+  byRoomToTarget?: BreakdownStats[];
+  byFakePenalty?: BreakdownStats[];
+  // Zone Age
+  byZoneAge?: BreakdownStats[];
+  byZoneRetests?: BreakdownStats[];
+  // Structure (SMC)
+  byBOSAge?: BreakdownStats[];
+  byBOSAlignment?: BreakdownStats[];
+  byLiquiditySweep?: BreakdownStats[];
+  // Volume
+  byVolumeClimax?: BreakdownStats[];
+  byVolumeRatio?: BreakdownStats[];
+  // Other analyses
+  byZoneType?: BreakdownStats[];
+  byMode?: BreakdownStats[];
+  byRegime?: BreakdownStats[];
+  byBTCCorrelation?: BreakdownStats[];
+  byATR?: BreakdownStats[];
+}
+
+// Helper to format breakdown stats section
+function formatBreakdownSection(
+  title: string, 
+  data: BreakdownStats[] | undefined,
+  labelField: 'range' | 'category' | 'value' = 'range'
+): string[] {
+  if (!data || data.length === 0) return [];
+  
+  const sections: string[] = [];
+  sections.push(`=== ${title} ===`);
+  sections.push("Wartość,Trade'y,Win Rate,Średni PnL,Total PnL");
+  
+  data.forEach(item => {
+    const label = item[labelField] || item.range || item.category || item.value || 'N/A';
+    sections.push(`${label},${item.trades},${item.winRate.toFixed(1)}%,$${item.avgPnL.toFixed(2)},$${item.totalPnL.toFixed(2)}`);
+  });
+  
+  sections.push("");
+  return sections;
 }
 
 export function exportStatsToCSV(stats: StatsExport, filename: string = "stats-summary") {
@@ -388,7 +447,41 @@ export function exportStatsToCSV(stats: StatsExport, filename: string = "stats-s
     stats.monthlyData.forEach(m => {
       sections.push(`${m.month},${m.trades},${m.winRate.toFixed(1)}%,$${m.totalPnL.toFixed(2)}`);
     });
+    sections.push("");
   }
+
+  // ============= NEW BREAKDOWN SECTIONS =============
+  
+  // Technical Indicators
+  sections.push(...formatBreakdownSection("WEDŁUG ADX", stats.byADX, 'value'));
+  sections.push(...formatBreakdownSection("WEDŁUG MFI", stats.byMFI, 'value'));
+  sections.push(...formatBreakdownSection("WEDŁUG EMA ALIGNMENT", stats.byEMA, 'value'));
+  sections.push(...formatBreakdownSection("WEDŁUG VWAP POSITION", stats.byVWAP, 'value'));
+  
+  // Filters
+  sections.push(...formatBreakdownSection("WEDŁUG VOLUME MULTIPLIER", stats.byVolumeMultiplier, 'range'));
+  sections.push(...formatBreakdownSection("WEDŁUG ROOM TO TARGET", stats.byRoomToTarget, 'range'));
+  sections.push(...formatBreakdownSection("WEDŁUG FAKE BREAKOUT PENALTY", stats.byFakePenalty, 'range'));
+  
+  // Zone Age
+  sections.push(...formatBreakdownSection("WEDŁUG ZONE AGE", stats.byZoneAge, 'range'));
+  sections.push(...formatBreakdownSection("WEDŁUG ZONE RETESTS", stats.byZoneRetests, 'range'));
+  
+  // Structure (SMC)
+  sections.push(...formatBreakdownSection("WEDŁUG BOS AGE", stats.byBOSAge, 'category'));
+  sections.push(...formatBreakdownSection("WEDŁUG BOS ALIGNMENT", stats.byBOSAlignment, 'category'));
+  sections.push(...formatBreakdownSection("WEDŁUG LIQUIDITY SWEEP", stats.byLiquiditySweep, 'category'));
+  
+  // Volume
+  sections.push(...formatBreakdownSection("WEDŁUG VOLUME CLIMAX", stats.byVolumeClimax, 'category'));
+  sections.push(...formatBreakdownSection("WEDŁUG VOLUME RATIO", stats.byVolumeRatio, 'category'));
+  
+  // Other analyses
+  sections.push(...formatBreakdownSection("WEDŁUG ZONE TYPE", stats.byZoneType, 'range'));
+  sections.push(...formatBreakdownSection("WEDŁUG MODE", stats.byMode, 'range'));
+  sections.push(...formatBreakdownSection("WEDŁUG REGIME", stats.byRegime, 'range'));
+  sections.push(...formatBreakdownSection("WEDŁUG BTC CORRELATION", stats.byBTCCorrelation, 'range'));
+  sections.push(...formatBreakdownSection("WEDŁUG ATR (VOLATILITY)", stats.byATR, 'range'));
 
   const csvContent = sections.join("\n");
   const blob = new Blob(["\ufeff" + csvContent], { type: "text/csv;charset=utf-8;" });

@@ -1780,6 +1780,60 @@ export default function Stats() {
       })),
       byMoneyManagement: tradingStats?.moneyManagementStats || [],
       monthlyData: monthlyData,
+      // ============= NEW BREAKDOWN SECTIONS =============
+      // Technical Indicators
+      byADX: technicalIndicatorsData.adx,
+      byMFI: technicalIndicatorsData.mfi,
+      byEMA: technicalIndicatorsData.ema,
+      byVWAP: technicalIndicatorsData.vwap,
+      // Filters
+      byVolumeMultiplier: filtersData.volumeMultiplier,
+      byRoomToTarget: filtersData.roomToTarget,
+      byFakePenalty: filtersData.fakePenalty,
+      // Zone Age
+      byZoneAge: zoneAgeData.age,
+      byZoneRetests: zoneAgeData.retests,
+      // Structure (SMC)
+      byBOSAge: structureData.bosAge,
+      byBOSAlignment: structureData.bosAlignment,
+      byLiquiditySweep: structureData.liquiditySweep,
+      // Volume
+      byVolumeClimax: volumeData.climax,
+      byVolumeRatio: volumeData.ratio,
+      // Other analyses
+      byZoneType: zoneTypeStats.map(z => ({
+        range: z.zoneType,
+        trades: z.trades,
+        wins: z.wins,
+        winRate: z.winRate,
+        avgPnL: z.avgPnL,
+        totalPnL: z.totalPnL,
+      })),
+      byMode: modeStats.map(m => ({
+        range: m.mode,
+        trades: m.trades,
+        wins: m.wins,
+        winRate: m.winRate,
+        avgPnL: m.avgPnL,
+        totalPnL: m.totalPnL,
+      })),
+      byRegime: regimeStats.map(r => ({
+        range: r.regime,
+        trades: r.trades,
+        wins: r.wins,
+        winRate: r.winRate,
+        avgPnL: r.avgPnL,
+        totalPnL: r.totalPnL,
+      })),
+      byBTCCorrelation: btcCorrelationStats,
+      byATR: volatilityStats.map(v => ({
+        range: v.range,
+        trades: v.trades,
+        wins: v.wins,
+        winRate: v.winRate,
+        avgPnL: v.avgPnL,
+        totalPnL: v.totalPnL,
+      })),
     }, `stats_${getTimeFilterLabel()}_${format(new Date(), "yyyy-MM-dd")}`);
     
     toast({
@@ -1799,33 +1853,132 @@ export default function Stats() {
     }
 
     const headers = [
-      "Data", "Symbol", "Side", "Entry Price", "SL", "TP", "Tier", 
-      "Strength", "Leverage", 
-      "TV Timestamp", "Webhook Received", "Exchange Executed",
+      // Basic alert data
+      "ID", "Data", "Symbol", "Side", "Entry Price", "SL", "Main TP", 
+      "TP1", "TP2", "TP3", "Mode", "Tier", "Strength", "Leverage", "ATR",
+      // Timestamps & Latencies
+      "TV Timestamp", "Webhook Received", "Exchange Executed", "Executed At",
       "Latencja TV→Webhook (ms)", "Latencja Processing (ms)", "Latencja Total (ms)",
-      "Status", "Testowy", "Błąd"
+      // Status
+      "Status", "Position ID", "Error Message", "Testowy",
+      // Technical Indicators
+      "ADX", "ADX Rising", "MFI", "EMA Alignment", "MACD Signal", "VWAP Position", "MTF Agreement",
+      // Filters
+      "Volume Multiplier", "Regime Multiplier", "Room to Target", "Fake Breakout Penalty", 
+      "Opposite Zone Distance", "Market Condition", "Wave Multiplier",
+      // SMC Context
+      "BOS Age", "BOS Direction", "BTC Correlation", "Liquidity Sweep", "CVD Divergence", 
+      "Regime", "Regime Confidence",
+      // Zone Details
+      "Zone Age", "Zone Retests", "Zone Type", "Zone Top", "Zone Bottom",
+      // FVG/OB
+      "In FVG", "In OB", "FVG Score", "OB Score",
+      // Volume
+      "Volume Climax", "Volume Ratio",
+      // Timing
+      "Session", "Bars Since Last Signal",
+      // Diagnostics
+      "Health", "Zones", "Buy Strength", "Sell Strength", "Inst Flow", "Acc Ratio",
+      // Other
+      "Distribution", "Institutional Flow", "Tier Numeric", "SL Distance", "Risk Per Unit", "Version"
     ];
 
-    const rows = filteredAlerts.map((alert) => [
-      format(new Date(alert.created_at), "dd.MM.yyyy HH:mm:ss"),
-      alert.symbol,
-      alert.side,
-      Number(alert.entry_price).toFixed(8),
-      Number(alert.sl).toFixed(8),
-      Number(alert.main_tp).toFixed(8),
-      alert.tier || "-",
-      Number(alert.strength || 0).toFixed(2),
-      alert.leverage,
-      alert.tv_timestamp || "-",
-      alert.webhook_received_at ? format(new Date(alert.webhook_received_at), "dd.MM.yyyy HH:mm:ss") : "-",
-      alert.exchange_executed_at || "-",
-      alert.latency_webhook_ms || "-",
-      alert.latency_execution_ms || "-",
-      alert.latency_ms || "-",
-      alert.status,
-      alert.is_test ? "Tak" : "Nie",
-      alert.error_message || "-"
-    ]);
+    const rows = filteredAlerts.map((alert) => {
+      const raw = alert.raw_data as any || {};
+      const technical = raw.technical || {};
+      const filters = raw.filters || {};
+      const smcContext = raw.smc_context || {};
+      const zoneDetails = raw.zone_details || {};
+      const timing = raw.timing || {};
+      const diagnostics = raw.diagnostics || {};
+
+      return [
+        // Basic alert data
+        alert.id,
+        format(new Date(alert.created_at), "dd.MM.yyyy HH:mm"),
+        alert.symbol,
+        alert.side,
+        Number(alert.entry_price).toFixed(8),
+        Number(alert.sl).toFixed(8),
+        Number(alert.main_tp).toFixed(8),
+        alert.tp1 ? Number(alert.tp1).toFixed(8) : "-",
+        alert.tp2 ? Number(alert.tp2).toFixed(8) : "-",
+        alert.tp3 ? Number(alert.tp3).toFixed(8) : "-",
+        alert.mode || "-",
+        alert.tier || "-",
+        Number(alert.strength || 0).toFixed(4),
+        alert.leverage,
+        alert.atr ? Number(alert.atr).toFixed(8) : "-",
+        // Timestamps & Latencies
+        alert.tv_timestamp || "-",
+        alert.webhook_received_at ? format(new Date(alert.webhook_received_at), "dd.MM.yyyy HH:mm:ss") : "-",
+        alert.exchange_executed_at || "-",
+        alert.executed_at ? format(new Date(alert.executed_at), "dd.MM.yyyy HH:mm:ss") : "-",
+        alert.latency_webhook_ms || "-",
+        alert.latency_execution_ms || "-",
+        alert.latency_ms || "-",
+        // Status
+        alert.status,
+        alert.position_id || "-",
+        alert.error_message ? alert.error_message.substring(0, 200) : "-",
+        alert.is_test ? "Tak" : "Nie",
+        // Technical Indicators
+        technical.adx != null ? Number(technical.adx).toFixed(2) : "-",
+        technical.adx_rising != null ? (technical.adx_rising ? "TAK" : "NIE") : "-",
+        technical.mfi != null ? Number(technical.mfi).toFixed(2) : "-",
+        technical.ema_alignment || "-",
+        technical.macd_signal || "-",
+        technical.vwap_position || "-",
+        technical.mtf_agreement != null ? Number(technical.mtf_agreement).toFixed(2) : "-",
+        // Filters
+        filters.volume_multiplier != null ? Number(filters.volume_multiplier).toFixed(4) : "-",
+        filters.regime_multiplier != null ? Number(filters.regime_multiplier).toFixed(4) : "-",
+        filters.room_to_target != null ? Number(filters.room_to_target).toFixed(4) : "-",
+        filters.fake_breakout_penalty != null ? Number(filters.fake_breakout_penalty).toFixed(2) : "-",
+        filters.opposite_zone_distance != null ? Number(filters.opposite_zone_distance).toFixed(4) : "-",
+        filters.market_condition || "-",
+        filters.wave_multiplier != null ? Number(filters.wave_multiplier).toFixed(2) : "-",
+        // SMC Context
+        smcContext.bos_age != null ? smcContext.bos_age : "-",
+        smcContext.bos_direction != null ? (typeof smcContext.bos_direction === 'number' ? (smcContext.bos_direction > 0 ? "BULLISH" : smcContext.bos_direction < 0 ? "BEARISH" : "NEUTRAL") : smcContext.bos_direction) : "-",
+        smcContext.btc_correlation != null ? Number(smcContext.btc_correlation).toFixed(4) : "-",
+        smcContext.liquidity_sweep != null ? (smcContext.liquidity_sweep ? "TAK" : "NIE") : "-",
+        smcContext.cvd_divergence || "-",
+        smcContext.regime || "-",
+        smcContext.regime_confidence != null ? Number(smcContext.regime_confidence).toFixed(4) : "-",
+        // Zone Details
+        zoneDetails.zone_age != null ? zoneDetails.zone_age : "-",
+        zoneDetails.zone_retests != null ? zoneDetails.zone_retests : "-",
+        zoneDetails.zone_type || "-",
+        zoneDetails.zone_top != null ? Number(zoneDetails.zone_top).toFixed(8) : "-",
+        zoneDetails.zone_bottom != null ? Number(zoneDetails.zone_bottom).toFixed(8) : "-",
+        // FVG/OB
+        raw.in_fvg != null ? (raw.in_fvg ? "TAK" : "NIE") : "-",
+        raw.in_ob != null ? (raw.in_ob ? "TAK" : "NIE") : "-",
+        raw.fvg_score != null ? raw.fvg_score : "-",
+        raw.ob_score != null ? raw.ob_score : "-",
+        // Volume
+        raw.volume_climax != null ? (raw.volume_climax ? "TAK" : "NIE") : "-",
+        raw.volume_ratio != null ? Number(raw.volume_ratio).toFixed(4) : "-",
+        // Timing
+        timing.session || "-",
+        timing.bars_since_last_signal != null ? timing.bars_since_last_signal : "-",
+        // Diagnostics
+        diagnostics.health != null ? diagnostics.health : "-",
+        diagnostics.zones != null ? diagnostics.zones : "-",
+        diagnostics.buy_str != null ? Number(diagnostics.buy_str).toFixed(4) : "-",
+        diagnostics.sell_str != null ? Number(diagnostics.sell_str).toFixed(4) : "-",
+        diagnostics.inst_flow != null ? Number(diagnostics.inst_flow).toFixed(4) : "-",
+        diagnostics.acc_ratio != null ? Number(diagnostics.acc_ratio).toFixed(4) : "-",
+        // Other
+        raw.distribution != null ? raw.distribution : "-",
+        raw.institutional_flow != null ? Number(raw.institutional_flow).toFixed(4) : "-",
+        raw.tier_numeric != null ? raw.tier_numeric : "-",
+        raw.sl_distance != null ? Number(raw.sl_distance).toFixed(8) : "-",
+        raw.risk_per_unit != null ? Number(raw.risk_per_unit).toFixed(8) : "-",
+        raw.version || "-"
+      ];
+    });
 
     const csvContent = [
       headers.join(","),
@@ -1845,7 +1998,7 @@ export default function Stats() {
 
     toast({
       title: "Eksport zakończony",
-      description: `Wyeksportowano ${filteredAlerts.length} alertów do CSV`,
+      description: `Wyeksportowano ${filteredAlerts.length} alertów do CSV (${headers.length} kolumn)`,
     });
   };
 
