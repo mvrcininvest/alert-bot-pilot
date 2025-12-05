@@ -6,11 +6,16 @@ interface LatencyAnalysisCardProps {
 }
 
 export function LatencyAnalysisCard({ positions }: LatencyAnalysisCardProps) {
+  // Max realistic latency: 120 seconds (2 minutes) - filter outliers
+  const MAX_REALISTIC_LATENCY_MS = 120000;
+
   // Calculate latency statistics from positions with valid alert latency data
   const latencyStats = (() => {
     const validPositions = positions.filter(p => {
       const alert = Array.isArray(p.alerts) ? p.alerts[0] : p.alerts;
-      return alert?.latency_ms && alert.latency_ms > 0;
+      return alert?.latency_ms && 
+             alert.latency_ms > 0 && 
+             alert.latency_ms < MAX_REALISTIC_LATENCY_MS;
     });
     
     if (validPositions.length === 0) return null;
