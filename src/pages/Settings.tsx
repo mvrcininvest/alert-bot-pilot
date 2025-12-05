@@ -469,6 +469,23 @@ export default function Settings() {
                       </div>
                     </div>
                     <div className="space-y-1">
+                      <div className="text-xs text-muted-foreground">Metoda SL</div>
+                      <div className="font-medium">
+                        {localSettings.sl_method === "percent_margin" && "% margin"}
+                        {localSettings.sl_method === "percent_entry" && "% od entry"}
+                        {localSettings.sl_method === "fixed_usdt" && "Stała USDT"}
+                        {localSettings.sl_method === "atr_based" && "ATR-based"}
+                      </div>
+                    </div>
+                    <div className="space-y-1">
+                      <div className="text-xs text-muted-foreground">Strategia TP</div>
+                      <div className="font-medium">
+                        {localSettings.tp_strategy === "partial_close" && "Częściowe zamykanie"}
+                        {localSettings.tp_strategy === "main_tp_only" && "Tylko główny TP"}
+                        {localSettings.tp_strategy === "trailing_stop" && "Trailing Stop"}
+                      </div>
+                    </div>
+                    <div className="space-y-1">
                       <div className="text-xs text-muted-foreground">Liczba poziomów TP</div>
                       <div className="font-medium">{localSettings.tp_levels || 1}</div>
                     </div>
@@ -703,11 +720,15 @@ export default function Settings() {
                 <h3 className="font-semibold mb-3">Zarządzanie Stop Loss</h3>
                 <div className="grid grid-cols-2 gap-3 text-sm">
                   <div className="space-y-1">
-                    <div className="text-xs text-muted-foreground">Strategia</div>
+                    <div className="text-xs text-muted-foreground">Strategia SL</div>
                     <div className="font-medium">
                       {localSettings.trailing_stop ? "Trailing Stop" : 
                        localSettings.sl_to_breakeven ? "Breakeven" : "Brak"}
                     </div>
+                  </div>
+                  <div className="space-y-1">
+                    <div className="text-xs text-muted-foreground">Fee-aware breakeven</div>
+                    <div className="font-medium">{localSettings.fee_aware_breakeven !== false ? "✓ TAK" : "✗ NIE"}</div>
                   </div>
                   {localSettings.sl_to_breakeven && (
                     <div className="space-y-1">
@@ -830,6 +851,125 @@ export default function Settings() {
                     <div className="text-xs text-muted-foreground">Interwał sprawdzania</div>
                     <div className="font-medium">{localSettings.monitor_interval_seconds || 60}s</div>
                   </div>
+                </div>
+              </div>
+
+              <Separator />
+
+              {/* FILTROWANIE ALERTÓW */}
+              <div>
+                <h3 className="font-semibold mb-3">Filtrowanie Alertów</h3>
+                <div className="grid grid-cols-2 gap-3 text-sm">
+                  <div className="space-y-1">
+                    <div className="text-xs text-muted-foreground">Filtr Tier</div>
+                    <div className="font-medium">{localSettings.filter_by_tier ? "✓ Włączony" : "✗ Wyłączony"}</div>
+                  </div>
+                  {localSettings.filter_by_tier && (
+                    <>
+                      <div className="space-y-1">
+                        <div className="text-xs text-muted-foreground">Dozwolone Tier</div>
+                        <div className="font-medium text-xs">{(localSettings.allowed_tiers || []).join(", ") || "Wszystkie"}</div>
+                      </div>
+                      {(localSettings.excluded_tiers || []).length > 0 && (
+                        <div className="space-y-1 col-span-2">
+                          <div className="text-xs text-muted-foreground">Wykluczone Tier</div>
+                          <div className="flex flex-wrap gap-1">
+                            {(localSettings.excluded_tiers || []).map((tier: string) => (
+                              <Badge key={tier} variant="destructive" className="text-xs">{tier}</Badge>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                    </>
+                  )}
+                  <div className="space-y-1">
+                    <div className="text-xs text-muted-foreground">Min siła sygnału</div>
+                    <div className="font-medium">
+                      {localSettings.min_signal_strength_enabled 
+                        ? `✓ Włączony (${((localSettings.min_signal_strength_threshold ?? 0.50) * 100).toFixed(0)}%)`
+                        : "✗ Wyłączony"}
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <Separator />
+
+              {/* SESJE I CZAS */}
+              <div>
+                <h3 className="font-semibold mb-3">Sesje i Czas</h3>
+                <div className="grid grid-cols-2 gap-3 text-sm">
+                  <div className="space-y-1">
+                    <div className="text-xs text-muted-foreground">Filtr sesji</div>
+                    <div className="font-medium">{localSettings.session_filtering_enabled ? "✓ Włączony" : "✗ Wyłączony"}</div>
+                  </div>
+                  {localSettings.session_filtering_enabled && (
+                    <>
+                      <div className="space-y-1">
+                        <div className="text-xs text-muted-foreground">Dozwolone sesje</div>
+                        <div className="font-medium text-xs">{(localSettings.allowed_sessions || []).join(", ") || "Wszystkie"}</div>
+                      </div>
+                      {(localSettings.excluded_sessions || []).length > 0 && (
+                        <div className="space-y-1 col-span-2">
+                          <div className="text-xs text-muted-foreground">Wykluczone sesje</div>
+                          <div className="flex flex-wrap gap-1">
+                            {(localSettings.excluded_sessions || []).map((session: string) => (
+                              <Badge key={session} variant="destructive" className="text-xs">{session}</Badge>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                    </>
+                  )}
+                  <div className="space-y-1">
+                    <div className="text-xs text-muted-foreground">Filtr czasowy</div>
+                    <div className="font-medium">{localSettings.time_filtering_enabled ? "✓ Włączony" : "✗ Wyłączony"}</div>
+                  </div>
+                  {localSettings.time_filtering_enabled && (
+                    <>
+                      <div className="space-y-1">
+                        <div className="text-xs text-muted-foreground">Strefa czasowa</div>
+                        <div className="font-medium text-xs">{localSettings.user_timezone || "Europe/Amsterdam"}</div>
+                      </div>
+                      <div className="space-y-1 col-span-2">
+                        <div className="text-xs text-muted-foreground">Aktywne godziny</div>
+                        <div className="font-medium text-xs">
+                          {(localSettings.active_time_ranges || []).map((r: {start: string, end: string}, i: number) => 
+                            <Badge key={i} variant="outline" className="mr-1">{r.start}-{r.end}</Badge>
+                          )}
+                        </div>
+                      </div>
+                    </>
+                  )}
+                </div>
+              </div>
+
+              <Separator />
+
+              {/* OBSŁUGA DUPLIKATÓW */}
+              <div>
+                <h3 className="font-semibold mb-3">Obsługa Duplikatów</h3>
+                <div className="grid grid-cols-2 gap-3 text-sm">
+                  <div className="space-y-1">
+                    <div className="text-xs text-muted-foreground">Smart duplicate handling</div>
+                    <div className="font-medium">{localSettings.duplicate_alert_handling !== false ? "✓ Włączony" : "✗ Wyłączony"}</div>
+                  </div>
+                  {localSettings.duplicate_alert_handling !== false && (
+                    <>
+                      <div className="space-y-1">
+                        <div className="text-xs text-muted-foreground">Próg siły alertu</div>
+                        <div className="font-medium">{Math.round((localSettings.alert_strength_threshold || 0.20) * 100)} pkt</div>
+                      </div>
+                      <div className="space-y-1">
+                        <div className="text-xs text-muted-foreground">Próg PnL</div>
+                        <div className="font-medium">{localSettings.pnl_threshold_percent || 0.5}%</div>
+                      </div>
+                      <div className="space-y-1">
+                        <div className="text-xs text-muted-foreground">Wymóg zysku dla tego samego kierunku</div>
+                        <div className="font-medium">{localSettings.require_profit_for_same_direction !== false ? "✓ TAK" : "✗ NIE"}</div>
+                      </div>
+                    </>
+                  )}
                 </div>
               </div>
 
