@@ -1,6 +1,8 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createHmac } from "https://deno.land/std@0.168.0/node/crypto.ts";
+import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.84.0';
 import { log } from "../_shared/logger.ts";
+import { getUserApiKeys } from "../_shared/userKeys.ts";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -111,13 +113,54 @@ serve(async (req) => {
     
     const { action, params, apiCredentials } = body;
     
-    // Use provided API credentials or fall back to env vars (for backward compatibility)
-    const config: BitgetConfig = {
-      apiKey: apiCredentials?.apiKey || Deno.env.get('BITGET_API_KEY') || '',
-      secretKey: apiCredentials?.secretKey || Deno.env.get('BITGET_SECRET_KEY') || '',
-      passphrase: apiCredentials?.passphrase || Deno.env.get('BITGET_PASSPHRASE') || '',
-      baseUrl: 'https://api.bitget.com',
-    };
+    // Build BitgetConfig: use provided credentials, or fetch from logged-in user's DB record
+    let config: BitgetConfig;
+    
+    if (apiCredentials?.apiKey && apiCredentials?.secretKey && apiCredentials?.passphrase) {
+      // Use explicitly provided credentials (from other edge functions)
+      config = {
+        apiKey: apiCredentials.apiKey,
+        secretKey: apiCredentials.secretKey,
+        passphrase: apiCredentials.passphrase,
+        baseUrl: 'https://api.bitget.com',
+      };
+      console.log('Using provided API credentials');
+    } else {
+      // Get authenticated user's keys from database
+      const authHeader = req.headers.get('Authorization');
+      if (!authHeader) {
+        throw new Error('No authorization header - cannot determine user. Please provide apiCredentials or authenticate.');
+      }
+      
+      // Create Supabase client and get user
+      const supabaseClient = createClient(
+        Deno.env.get('SUPABASE_URL')!,
+        Deno.env.get('SUPABASE_ANON_KEY')!,
+        { global: { headers: { Authorization: authHeader } } }
+      );
+      
+      const { data: { user }, error: authError } = await supabaseClient.auth.getUser();
+      if (authError || !user) {
+        console.error('Auth error:', authError);
+        throw new Error('Unauthorized - could not get user from token');
+      }
+      
+      console.log(`Fetching API keys for user: ${user.id}`);
+      
+      // Get user's API keys from database (decrypted)
+      const userKeys = await getUserApiKeys(user.id);
+      if (!userKeys) {
+        throw new Error('User API keys not found or inactive. Please configure your API keys in Settings.');
+      }
+      
+      config = {
+        apiKey: userKeys.apiKey,
+        secretKey: userKeys.secretKey,
+        passphrase: userKeys.passphrase,
+        baseUrl: 'https://api.bitget.com',
+      };
+      console.log('Using user API credentials from database');
+    }
     
     // Validate credentials
     if (!config.apiKey || !config.secretKey || !config.passphrase) {
