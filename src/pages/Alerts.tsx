@@ -452,6 +452,7 @@ export default function Alerts() {
                   <TableHead>Tier</TableHead>
                   <TableHead>Strength</TableHead>
                   <TableHead>Leverage</TableHead>
+                  <TableHead>Wersja</TableHead>
                   <TableHead>Latencja (TV→Bot)</TableHead>
                   <TableHead>Status</TableHead>
                   {isAdmin && <TableHead>Test</TableHead>}
@@ -461,7 +462,7 @@ export default function Alerts() {
               <TableBody>
                 {isLoading ? (
                   <TableRow>
-                    <TableCell colSpan={isAdmin ? 13 : 11} className="text-center py-8">
+                    <TableCell colSpan={isAdmin ? 15 : 12} className="text-center py-8">
                       Ładowanie...
                     </TableCell>
                   </TableRow>
@@ -485,6 +486,14 @@ export default function Alerts() {
                       </TableCell>
                       <TableCell>{Number(alert.strength || 0).toFixed(2)}</TableCell>
                       <TableCell>{alert.leverage}x</TableCell>
+                      <TableCell>
+                        <Badge 
+                          variant={(alert as any).indicator_version === '9.3' ? 'default' : 'secondary'}
+                          className="text-xs"
+                        >
+                          v{(alert as any).indicator_version || '9.1'}
+                        </Badge>
+                      </TableCell>
                       <TableCell className={cn("text-xs", {
                         "text-profit": alert.latency_webhook_ms && alert.latency_webhook_ms < 2000,
                         "text-warning": alert.latency_webhook_ms && alert.latency_webhook_ms >= 2000 && alert.latency_webhook_ms < 5000,
@@ -657,7 +666,7 @@ export default function Alerts() {
                   ))
                 ) : (
                   <TableRow>
-                    <TableCell colSpan={isAdmin ? 13 : 11} className="text-center py-8 text-muted-foreground">
+                    <TableCell colSpan={isAdmin ? 15 : 12} className="text-center py-8 text-muted-foreground">
                       Brak alertów
                     </TableCell>
                   </TableRow>

@@ -23,6 +23,7 @@ export type Database = {
           exchange_executed_at: number | null
           executed_at: string | null
           id: string
+          indicator_version: string | null
           is_test: boolean | null
           latency_execution_ms: number | null
           latency_ms: number | null
@@ -53,6 +54,7 @@ export type Database = {
           exchange_executed_at?: number | null
           executed_at?: string | null
           id?: string
+          indicator_version?: string | null
           is_test?: boolean | null
           latency_execution_ms?: number | null
           latency_ms?: number | null
@@ -83,6 +85,7 @@ export type Database = {
           exchange_executed_at?: number | null
           executed_at?: string | null
           id?: string
+          indicator_version?: string | null
           is_test?: boolean | null
           latency_execution_ms?: number | null
           latency_ms?: number | null
@@ -870,6 +873,7 @@ export type Database = {
           filter_by_tier: boolean | null
           id: string
           include_fees_in_calculations: boolean | null
+          indicator_version_filter: string[] | null
           loss_limit_type: string | null
           max_loss_per_trade: number | null
           max_margin_per_trade: number | null
@@ -953,6 +957,7 @@ export type Database = {
           filter_by_tier?: boolean | null
           id?: string
           include_fees_in_calculations?: boolean | null
+          indicator_version_filter?: string[] | null
           loss_limit_type?: string | null
           max_loss_per_trade?: number | null
           max_margin_per_trade?: number | null
@@ -1036,6 +1041,7 @@ export type Database = {
           filter_by_tier?: boolean | null
           id?: string
           include_fees_in_calculations?: boolean | null
+          indicator_version_filter?: string[] | null
           loss_limit_type?: string | null
           max_loss_per_trade?: number | null
           max_margin_per_trade?: number | null

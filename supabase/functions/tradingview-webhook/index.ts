@@ -159,6 +159,7 @@ serve(async (req) => {
             tv_timestamp: tvTimestamp,
             webhook_received_at: new Date(webhookReceivedAt).toISOString(),
             latency_webhook_ms: latencyWebhook,
+            indicator_version: alertData.version || alertData._indicator_version || null,
           })
           .select()
           .single();
@@ -204,6 +205,33 @@ serve(async (req) => {
             .update({ status: 'ignored', error_message: 'Bot not active' })
             .eq('id', alert.id);
           return { userId, alertId: alert.id, status: 'ignored', reason: 'Bot not active' };
+        }
+
+        // Check indicator version filtering
+        if (userSettings.indicator_version_filter && userSettings.indicator_version_filter.length > 0) {
+          const alertVersion = alertData.version || alertData._indicator_version || '9.1';
+          
+          if (!userSettings.indicator_version_filter.includes(alertVersion)) {
+            await log({
+              functionName: 'tradingview-webhook',
+              message: `Indicator version ${alertVersion} not in allowed versions - alert ignored`,
+              level: 'info',
+              alertId: alert.id,
+              metadata: { 
+                alertVersion, 
+                allowedVersions: userSettings.indicator_version_filter, 
+                userId 
+              }
+            });
+            await supabase
+              .from('alerts')
+              .update({ 
+                status: 'ignored', 
+                error_message: `Indicator v${alertVersion} not in allowed versions [${userSettings.indicator_version_filter.join(', ')}]` 
+              })
+              .eq('id', alert.id);
+            return { userId, alertId: alert.id, status: 'ignored', reason: `Version ${alertVersion} not allowed` };
+          }
         }
 
         // Check tier filtering
