@@ -931,6 +931,14 @@ export default function Settings() {
                         : "✗ Wyłączony"}
                     </div>
                   </div>
+                  <div className="space-y-1">
+                    <div className="text-xs text-muted-foreground">Filtr wersji wskaźnika</div>
+                    <div className="font-medium">
+                      {localSettings.indicator_version_filter && localSettings.indicator_version_filter.length > 0
+                        ? `✓ Tylko ${localSettings.indicator_version_filter.map((v: string) => `v${v}`).join(', ')}`
+                        : "✗ Wszystkie wersje"}
+                    </div>
+                  </div>
                 </div>
               </div>
 
@@ -3098,6 +3106,65 @@ export default function Settings() {
                   <p className="text-xs text-muted-foreground">
                     Sygnały z siłą poniżej tego progu będą automatycznie ignorowane. Sygnał ma siłę 0-100%.
                   </p>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+
+          {/* Indicator Version Filter */}
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                📊 Filtr Wersji Wskaźnika
+              </CardTitle>
+              <CardDescription>Określ które wersje wskaźnika są akceptowane</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="space-y-2">
+                <Label>Akceptowane wersje wskaźnika</Label>
+                <Select
+                  value={
+                    !localSettings.indicator_version_filter || localSettings.indicator_version_filter.length === 0
+                      ? 'all'
+                      : localSettings.indicator_version_filter.length === 2
+                      ? 'both'
+                      : localSettings.indicator_version_filter.includes('9.1')
+                      ? '9.1'
+                      : '9.3'
+                  }
+                  onValueChange={(value) => {
+                    if (value === 'all') {
+                      updateLocal("indicator_version_filter", null);
+                    } else if (value === 'both') {
+                      updateLocal("indicator_version_filter", ['9.1', '9.3']);
+                    } else {
+                      updateLocal("indicator_version_filter", [value]);
+                    }
+                  }}
+                >
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">Wszystkie wersje</SelectItem>
+                    <SelectItem value="9.1">Tylko v9.1</SelectItem>
+                    <SelectItem value="9.3">Tylko v9.3</SelectItem>
+                    <SelectItem value="both">v9.1 i v9.3</SelectItem>
+                  </SelectContent>
+                </Select>
+                <p className="text-xs text-muted-foreground">
+                  Alerty z wersji nie znajdujących się na liście będą automatycznie ignorowane
+                </p>
+              </div>
+              
+              {localSettings.indicator_version_filter && localSettings.indicator_version_filter.length > 0 && (
+                <div className="p-3 bg-muted/50 rounded-lg">
+                  <div className="text-sm font-medium">Akceptowane wersje:</div>
+                  <div className="flex gap-2 mt-2">
+                    {localSettings.indicator_version_filter.map((version: string) => (
+                      <Badge key={version} variant="default">v{version}</Badge>
+                    ))}
+                  </div>
                 </div>
               )}
             </CardContent>

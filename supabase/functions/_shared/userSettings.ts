@@ -118,6 +118,9 @@ export interface UserSettings {
   
   // Manual drawdown reset
   drawdown_reset_at?: string | null;
+  
+  // Indicator version filter
+  indicator_version_filter?: string[] | null;
 }
 
 async function getAdminSettings(supabase: any): Promise<any> {
@@ -231,6 +234,7 @@ export async function getUserSettings(userId: string, symbol?: string): Promise<
     time_filtering_enabled: userSettings.time_filtering_enabled ?? false,
     user_timezone: userSettings.user_timezone ?? 'Europe/Amsterdam',
     active_time_ranges: userSettings.active_time_ranges ?? [{ start: '00:00', end: '23:59' }],
+    indicator_version_filter: userSettings.indicator_version_filter ?? null,
   };
 
   // Money Management settings (copy_admin mode)
