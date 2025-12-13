@@ -86,6 +86,19 @@ serve(async (req) => {
     
     // Secret authorization disabled - accepting all webhook requests
     const alertData = body;
+    
+    // Clean symbol: remove exchange prefix (BITGET:, BYBIT:, etc.) and .P suffix
+    // Example: BITGET:AVAXUSDT.P -> AVAXUSDT
+    if (alertData.symbol && alertData.symbol.includes(':')) {
+      const parts = alertData.symbol.split(':');
+      alertData.symbol = parts[parts.length - 1];
+      console.log(`✂️ Removed exchange prefix, symbol now: ${alertData.symbol}`);
+    }
+    if (alertData.symbol && alertData.symbol.endsWith('.P')) {
+      alertData.symbol = alertData.symbol.slice(0, -2);
+      console.log(`✂️ Removed .P suffix, clean symbol: ${alertData.symbol}`);
+    }
+    
     console.log('Received alert data:', JSON.stringify(alertData, null, 2));
     
     await log({
