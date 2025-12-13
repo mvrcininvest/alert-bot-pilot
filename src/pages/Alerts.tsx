@@ -160,6 +160,8 @@ export default function Alerts() {
       "Latencja TV→Webhook (ms)", "Latencja Processing (ms)", "Latencja Total (ms)",
       // Status
       "Status", "Position ID", "Error Message", "Testowy",
+      // v9.3 Intelligence
+      "V93 Volatility Regime", "V93 M1 Impulse", "V93 RS vs BTC",
       // Technical Indicators
       "ADX", "ADX Rising", "MFI", "EMA Alignment", "MACD Signal", "VWAP Position", "MTF Agreement",
       // Filters
@@ -222,6 +224,10 @@ export default function Alerts() {
         alert.position_id || "-",
         alert.error_message ? alert.error_message.substring(0, 200) : "-",
         alert.is_test ? "Tak" : "Nie",
+        // v9.3 Intelligence
+        v93.volatility_regime || "-",
+        v93.m1_impulse != null ? (v93.m1_impulse ? "TAK" : "NIE") : "-",
+        v93.rs_vs_btc != null ? Number(v93.rs_vs_btc).toFixed(4) : "-",
         // Technical Indicators
         technical.adx != null ? Number(technical.adx).toFixed(2) : "-",
         technical.adx_rising != null ? (technical.adx_rising ? "TAK" : "NIE") : "-",
@@ -663,6 +669,40 @@ export default function Alerts() {
                                               <div><span className="font-medium">Sell Strength:</span> {(alert.raw_data as any).diagnostics.sell_str}</div>
                                               <div><span className="font-medium">Institutional Flow:</span> {(alert.raw_data as any).diagnostics.inst_flow}</div>
                                               <div><span className="font-medium">MTF Agreement:</span> {(alert.raw_data as any).diagnostics.mtf_agree}</div>
+                                            </div>
+                                          </CardContent>
+                                        </Card>
+                                      )}
+
+                                      {/* v9.3 Intelligence */}
+                                      {(alert.raw_data as any).v93_intelligence && (
+                                        <Card className="border-primary/50">
+                                          <CardHeader>
+                                            <CardTitle className="text-sm flex items-center gap-2">
+                                              v9.3 Intelligence
+                                              <Badge variant="outline" className="text-xs">NEW</Badge>
+                                            </CardTitle>
+                                          </CardHeader>
+                                          <CardContent className="text-sm space-y-2">
+                                            <div className="grid grid-cols-2 gap-2">
+                                              <div>
+                                                <span className="font-medium">Volatility Regime:</span>{" "}
+                                                <Badge variant={(alert.raw_data as any).v93_intelligence.volatility_regime === 'OPTIMAL' ? 'default' : 'secondary'}>
+                                                  {(alert.raw_data as any).v93_intelligence.volatility_regime}
+                                                </Badge>
+                                              </div>
+                                              <div>
+                                                <span className="font-medium">M1 Impulse:</span>{" "}
+                                                <Badge variant={(alert.raw_data as any).v93_intelligence.m1_impulse ? 'default' : 'outline'}>
+                                                  {(alert.raw_data as any).v93_intelligence.m1_impulse ? 'TAK' : 'NIE'}
+                                                </Badge>
+                                              </div>
+                                              <div>
+                                                <span className="font-medium">RS vs BTC:</span>{" "}
+                                                {(alert.raw_data as any).v93_intelligence.rs_vs_btc != null 
+                                                  ? Number((alert.raw_data as any).v93_intelligence.rs_vs_btc).toFixed(4) 
+                                                  : '-'}
+                                              </div>
                                             </div>
                                           </CardContent>
                                         </Card>
