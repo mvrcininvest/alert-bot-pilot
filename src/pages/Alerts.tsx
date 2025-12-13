@@ -115,6 +115,11 @@ export default function Alerts() {
     ignored: alerts.filter(a => a.status === "ignored").length,
     error: alerts.filter(a => a.status === "error").length,
     test: alerts.filter(a => a.is_test).length,
+    avgStrength: (() => {
+      const withStrength = alerts.filter(a => a.strength != null);
+      if (withStrength.length === 0) return null;
+      return withStrength.reduce((sum, a) => sum + Number(a.strength), 0) / withStrength.length;
+    })(),
   } : null;
 
   const getStatusColor = (status: string) => {
@@ -371,7 +376,7 @@ export default function Alerts() {
       </div>
 
       {stats && (
-        <div className="grid gap-4 md:grid-cols-4 lg:grid-cols-7">
+        <div className="grid gap-4 md:grid-cols-4 lg:grid-cols-8">
           <Card>
             <CardHeader className="pb-2">
               <CardTitle className="text-sm">Łącznie</CardTitle>
@@ -426,6 +431,16 @@ export default function Alerts() {
             </CardHeader>
             <CardContent>
               <div className="text-2xl font-bold text-muted-foreground">{stats.test}</div>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm">Śr. Siła</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-bold text-primary">
+                {stats.avgStrength != null ? (stats.avgStrength * 100).toFixed(1) + "%" : "-"}
+              </div>
             </CardContent>
           </Card>
         </div>
