@@ -17,7 +17,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 export default function Alerts() {
   const [selectedAlert, setSelectedAlert] = useState<any>(null);
   const [showOnlyMyAlerts, setShowOnlyMyAlerts] = useState(true);
-  const [showErrors, setShowErrors] = useState(false);
+  const [statusFilter, setStatusFilter] = useState<string>("all");
   const [versionFilter, setVersionFilter] = useState<string>("all");
   const { toast } = useToast();
   const queryClient = useQueryClient();
@@ -28,7 +28,7 @@ export default function Alerts() {
   const [tableWidth, setTableWidth] = useState(1800);
   
   const { data: alerts, isLoading } = useQuery({
-    queryKey: ["alerts", showOnlyMyAlerts, showErrors, versionFilter, user?.id],
+    queryKey: ["alerts", showOnlyMyAlerts, statusFilter, versionFilter, user?.id],
     queryFn: async () => {
       let query = supabase
         .from("alerts")
@@ -39,9 +39,9 @@ export default function Alerts() {
         query = query.eq("user_id", user.id);
       }
       
-      // Hide error status alerts unless showErrors is enabled
-      if (!showErrors) {
-        query = query.neq("status", "error");
+      // Filter by status
+      if (statusFilter !== "all") {
+        query = query.eq("status", statusFilter as "executed" | "ignored" | "error" | "pending");
       }
       
       // Filter by indicator version
@@ -333,7 +333,7 @@ export default function Alerts() {
           <h1 className="text-3xl font-bold">Historia Alertów</h1>
           <p className="text-muted-foreground">
             {showOnlyMyAlerts ? "Twoje alerty" : "Wszystkie alerty"} otrzymane z TradingView
-            {!showErrors && " (bez błędów)"}
+            {statusFilter !== "all" && ` (${statusFilter})`}
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -356,13 +356,17 @@ export default function Alerts() {
               {showOnlyMyAlerts ? "Tylko moje" : "Wszystkie"}
             </Button>
           )}
-          <Button
-            variant={showErrors ? "default" : "outline"}
-            size="sm"
-            onClick={() => setShowErrors(!showErrors)}
-          >
-            {showErrors ? "Ukryj błędy" : "Pokaż błędy"}
-          </Button>
+          <Select value={statusFilter} onValueChange={setStatusFilter}>
+            <SelectTrigger className="w-[140px]">
+              <SelectValue placeholder="Status" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">Wszystkie</SelectItem>
+              <SelectItem value="executed">Wykonane</SelectItem>
+              <SelectItem value="ignored">Odrzucone</SelectItem>
+              <SelectItem value="error">Błędy</SelectItem>
+            </SelectContent>
+          </Select>
         </div>
       </div>
 
