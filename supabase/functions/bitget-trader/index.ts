@@ -75,6 +75,14 @@ serve(async (req) => {
       });
     }
     
+    // Remove exchange prefix (BITGET:, BYBIT:, etc.) from symbol format
+    // Example: BITGET:AVAXUSDT.P -> AVAXUSDT.P
+    if (alert_data.symbol && alert_data.symbol.includes(':')) {
+      const parts = alert_data.symbol.split(':');
+      alert_data.symbol = parts[parts.length - 1]; // Take the last part (symbol)
+      console.log(`✂️ Removed exchange prefix, symbol now: ${alert_data.symbol}`);
+    }
+    
     // Remove .P suffix from TradingView symbol format (XRPUSDT.P -> XRPUSDT)
     // CRITICAL: Must be done BEFORE getUserSettings to ensure proper category detection!
     if (alert_data.symbol && alert_data.symbol.endsWith('.P')) {
