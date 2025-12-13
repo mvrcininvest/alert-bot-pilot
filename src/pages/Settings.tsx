@@ -11,7 +11,7 @@ import { useToast } from "@/hooks/use-toast";
 import { Separator } from "@/components/ui/separator";
 import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { FeeCalculator } from "@/components/settings/FeeCalculator";
 import { useTradingStats } from "@/hooks/useTradingStats";
@@ -114,6 +114,102 @@ export default function Settings() {
   const settings = settingsMode === "global" ? globalSettings : personalSettings;
   const isLoading = settingsMode === "global" ? globalLoading : personalLoading;
   const error = settingsMode === "global" ? globalError : personalError;
+
+  // Compute effective settings for display - merges global/personal based on copy_admin modes
+  const effectiveSettings = useMemo(() => {
+    // For global mode, just use localSettings directly
+    if (settingsMode === "global" || !personalSettings || !globalSettings) {
+      return localSettings;
+    }
+
+    // For personal mode, merge based on modes
+    const moneyMode = personalSettings.money_mode ?? "copy_admin";
+    const sltpMode = personalSettings.sltp_mode ?? "copy_admin";
+    const tierMode = personalSettings.tier_mode ?? "copy_admin";
+
+    return {
+      // Base from personal settings
+      ...personalSettings,
+      
+      // Money management - from global if copy_admin
+      ...(moneyMode === "copy_admin" ? {
+        position_sizing_type: globalSettings.position_sizing_type,
+        position_size_value: globalSettings.position_size_value,
+        max_margin_per_trade: globalSettings.max_margin_per_trade,
+        max_loss_per_trade: globalSettings.max_loss_per_trade,
+        sl_percent_min: globalSettings.sl_percent_min,
+        sl_percent_max: globalSettings.sl_percent_max,
+        daily_loss_limit: globalSettings.daily_loss_limit,
+        daily_loss_percent: globalSettings.daily_loss_percent,
+        loss_limit_type: globalSettings.loss_limit_type,
+        max_open_positions: globalSettings.max_open_positions,
+        default_leverage: globalSettings.default_leverage,
+        use_alert_leverage: globalSettings.use_alert_leverage,
+        use_max_leverage_global: globalSettings.use_max_leverage_global,
+        symbol_leverage_overrides: globalSettings.symbol_leverage_overrides,
+        category_settings: globalSettings.category_settings,
+      } : {}),
+      
+      // SL/TP settings - from global if copy_admin
+      ...(sltpMode === "copy_admin" ? {
+        calculator_type: globalSettings.calculator_type,
+        sl_method: globalSettings.sl_method,
+        simple_sl_percent: globalSettings.simple_sl_percent,
+        simple_tp_percent: globalSettings.simple_tp_percent,
+        simple_tp2_percent: globalSettings.simple_tp2_percent,
+        simple_tp3_percent: globalSettings.simple_tp3_percent,
+        rr_ratio: globalSettings.rr_ratio,
+        rr_adaptive: globalSettings.rr_adaptive,
+        rr_sl_percent_margin: globalSettings.rr_sl_percent_margin,
+        atr_sl_multiplier: globalSettings.atr_sl_multiplier,
+        atr_tp_multiplier: globalSettings.atr_tp_multiplier,
+        atr_tp2_multiplier: globalSettings.atr_tp2_multiplier,
+        atr_tp3_multiplier: globalSettings.atr_tp3_multiplier,
+        tp_strategy: globalSettings.tp_strategy,
+        tp_levels: globalSettings.tp_levels,
+        tp1_close_percent: globalSettings.tp1_close_percent,
+        tp2_close_percent: globalSettings.tp2_close_percent,
+        tp3_close_percent: globalSettings.tp3_close_percent,
+        tp1_rr_ratio: globalSettings.tp1_rr_ratio,
+        tp2_rr_ratio: globalSettings.tp2_rr_ratio,
+        tp3_rr_ratio: globalSettings.tp3_rr_ratio,
+        sl_to_breakeven: globalSettings.sl_to_breakeven,
+        breakeven_trigger_tp: globalSettings.breakeven_trigger_tp,
+        trailing_stop: globalSettings.trailing_stop,
+        trailing_stop_trigger_tp: globalSettings.trailing_stop_trigger_tp,
+        trailing_stop_distance: globalSettings.trailing_stop_distance,
+        fee_aware_breakeven: globalSettings.fee_aware_breakeven,
+        adaptive_rr: globalSettings.adaptive_rr,
+        adaptive_rr_weak_signal: globalSettings.adaptive_rr_weak_signal,
+        adaptive_rr_standard: globalSettings.adaptive_rr_standard,
+        adaptive_rr_strong: globalSettings.adaptive_rr_strong,
+        adaptive_rr_very_strong: globalSettings.adaptive_rr_very_strong,
+        adaptive_tp_spacing: globalSettings.adaptive_tp_spacing,
+        adaptive_tp_high_volatility_multiplier: globalSettings.adaptive_tp_high_volatility_multiplier,
+        adaptive_tp_low_volatility_multiplier: globalSettings.adaptive_tp_low_volatility_multiplier,
+        momentum_based_tp: globalSettings.momentum_based_tp,
+        momentum_weak_multiplier: globalSettings.momentum_weak_multiplier,
+        momentum_moderate_multiplier: globalSettings.momentum_moderate_multiplier,
+        momentum_strong_multiplier: globalSettings.momentum_strong_multiplier,
+      } : {}),
+      
+      // Tier/alert filtering - from global if copy_admin
+      ...(tierMode === "copy_admin" ? {
+        filter_by_tier: globalSettings.filter_by_tier,
+        allowed_tiers: globalSettings.allowed_tiers,
+        excluded_tiers: globalSettings.excluded_tiers,
+        session_filtering_enabled: globalSettings.session_filtering_enabled,
+        allowed_sessions: globalSettings.allowed_sessions,
+        excluded_sessions: globalSettings.excluded_sessions,
+        time_filtering_enabled: globalSettings.time_filtering_enabled,
+        active_time_ranges: globalSettings.active_time_ranges,
+        indicator_version_filter: globalSettings.indicator_version_filter,
+        duplicate_alert_handling: globalSettings.duplicate_alert_handling,
+        require_profit_for_same_direction: globalSettings.require_profit_for_same_direction,
+        pnl_threshold_percent: globalSettings.pnl_threshold_percent,
+      } : {}),
+    };
+  }, [settingsMode, localSettings, personalSettings, globalSettings]);
 
   // Update local settings when source settings change
   useEffect(() => {
@@ -650,7 +746,14 @@ export default function Settings() {
           <Card>
             <CardHeader>
               <CardTitle>Obecne Ustawienia Bota</CardTitle>
-              <CardDescription>Kompletne podsumowanie aktywnej konfiguracji</CardDescription>
+              <CardDescription>
+                Kompletne podsumowanie aktywnej konfiguracji
+                {settingsMode === "personal" && (
+                  <span className="block mt-1 text-xs">
+                    🔀 Pokazuje faktycznie używane ustawienia (z uwzględnieniem trybów copy_admin/custom)
+                  </span>
+                )}
+              </CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
               {/* PODSTAWOWE */}
@@ -659,27 +762,34 @@ export default function Settings() {
                 <div className="grid grid-cols-2 gap-3 text-sm">
                   <div className="space-y-1">
                     <div className="text-xs text-muted-foreground">Nazwa profilu</div>
-                    <div className="font-medium">{localSettings.profile_name || "Default"}</div>
+                    <div className="font-medium">{effectiveSettings?.profile_name || "Default"}</div>
                   </div>
                   <div className="space-y-1">
                     <div className="text-xs text-muted-foreground">Bot aktywny</div>
-                    <div className="font-medium">{localSettings.bot_active ? "✓ TAK" : "✗ NIE"}</div>
+                    <div className="font-medium">{effectiveSettings?.bot_active ? "✓ TAK" : "✗ NIE"}</div>
                   </div>
                 </div>
               </div>
 
               <Separator />
 
-              {/* POZYCJE */}
+              {/* POZYCJE - Money Management */}
               <div>
-                <h3 className="font-semibold mb-3">Wielkość Pozycji</h3>
+                <div className="flex items-center gap-2 mb-3">
+                  <h3 className="font-semibold">Wielkość Pozycji</h3>
+                  {settingsMode === "personal" && (
+                    <Badge variant={personalSettings?.money_mode === "custom" ? "default" : "secondary"} className="text-xs">
+                      {personalSettings?.money_mode === "custom" ? "👤 Osobiste" : "🌐 Globalne"}
+                    </Badge>
+                  )}
+                </div>
                 <div className="grid grid-cols-2 gap-3 text-sm">
                   <div className="space-y-1">
                     <div className="text-xs text-muted-foreground">Metoda</div>
                     <div className="font-medium">
-                      {localSettings.position_sizing_type === "fixed_usdt" 
+                      {effectiveSettings?.position_sizing_type === "fixed_usdt" 
                         ? "Stała kwota USDT" 
-                        : localSettings.position_sizing_type === "scalping_mode"
+                        : effectiveSettings?.position_sizing_type === "scalping_mode"
                         ? "🎯 Scalping Mode"
                         : "% kapitału"}
                     </div>
@@ -687,18 +797,18 @@ export default function Settings() {
                   <div className="space-y-1">
                     <div className="text-xs text-muted-foreground">Wartość</div>
                     <div className="font-medium">
-                      {localSettings.position_sizing_type === "scalping_mode" 
-                        ? `Max ${localSettings.max_margin_per_trade ?? 2} USDT margin / ${localSettings.max_loss_per_trade ?? 1} USDT loss`
-                        : `${localSettings.position_size_value} ${localSettings.position_sizing_type === "fixed_usdt" ? "USDT (notional)" : "%"}`}
+                      {effectiveSettings?.position_sizing_type === "scalping_mode" 
+                        ? `Max ${effectiveSettings?.max_margin_per_trade ?? 2} USDT margin / ${effectiveSettings?.max_loss_per_trade ?? 1} USDT loss`
+                        : `${effectiveSettings?.position_size_value} ${effectiveSettings?.position_sizing_type === "fixed_usdt" ? "USDT (notional)" : "%"}`}
                     </div>
-                    {localSettings.position_sizing_type === "fixed_usdt" && (
+                    {effectiveSettings?.position_sizing_type === "fixed_usdt" && (
                       <div className="text-xs text-muted-foreground">
                         Margines = wartość ÷ dźwignia
                       </div>
                     )}
-                    {localSettings.position_sizing_type === "scalping_mode" && (
+                    {effectiveSettings?.position_sizing_type === "scalping_mode" && (
                       <div className="text-xs text-muted-foreground">
-                        SL range: {localSettings.sl_percent_min ?? 0.3}% - {localSettings.sl_percent_max ?? 2.0}%
+                        SL range: {effectiveSettings?.sl_percent_min ?? 0.3}% - {effectiveSettings?.sl_percent_max ?? 2.0}%
                       </div>
                     )}
                   </div>
@@ -709,25 +819,32 @@ export default function Settings() {
 
               {/* DŹWIGNIA */}
               <div>
-                <h3 className="font-semibold mb-3">Dźwignia (Leverage)</h3>
+                <div className="flex items-center gap-2 mb-3">
+                  <h3 className="font-semibold">Dźwignia (Leverage)</h3>
+                  {settingsMode === "personal" && (
+                    <Badge variant={personalSettings?.money_mode === "custom" ? "default" : "secondary"} className="text-xs">
+                      {personalSettings?.money_mode === "custom" ? "👤 Osobiste" : "🌐 Globalne"}
+                    </Badge>
+                  )}
+                </div>
                 <div className="grid grid-cols-2 gap-3 text-sm">
                   <div className="space-y-1">
                     <div className="text-xs text-muted-foreground">Źródło dźwigni</div>
                     <div className="font-medium">
-                      {localSettings.use_alert_leverage !== false 
+                      {effectiveSettings?.use_alert_leverage !== false 
                         ? "Z alertu TradingView" 
-                        : localSettings.use_max_leverage_global 
+                        : effectiveSettings?.use_max_leverage_global 
                         ? "MAX dla wszystkich" 
-                        : `Własna (${localSettings.default_leverage || 10}x)`}
+                        : `Własna (${effectiveSettings?.default_leverage || 10}x)`}
                     </div>
                   </div>
                 </div>
-                {localSettings.symbol_leverage_overrides && 
-                  Object.keys(localSettings.symbol_leverage_overrides).length > 0 && (
+                {effectiveSettings?.symbol_leverage_overrides && 
+                  Object.keys(effectiveSettings?.symbol_leverage_overrides || {}).length > 0 && (
                   <div className="mt-3">
                     <div className="text-xs text-muted-foreground mb-2">Wyjątki dla symboli:</div>
                     <div className="flex flex-wrap gap-2">
-                      {Object.entries(localSettings.symbol_leverage_overrides).map(([symbol, leverage]: [string, any]) => (
+                      {Object.entries(effectiveSettings?.symbol_leverage_overrides || {}).map(([symbol, leverage]: [string, any]) => (
                         <Badge key={symbol} variant="outline">
                           {symbol}: {leverage}x
                         </Badge>
@@ -740,64 +857,71 @@ export default function Settings() {
               <Separator />
 
               {/* KALKULATOR SL/TP */}
-              {localSettings.position_sizing_type !== "scalping_mode" ? (
+              {effectiveSettings?.position_sizing_type !== "scalping_mode" ? (
                 <div>
-                  <h3 className="font-semibold mb-3">Kalkulator SL/TP</h3>
+                  <div className="flex items-center gap-2 mb-3">
+                    <h3 className="font-semibold">Kalkulator SL/TP</h3>
+                    {settingsMode === "personal" && (
+                      <Badge variant={personalSettings?.sltp_mode === "custom" ? "default" : "secondary"} className="text-xs">
+                        {personalSettings?.sltp_mode === "custom" ? "👤 Osobiste" : "🌐 Globalne"}
+                      </Badge>
+                    )}
+                  </div>
                   <div className="grid grid-cols-2 gap-3 text-sm">
                     <div className="space-y-1">
                       <div className="text-xs text-muted-foreground">Typ kalkulatora</div>
                       <div className="font-medium">
-                        {localSettings.calculator_type === "simple_percent" && "Prosty (%)"}
-                        {localSettings.calculator_type === "risk_reward" && "Risk:Reward"}
-                        {localSettings.calculator_type === "atr_based" && "ATR-based"}
+                        {effectiveSettings?.calculator_type === "simple_percent" && "Prosty (%)"}
+                        {effectiveSettings?.calculator_type === "risk_reward" && "Risk:Reward"}
+                        {effectiveSettings?.calculator_type === "atr_based" && "ATR-based"}
                       </div>
                     </div>
                     <div className="space-y-1">
                       <div className="text-xs text-muted-foreground">Metoda SL</div>
                       <div className="font-medium">
-                        {localSettings.sl_method === "percent_margin" && "% margin"}
-                        {localSettings.sl_method === "percent_entry" && "% od entry"}
-                        {localSettings.sl_method === "fixed_usdt" && "Stała USDT"}
-                        {localSettings.sl_method === "atr_based" && "ATR-based"}
+                        {effectiveSettings?.sl_method === "percent_margin" && "% margin"}
+                        {effectiveSettings?.sl_method === "percent_entry" && "% od entry"}
+                        {effectiveSettings?.sl_method === "fixed_usdt" && "Stała USDT"}
+                        {effectiveSettings?.sl_method === "atr_based" && "ATR-based"}
                       </div>
                     </div>
                     <div className="space-y-1">
                       <div className="text-xs text-muted-foreground">Strategia TP</div>
                       <div className="font-medium">
-                        {localSettings.tp_strategy === "partial_close" && "Częściowe zamykanie"}
-                        {localSettings.tp_strategy === "main_tp_only" && "Tylko główny TP"}
-                        {localSettings.tp_strategy === "trailing_stop" && "Trailing Stop"}
+                        {effectiveSettings?.tp_strategy === "partial_close" && "Częściowe zamykanie"}
+                        {effectiveSettings?.tp_strategy === "main_tp_only" && "Tylko główny TP"}
+                        {effectiveSettings?.tp_strategy === "trailing_stop" && "Trailing Stop"}
                       </div>
                     </div>
                     <div className="space-y-1">
                       <div className="text-xs text-muted-foreground">Liczba poziomów TP</div>
-                      <div className="font-medium">{localSettings.tp_levels || 1}</div>
+                      <div className="font-medium">{effectiveSettings?.tp_levels || 1}</div>
                     </div>
                   </div>
 
                   {/* Simple Percent */}
-                  {localSettings.calculator_type === "simple_percent" && (
+                  {effectiveSettings?.calculator_type === "simple_percent" && (
                     <div className="mt-3 p-3 bg-muted/30 rounded-lg">
                       <div className="text-xs font-medium mb-2">Prosty (%)</div>
                       <div className="grid grid-cols-2 gap-3 text-sm">
                         <div>
                           <div className="text-xs text-muted-foreground">SL %</div>
-                          <div className="font-medium">{localSettings.simple_sl_percent || 1.5}%</div>
+                          <div className="font-medium">{effectiveSettings?.simple_sl_percent || 1.5}%</div>
                         </div>
                         <div>
                           <div className="text-xs text-muted-foreground">TP1 %</div>
-                          <div className="font-medium">{localSettings.simple_tp_percent || 3}%</div>
+                          <div className="font-medium">{effectiveSettings?.simple_tp_percent || 3}%</div>
                         </div>
-                        {localSettings.tp_levels >= 2 && (
+                        {(effectiveSettings?.tp_levels || 1) >= 2 && (
                           <div>
                             <div className="text-xs text-muted-foreground">TP2 %</div>
-                            <div className="font-medium">{localSettings.simple_tp2_percent || (localSettings.simple_tp_percent * 1.5)}%</div>
+                            <div className="font-medium">{effectiveSettings?.simple_tp2_percent || ((effectiveSettings?.simple_tp_percent || 3) * 1.5)}%</div>
                           </div>
                         )}
-                        {localSettings.tp_levels >= 3 && (
+                        {(effectiveSettings?.tp_levels || 1) >= 3 && (
                           <div>
                             <div className="text-xs text-muted-foreground">TP3 %</div>
-                            <div className="font-medium">{localSettings.simple_tp3_percent || (localSettings.simple_tp_percent * 2)}%</div>
+                            <div className="font-medium">{effectiveSettings?.simple_tp3_percent || ((effectiveSettings?.simple_tp_percent || 3) * 2)}%</div>
                           </div>
                         )}
                       </div>
@@ -805,52 +929,52 @@ export default function Settings() {
                   )}
 
                   {/* Risk Reward */}
-                  {localSettings.calculator_type === "risk_reward" && (
+                  {effectiveSettings?.calculator_type === "risk_reward" && (
                     <div className="mt-3 p-3 bg-muted/30 rounded-lg">
                       <div className="text-xs font-medium mb-2">Risk:Reward</div>
                       <div className="grid grid-cols-2 gap-3 text-sm">
                         <div>
                           <div className="text-xs text-muted-foreground">SL % margin</div>
-                          <div className="font-medium">{localSettings.rr_sl_percent_margin || 2}%</div>
+                          <div className="font-medium">{effectiveSettings?.rr_sl_percent_margin || 2}%</div>
                         </div>
                         <div>
                           <div className="text-xs text-muted-foreground">Adaptive R:R</div>
-                          <div className="font-medium">{localSettings.rr_adaptive ? "✓" : "✗"}</div>
+                          <div className="font-medium">{effectiveSettings?.rr_adaptive ? "✓" : "✗"}</div>
                         </div>
-                        {localSettings.rr_adaptive && (
+                        {effectiveSettings?.rr_adaptive && (
                           <>
                             <div>
                               <div className="text-xs text-muted-foreground">Słaby R:R</div>
-                              <div className="font-medium">{localSettings.adaptive_rr_weak_signal || 1.5}</div>
+                              <div className="font-medium">{effectiveSettings?.adaptive_rr_weak_signal || 1.5}</div>
                             </div>
                             <div>
                               <div className="text-xs text-muted-foreground">Standard R:R</div>
-                              <div className="font-medium">{localSettings.adaptive_rr_standard || 2.0}</div>
+                              <div className="font-medium">{effectiveSettings?.adaptive_rr_standard || 2.0}</div>
                             </div>
                             <div>
                               <div className="text-xs text-muted-foreground">Silny R:R</div>
-                              <div className="font-medium">{localSettings.adaptive_rr_strong || 2.5}</div>
+                              <div className="font-medium">{effectiveSettings?.adaptive_rr_strong || 2.5}</div>
                             </div>
                             <div>
                               <div className="text-xs text-muted-foreground">Bardzo silny R:R</div>
-                              <div className="font-medium">{localSettings.adaptive_rr_very_strong || 3.0}</div>
+                              <div className="font-medium">{effectiveSettings?.adaptive_rr_very_strong || 3.0}</div>
                             </div>
                           </>
                         )}
                         <div>
                           <div className="text-xs text-muted-foreground">TP1 R:R</div>
-                          <div className="font-medium">{localSettings.tp1_rr_ratio || 1.5}</div>
+                          <div className="font-medium">{effectiveSettings?.tp1_rr_ratio || 1.5}</div>
                         </div>
-                        {localSettings.tp_levels >= 2 && (
+                        {(effectiveSettings?.tp_levels || 1) >= 2 && (
                           <div>
                             <div className="text-xs text-muted-foreground">TP2 R:R</div>
-                            <div className="font-medium">{localSettings.tp2_rr_ratio || 2.5}</div>
+                            <div className="font-medium">{effectiveSettings?.tp2_rr_ratio || 2.5}</div>
                           </div>
                         )}
-                        {localSettings.tp_levels >= 3 && (
+                        {(effectiveSettings?.tp_levels || 1) >= 3 && (
                           <div>
                             <div className="text-xs text-muted-foreground">TP3 R:R</div>
-                            <div className="font-medium">{localSettings.tp3_rr_ratio || 3.5}</div>
+                            <div className="font-medium">{effectiveSettings?.tp3_rr_ratio || 3.5}</div>
                           </div>
                         )}
                       </div>
@@ -858,28 +982,28 @@ export default function Settings() {
                   )}
 
                   {/* ATR Based */}
-                  {localSettings.calculator_type === "atr_based" && (
+                  {effectiveSettings?.calculator_type === "atr_based" && (
                     <div className="mt-3 p-3 bg-muted/30 rounded-lg">
                       <div className="text-xs font-medium mb-2">ATR-based</div>
                       <div className="grid grid-cols-2 gap-3 text-sm">
                         <div>
                           <div className="text-xs text-muted-foreground">SL multiplier</div>
-                          <div className="font-medium">{localSettings.atr_sl_multiplier || 1.5}x</div>
+                          <div className="font-medium">{effectiveSettings?.atr_sl_multiplier || 1.5}x</div>
                         </div>
                         <div>
                           <div className="text-xs text-muted-foreground">TP1 multiplier</div>
-                          <div className="font-medium">{localSettings.atr_tp_multiplier || 3}x</div>
+                          <div className="font-medium">{effectiveSettings?.atr_tp_multiplier || 3}x</div>
                         </div>
-                        {localSettings.tp_levels >= 2 && (
+                        {(effectiveSettings?.tp_levels || 1) >= 2 && (
                           <div>
                             <div className="text-xs text-muted-foreground">TP2 multiplier</div>
-                            <div className="font-medium">{localSettings.atr_tp2_multiplier || (localSettings.atr_tp_multiplier * 1.5)}x</div>
+                            <div className="font-medium">{effectiveSettings?.atr_tp2_multiplier || ((effectiveSettings?.atr_tp_multiplier || 3) * 1.5)}x</div>
                           </div>
                         )}
-                        {localSettings.tp_levels >= 3 && (
+                        {(effectiveSettings?.tp_levels || 1) >= 3 && (
                           <div>
                             <div className="text-xs text-muted-foreground">TP3 multiplier</div>
-                            <div className="font-medium">{localSettings.atr_tp3_multiplier || (localSettings.atr_tp_multiplier * 2)}x</div>
+                            <div className="font-medium">{effectiveSettings?.atr_tp3_multiplier || ((effectiveSettings?.atr_tp_multiplier || 3) * 2)}x</div>
                           </div>
                         )}
                       </div>
@@ -892,18 +1016,18 @@ export default function Settings() {
                     <div className="grid grid-cols-3 gap-3 text-sm">
                       <div>
                         <div className="text-xs text-muted-foreground">TP1</div>
-                        <div className="font-medium">{localSettings.tp1_close_percent || 100}%</div>
+                        <div className="font-medium">{effectiveSettings?.tp1_close_percent || 100}%</div>
                       </div>
-                      {localSettings.tp_levels >= 2 && (
+                      {(effectiveSettings?.tp_levels || 1) >= 2 && (
                         <div>
                           <div className="text-xs text-muted-foreground">TP2</div>
-                          <div className="font-medium">{localSettings.tp2_close_percent || 0}%</div>
+                          <div className="font-medium">{effectiveSettings?.tp2_close_percent || 0}%</div>
                         </div>
                       )}
-                      {localSettings.tp_levels >= 3 && (
+                      {(effectiveSettings?.tp_levels || 1) >= 3 && (
                         <div>
                           <div className="text-xs text-muted-foreground">TP3</div>
-                          <div className="font-medium">{localSettings.tp3_close_percent || 0}%</div>
+                          <div className="font-medium">{effectiveSettings?.tp3_close_percent || 0}%</div>
                         </div>
                       )}
                     </div>
@@ -911,33 +1035,40 @@ export default function Settings() {
                 </div>
               ) : (
                 <div>
-                  <h3 className="font-semibold mb-3">🎯 Scalping Mode - SL/TP</h3>
+                  <div className="flex items-center gap-2 mb-3">
+                    <h3 className="font-semibold">🎯 Scalping Mode - SL/TP</h3>
+                    {settingsMode === "personal" && (
+                      <Badge variant={personalSettings?.money_mode === "custom" ? "default" : "secondary"} className="text-xs">
+                        {personalSettings?.money_mode === "custom" ? "👤 Osobiste" : "🌐 Globalne"}
+                      </Badge>
+                    )}
+                  </div>
                   <div className="p-3 bg-primary/10 rounded-lg">
                     <div className="grid grid-cols-2 gap-3 text-sm">
                       <div className="space-y-1">
                         <div className="text-xs text-muted-foreground">Algorytm SL</div>
                         <div className="font-medium">
-                          SL% = {localSettings.max_loss_per_trade} / ({localSettings.max_margin_per_trade} × leverage)
+                          SL% = {effectiveSettings?.max_loss_per_trade} / ({effectiveSettings?.max_margin_per_trade} × leverage)
                         </div>
                       </div>
                       <div className="space-y-1">
                         <div className="text-xs text-muted-foreground">Zakres SL%</div>
-                        <div className="font-medium">{localSettings.sl_percent_min}% - {localSettings.sl_percent_max}%</div>
+                        <div className="font-medium">{effectiveSettings?.sl_percent_min}% - {effectiveSettings?.sl_percent_max}%</div>
                       </div>
                       <div className="space-y-1">
                         <div className="text-xs text-muted-foreground">TP1 R:R</div>
-                        <div className="font-medium">{localSettings.tp1_rr_ratio} (distance = SL × {localSettings.tp1_rr_ratio})</div>
+                        <div className="font-medium">{effectiveSettings?.tp1_rr_ratio} (distance = SL × {effectiveSettings?.tp1_rr_ratio})</div>
                       </div>
-                      {localSettings.tp_levels >= 2 && (
+                      {(effectiveSettings?.tp_levels || 1) >= 2 && (
                         <div className="space-y-1">
                           <div className="text-xs text-muted-foreground">TP2 R:R</div>
-                          <div className="font-medium">{localSettings.tp2_rr_ratio} (distance = SL × {localSettings.tp2_rr_ratio})</div>
+                          <div className="font-medium">{effectiveSettings?.tp2_rr_ratio} (distance = SL × {effectiveSettings?.tp2_rr_ratio})</div>
                         </div>
                       )}
-                      {localSettings.tp_levels >= 3 && (
+                      {(effectiveSettings?.tp_levels || 1) >= 3 && (
                         <div className="space-y-1">
                           <div className="text-xs text-muted-foreground">TP3 R:R</div>
-                          <div className="font-medium">{localSettings.tp3_rr_ratio} (distance = SL × {localSettings.tp3_rr_ratio})</div>
+                          <div className="font-medium">{effectiveSettings?.tp3_rr_ratio} (distance = SL × {effectiveSettings?.tp3_rr_ratio})</div>
                         </div>
                       )}
                     </div>
@@ -948,20 +1079,20 @@ export default function Settings() {
                       <div className="grid grid-cols-4 gap-2">
                         <div>
                           <div className="text-muted-foreground">SL%:</div>
-                          <div className="font-medium">{((localSettings.max_loss_per_trade / (localSettings.max_margin_per_trade * 75)) * 100).toFixed(2)}%</div>
+                          <div className="font-medium">{(((effectiveSettings?.max_loss_per_trade || 1) / ((effectiveSettings?.max_margin_per_trade || 2) * 75)) * 100).toFixed(2)}%</div>
                         </div>
                         <div>
                           <div className="text-muted-foreground">Loss:</div>
-                          <div className="font-medium">{localSettings.max_loss_per_trade} USDT</div>
+                          <div className="font-medium">{effectiveSettings?.max_loss_per_trade} USDT</div>
                         </div>
                         <div>
                           <div className="text-muted-foreground">TP1%:</div>
-                          <div className="font-medium">{((localSettings.max_loss_per_trade / (localSettings.max_margin_per_trade * 75)) * 100 * localSettings.tp1_rr_ratio).toFixed(2)}%</div>
+                          <div className="font-medium">{(((effectiveSettings?.max_loss_per_trade || 1) / ((effectiveSettings?.max_margin_per_trade || 2) * 75)) * 100 * (effectiveSettings?.tp1_rr_ratio || 1.5)).toFixed(2)}%</div>
                         </div>
-                        {localSettings.tp_levels >= 2 && (
+                        {(effectiveSettings?.tp_levels || 1) >= 2 && (
                           <div>
                             <div className="text-muted-foreground">TP2%:</div>
-                            <div className="font-medium">{((localSettings.max_loss_per_trade / (localSettings.max_margin_per_trade * 75)) * 100 * localSettings.tp2_rr_ratio).toFixed(2)}%</div>
+                            <div className="font-medium">{(((effectiveSettings?.max_loss_per_trade || 1) / ((effectiveSettings?.max_margin_per_trade || 2) * 75)) * 100 * (effectiveSettings?.tp2_rr_ratio || 2.5)).toFixed(2)}%</div>
                           </div>
                         )}
                       </div>
@@ -978,18 +1109,18 @@ export default function Settings() {
                     <div className="grid grid-cols-3 gap-3 text-sm">
                       <div>
                         <div className="text-xs text-muted-foreground">TP1</div>
-                        <div className="font-medium">{localSettings.tp1_close_percent || 100}%</div>
+                        <div className="font-medium">{effectiveSettings?.tp1_close_percent || 100}%</div>
                       </div>
-                      {localSettings.tp_levels >= 2 && (
+                      {(effectiveSettings?.tp_levels || 1) >= 2 && (
                         <div>
                           <div className="text-xs text-muted-foreground">TP2</div>
-                          <div className="font-medium">{localSettings.tp2_close_percent || 0}%</div>
+                          <div className="font-medium">{effectiveSettings?.tp2_close_percent || 0}%</div>
                         </div>
                       )}
-                      {localSettings.tp_levels >= 3 && (
+                      {(effectiveSettings?.tp_levels || 1) >= 3 && (
                         <div>
                           <div className="text-xs text-muted-foreground">TP3</div>
-                          <div className="font-medium">{localSettings.tp3_close_percent || 0}%</div>
+                          <div className="font-medium">{effectiveSettings?.tp3_close_percent || 0}%</div>
                         </div>
                       )}
                     </div>
@@ -1001,34 +1132,41 @@ export default function Settings() {
 
               {/* ZARZĄDZANIE SL */}
               <div>
-                <h3 className="font-semibold mb-3">Zarządzanie Stop Loss</h3>
+                <div className="flex items-center gap-2 mb-3">
+                  <h3 className="font-semibold">Zarządzanie Stop Loss</h3>
+                  {settingsMode === "personal" && (
+                    <Badge variant={personalSettings?.sltp_mode === "custom" ? "default" : "secondary"} className="text-xs">
+                      {personalSettings?.sltp_mode === "custom" ? "👤 Osobiste" : "🌐 Globalne"}
+                    </Badge>
+                  )}
+                </div>
                 <div className="grid grid-cols-2 gap-3 text-sm">
                   <div className="space-y-1">
                     <div className="text-xs text-muted-foreground">Strategia SL</div>
                     <div className="font-medium">
-                      {localSettings.trailing_stop ? "Trailing Stop" : 
-                       localSettings.sl_to_breakeven ? "Breakeven" : "Brak"}
+                      {effectiveSettings?.trailing_stop ? "Trailing Stop" : 
+                       effectiveSettings?.sl_to_breakeven ? "Breakeven" : "Brak"}
                     </div>
                   </div>
                   <div className="space-y-1">
                     <div className="text-xs text-muted-foreground">Fee-aware breakeven</div>
-                    <div className="font-medium">{localSettings.fee_aware_breakeven !== false ? "✓ TAK" : "✗ NIE"}</div>
+                    <div className="font-medium">{effectiveSettings?.fee_aware_breakeven !== false ? "✓ TAK" : "✗ NIE"}</div>
                   </div>
-                  {localSettings.sl_to_breakeven && (
+                  {effectiveSettings?.sl_to_breakeven && (
                     <div className="space-y-1">
                       <div className="text-xs text-muted-foreground">Breakeven po TP</div>
-                      <div className="font-medium">TP{localSettings.breakeven_trigger_tp || 1}</div>
+                      <div className="font-medium">TP{effectiveSettings?.breakeven_trigger_tp || 1}</div>
                     </div>
                   )}
-                  {localSettings.trailing_stop && (
+                  {effectiveSettings?.trailing_stop && (
                     <>
                       <div className="space-y-1">
                         <div className="text-xs text-muted-foreground">Trailing start po TP</div>
-                        <div className="font-medium">TP{localSettings.trailing_stop_trigger_tp || 1}</div>
+                        <div className="font-medium">TP{effectiveSettings?.trailing_stop_trigger_tp || 1}</div>
                       </div>
                       <div className="space-y-1">
                         <div className="text-xs text-muted-foreground">Trailing odległość</div>
-                        <div className="font-medium">{localSettings.trailing_stop_distance || 1}%</div>
+                        <div className="font-medium">{effectiveSettings?.trailing_stop_distance || 1}%</div>
                       </div>
                     </>
                   )}
@@ -1043,37 +1181,37 @@ export default function Settings() {
                 <div className="grid grid-cols-2 gap-3 text-sm">
                   <div className="space-y-1">
                     <div className="text-xs text-muted-foreground">Adaptive TP Spacing</div>
-                    <div className="font-medium">{localSettings.adaptive_tp_spacing ? "✓" : "✗"}</div>
+                    <div className="font-medium">{effectiveSettings?.adaptive_tp_spacing ? "✓" : "✗"}</div>
                   </div>
-                  {localSettings.adaptive_tp_spacing && (
+                  {effectiveSettings?.adaptive_tp_spacing && (
                     <>
                       <div className="space-y-1">
                         <div className="text-xs text-muted-foreground">Wysoka zmienność</div>
-                        <div className="font-medium">{localSettings.adaptive_tp_high_volatility_multiplier || 1.3}x</div>
+                        <div className="font-medium">{effectiveSettings?.adaptive_tp_high_volatility_multiplier || 1.3}x</div>
                       </div>
                       <div className="space-y-1">
                         <div className="text-xs text-muted-foreground">Niska zmienność</div>
-                        <div className="font-medium">{localSettings.adaptive_tp_low_volatility_multiplier || 0.9}x</div>
+                        <div className="font-medium">{effectiveSettings?.adaptive_tp_low_volatility_multiplier || 0.9}x</div>
                       </div>
                     </>
                   )}
                   <div className="space-y-1">
                     <div className="text-xs text-muted-foreground">Momentum-based TP</div>
-                    <div className="font-medium">{localSettings.momentum_based_tp ? "✓" : "✗"}</div>
+                    <div className="font-medium">{effectiveSettings?.momentum_based_tp ? "✓" : "✗"}</div>
                   </div>
-                  {localSettings.momentum_based_tp && (
+                  {effectiveSettings?.momentum_based_tp && (
                     <>
                       <div className="space-y-1">
                         <div className="text-xs text-muted-foreground">Słaby momentum</div>
-                        <div className="font-medium">{localSettings.momentum_weak_multiplier || 0.9}x</div>
+                        <div className="font-medium">{effectiveSettings?.momentum_weak_multiplier || 0.9}x</div>
                       </div>
                       <div className="space-y-1">
                         <div className="text-xs text-muted-foreground">Umiarkowany</div>
-                        <div className="font-medium">{localSettings.momentum_moderate_multiplier || 1.1}x</div>
+                        <div className="font-medium">{effectiveSettings?.momentum_moderate_multiplier || 1.1}x</div>
                       </div>
                       <div className="space-y-1">
                         <div className="text-xs text-muted-foreground">Silny momentum</div>
-                        <div className="font-medium">{localSettings.momentum_strong_multiplier || 1.3}x</div>
+                        <div className="font-medium">{effectiveSettings?.momentum_strong_multiplier || 1.3}x</div>
                       </div>
                     </>
                   )}
@@ -1084,24 +1222,31 @@ export default function Settings() {
 
               {/* RISK MANAGEMENT */}
               <div>
-                <h3 className="font-semibold mb-3">Risk Management</h3>
+                <div className="flex items-center gap-2 mb-3">
+                  <h3 className="font-semibold">Risk Management</h3>
+                  {settingsMode === "personal" && (
+                    <Badge variant={personalSettings?.money_mode === "custom" ? "default" : "secondary"} className="text-xs">
+                      {personalSettings?.money_mode === "custom" ? "👤 Osobiste" : "🌐 Globalne"}
+                    </Badge>
+                  )}
+                </div>
                 <div className="grid grid-cols-2 gap-3 text-sm">
                   <div className="space-y-1">
                     <div className="text-xs text-muted-foreground">Max otwartych pozycji</div>
-                    <div className="font-medium">{localSettings.max_open_positions || 3}</div>
+                    <div className="font-medium">{effectiveSettings?.max_open_positions || 3}</div>
                   </div>
                   <div className="space-y-1">
                     <div className="text-xs text-muted-foreground">Typ limitu straty</div>
                     <div className="font-medium">
-                      {localSettings.loss_limit_type === "percent_drawdown" ? "% Drawdown" : "Stała kwota"}
+                      {effectiveSettings?.loss_limit_type === "percent_drawdown" ? "% Drawdown" : "Stała kwota"}
                     </div>
                   </div>
                   <div className="space-y-1">
                     <div className="text-xs text-muted-foreground">Dzienny limit straty</div>
                     <div className="font-medium">
-                      {localSettings.loss_limit_type === "percent_drawdown" 
-                        ? `${localSettings.daily_loss_percent || 5}%` 
-                        : `${localSettings.daily_loss_limit || 500} USDT`}
+                      {effectiveSettings?.loss_limit_type === "percent_drawdown" 
+                        ? `${effectiveSettings?.daily_loss_percent || 5}%` 
+                        : `${effectiveSettings?.daily_loss_limit || 500} USDT`}
                     </div>
                   </div>
                 </div>
@@ -1115,11 +1260,11 @@ export default function Settings() {
                 <div className="grid grid-cols-2 gap-3 text-sm">
                   <div className="space-y-1">
                     <div className="text-xs text-muted-foreground">Auto-repair</div>
-                    <div className="font-medium">{localSettings.auto_repair ? "✓ Włączony" : "✗ Wyłączony"}</div>
+                    <div className="font-medium">{effectiveSettings?.auto_repair ? "✓ Włączony" : "✗ Wyłączony"}</div>
                   </div>
                   <div className="space-y-1">
                     <div className="text-xs text-muted-foreground">Interwał sprawdzania</div>
-                    <div className="font-medium">{localSettings.monitor_interval_seconds || 60}s</div>
+                    <div className="font-medium">{effectiveSettings?.monitor_interval_seconds || 60}s</div>
                   </div>
                 </div>
               </div>
@@ -1128,18 +1273,25 @@ export default function Settings() {
 
               {/* FILTROWANIE ALERTÓW */}
               <div>
-                <h3 className="font-semibold mb-3">Filtrowanie Alertów</h3>
+                <div className="flex items-center gap-2 mb-3">
+                  <h3 className="font-semibold">Filtrowanie Alertów</h3>
+                  {settingsMode === "personal" && (
+                    <Badge variant={personalSettings?.tier_mode === "custom" ? "default" : "secondary"} className="text-xs">
+                      {personalSettings?.tier_mode === "custom" ? "👤 Osobiste" : "🌐 Globalne"}
+                    </Badge>
+                  )}
+                </div>
                 <div className="grid grid-cols-2 gap-3 text-sm">
                   <div className="space-y-1">
                     <div className="text-xs text-muted-foreground">Filtr Tier</div>
-                    <div className="font-medium">{localSettings.filter_by_tier ? "✓ Włączony" : "✗ Wyłączony"}</div>
+                    <div className="font-medium">{effectiveSettings?.filter_by_tier ? "✓ Włączony" : "✗ Wyłączony"}</div>
                   </div>
-                  {localSettings.filter_by_tier && (
+                  {effectiveSettings?.filter_by_tier && (
                     <div className="space-y-1">
                       <div className="text-xs text-muted-foreground">Wykluczone Tier</div>
-                      {(localSettings.excluded_tiers || []).length > 0 ? (
+                      {(effectiveSettings?.excluded_tiers || []).length > 0 ? (
                         <div className="flex flex-wrap gap-1">
-                          {(localSettings.excluded_tiers || []).map((tier: string) => (
+                          {(effectiveSettings?.excluded_tiers || []).map((tier: string) => (
                             <Badge key={tier} variant="destructive" className="text-xs">{tier}</Badge>
                           ))}
                         </div>
@@ -1151,16 +1303,16 @@ export default function Settings() {
                   <div className="space-y-1">
                     <div className="text-xs text-muted-foreground">Min siła sygnału</div>
                     <div className="font-medium">
-                      {localSettings.min_signal_strength_enabled 
-                        ? `✓ Włączony (${((localSettings.min_signal_strength_threshold ?? 0.50) * 100).toFixed(0)}%)`
+                      {effectiveSettings?.min_signal_strength_enabled 
+                        ? `✓ Włączony (${((effectiveSettings?.min_signal_strength_threshold ?? 0.50) * 100).toFixed(0)}%)`
                         : "✗ Wyłączony"}
                     </div>
                   </div>
                   <div className="space-y-1">
                     <div className="text-xs text-muted-foreground">Filtr wersji wskaźnika</div>
                     <div className="font-medium">
-                      {localSettings.indicator_version_filter && localSettings.indicator_version_filter.length > 0
-                        ? `✓ Tylko ${localSettings.indicator_version_filter.map((v: string) => `v${v}`).join(', ')}`
+                      {effectiveSettings?.indicator_version_filter && effectiveSettings?.indicator_version_filter.length > 0
+                        ? `✓ Tylko ${effectiveSettings?.indicator_version_filter.map((v: string) => `v${v}`).join(', ')}`
                         : "✗ Wszystkie wersje"}
                     </div>
                   </div>
@@ -1175,19 +1327,19 @@ export default function Settings() {
                 <div className="grid grid-cols-2 gap-3 text-sm">
                   <div className="space-y-1">
                     <div className="text-xs text-muted-foreground">Filtr sesji</div>
-                    <div className="font-medium">{localSettings.session_filtering_enabled ? "✓ Włączony" : "✗ Wyłączony"}</div>
+                    <div className="font-medium">{effectiveSettings?.session_filtering_enabled ? "✓ Włączony" : "✗ Wyłączony"}</div>
                   </div>
-                  {localSettings.session_filtering_enabled && (
+                  {effectiveSettings?.session_filtering_enabled && (
                     <>
                       <div className="space-y-1">
                         <div className="text-xs text-muted-foreground">Dozwolone sesje</div>
-                        <div className="font-medium text-xs">{(localSettings.allowed_sessions || []).join(", ") || "Wszystkie"}</div>
+                        <div className="font-medium text-xs">{(effectiveSettings?.allowed_sessions || []).join(", ") || "Wszystkie"}</div>
                       </div>
-                      {(localSettings.excluded_sessions || []).length > 0 && (
+                      {(effectiveSettings?.excluded_sessions || []).length > 0 && (
                         <div className="space-y-1 col-span-2">
                           <div className="text-xs text-muted-foreground">Wykluczone sesje</div>
                           <div className="flex flex-wrap gap-1">
-                            {(localSettings.excluded_sessions || []).map((session: string) => (
+                            {(effectiveSettings?.excluded_sessions || []).map((session: string) => (
                               <Badge key={session} variant="destructive" className="text-xs">{session}</Badge>
                             ))}
                           </div>
@@ -1197,18 +1349,18 @@ export default function Settings() {
                   )}
                   <div className="space-y-1">
                     <div className="text-xs text-muted-foreground">Filtr czasowy</div>
-                    <div className="font-medium">{localSettings.time_filtering_enabled ? "✓ Włączony" : "✗ Wyłączony"}</div>
+                    <div className="font-medium">{effectiveSettings?.time_filtering_enabled ? "✓ Włączony" : "✗ Wyłączony"}</div>
                   </div>
-                  {localSettings.time_filtering_enabled && (
+                  {effectiveSettings?.time_filtering_enabled && (
                     <>
                       <div className="space-y-1">
                         <div className="text-xs text-muted-foreground">Strefa czasowa</div>
-                        <div className="font-medium text-xs">{localSettings.user_timezone || "Europe/Amsterdam"}</div>
+                        <div className="font-medium text-xs">{effectiveSettings?.user_timezone || "Europe/Amsterdam"}</div>
                       </div>
                       <div className="space-y-1 col-span-2">
                         <div className="text-xs text-muted-foreground">Aktywne godziny</div>
                         <div className="font-medium text-xs">
-                          {(localSettings.active_time_ranges || []).map((r: {start: string, end: string}, i: number) => 
+                          {(effectiveSettings?.active_time_ranges || []).map((r: {start: string, end: string}, i: number) => 
                             <Badge key={i} variant="outline" className="mr-1">{r.start}-{r.end}</Badge>
                           )}
                         </div>
@@ -1226,21 +1378,21 @@ export default function Settings() {
                 <div className="grid grid-cols-2 gap-3 text-sm">
                   <div className="space-y-1">
                     <div className="text-xs text-muted-foreground">Smart duplicate handling</div>
-                    <div className="font-medium">{localSettings.duplicate_alert_handling !== false ? "✓ Włączony" : "✗ Wyłączony"}</div>
+                    <div className="font-medium">{effectiveSettings?.duplicate_alert_handling !== false ? "✓ Włączony" : "✗ Wyłączony"}</div>
                   </div>
-                  {localSettings.duplicate_alert_handling !== false && (
+                  {effectiveSettings?.duplicate_alert_handling !== false && (
                     <>
                       <div className="space-y-1">
                         <div className="text-xs text-muted-foreground">Próg siły alertu</div>
-                        <div className="font-medium">{Math.round((localSettings.alert_strength_threshold || 0.20) * 100)} pkt</div>
+                        <div className="font-medium">{Math.round((effectiveSettings?.alert_strength_threshold || 0.20) * 100)} pkt</div>
                       </div>
                       <div className="space-y-1">
                         <div className="text-xs text-muted-foreground">Próg PnL</div>
-                        <div className="font-medium">{localSettings.pnl_threshold_percent || 0.5}%</div>
+                        <div className="font-medium">{effectiveSettings?.pnl_threshold_percent || 0.5}%</div>
                       </div>
                       <div className="space-y-1">
                         <div className="text-xs text-muted-foreground">Wymóg zysku dla tego samego kierunku</div>
-                        <div className="font-medium">{localSettings.require_profit_for_same_direction !== false ? "✓ TAK" : "✗ NIE"}</div>
+                        <div className="font-medium">{effectiveSettings?.require_profit_for_same_direction !== false ? "✓ TAK" : "✗ NIE"}</div>
                       </div>
                     </>
                   )}
@@ -1251,10 +1403,17 @@ export default function Settings() {
 
               {/* KATEGORIE */}
               <div>
-                <h3 className="font-semibold mb-3">Ustawienia per Kategoria</h3>
+                <div className="flex items-center gap-2 mb-3">
+                  <h3 className="font-semibold">Ustawienia per Kategoria</h3>
+                  {settingsMode === "personal" && (
+                    <Badge variant={personalSettings?.money_mode === "custom" ? "default" : "secondary"} className="text-xs">
+                      {personalSettings?.money_mode === "custom" ? "👤 Osobiste" : "🌐 Globalne"}
+                    </Badge>
+                  )}
+                </div>
                 <div className="space-y-4">
                   {['BTC_ETH', 'MAJOR', 'ALTCOIN'].map((category) => {
-                    const cat = localSettings.category_settings?.[category];
+                    const cat = effectiveSettings?.category_settings?.[category];
                     const isEnabled = cat?.enabled === true;
                     
                     return (
