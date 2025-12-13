@@ -317,6 +317,8 @@ export async function getUserSettings(userId: string, symbol?: string): Promise<
     finalSettings.time_filtering_enabled = adminSettings.time_filtering_enabled ?? false;
     finalSettings.user_timezone = adminSettings.user_timezone ?? 'Europe/Amsterdam';
     finalSettings.active_time_ranges = adminSettings.active_time_ranges ?? [{ start: '00:00', end: '23:59' }];
+    // Indicator version filter also follows tier_mode
+    finalSettings.indicator_version_filter = adminSettings.indicator_version_filter ?? null;
   }
 
   // Apply category-specific overrides if symbol provided
