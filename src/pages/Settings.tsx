@@ -906,22 +906,18 @@ export default function Settings() {
                     <div className="font-medium">{localSettings.filter_by_tier ? "✓ Włączony" : "✗ Wyłączony"}</div>
                   </div>
                   {localSettings.filter_by_tier && (
-                    <>
-                      <div className="space-y-1">
-                        <div className="text-xs text-muted-foreground">Dozwolone Tier</div>
-                        <div className="font-medium text-xs">{(localSettings.allowed_tiers || []).join(", ") || "Wszystkie"}</div>
-                      </div>
-                      {(localSettings.excluded_tiers || []).length > 0 && (
-                        <div className="space-y-1 col-span-2">
-                          <div className="text-xs text-muted-foreground">Wykluczone Tier</div>
-                          <div className="flex flex-wrap gap-1">
-                            {(localSettings.excluded_tiers || []).map((tier: string) => (
-                              <Badge key={tier} variant="destructive" className="text-xs">{tier}</Badge>
-                            ))}
-                          </div>
+                    <div className="space-y-1">
+                      <div className="text-xs text-muted-foreground">Wykluczone Tier</div>
+                      {(localSettings.excluded_tiers || []).length > 0 ? (
+                        <div className="flex flex-wrap gap-1">
+                          {(localSettings.excluded_tiers || []).map((tier: string) => (
+                            <Badge key={tier} variant="destructive" className="text-xs">{tier}</Badge>
+                          ))}
                         </div>
+                      ) : (
+                        <div className="font-medium text-xs text-green-600">Brak wykluczeń</div>
                       )}
-                    </>
+                    </div>
                   )}
                   <div className="space-y-1">
                     <div className="text-xs text-muted-foreground">Min siła sygnału</div>
