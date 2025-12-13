@@ -195,6 +195,8 @@ export default function History() {
       "Session", "Bars Since Last Signal",
       // Diagnostics (from raw_data)
       "Health", "Zones", "Buy Strength", "Sell Strength", "Inst Flow", "Acc Ratio",
+      // v9.3 Intelligence (from raw_data)
+      "V93 Volatility Regime", "V93 M1 Impulse", "V93 RS vs BTC",
       // Other raw_data
       "Distribution", "Institutional Flow", "Tier Numeric", "SL Distance", "Risk Per Unit", "Version",
       // Metadata - MM settings
@@ -231,6 +233,7 @@ export default function History() {
       const zoneDetails = raw.zone_details || {};
       const timing = raw.timing || {};
       const diagnostics = raw.diagnostics || {};
+      const v93 = raw.v93_intelligence || {};
 
       return [
         // Position data
@@ -335,6 +338,10 @@ export default function History() {
         diagnostics.sell_str != null ? Number(diagnostics.sell_str).toFixed(4) : "-",
         diagnostics.inst_flow != null ? Number(diagnostics.inst_flow).toFixed(4) : "-",
         diagnostics.acc_ratio != null ? Number(diagnostics.acc_ratio).toFixed(4) : "-",
+        // v9.3 Intelligence
+        v93.volatility_regime || "-",
+        v93.m1_impulse != null ? (v93.m1_impulse ? "TAK" : "NIE") : "-",
+        v93.rs_vs_btc != null ? Number(v93.rs_vs_btc).toFixed(4) : "-",
         // Other raw_data
         raw.distribution != null ? raw.distribution : "-",
         raw.institutional_flow != null ? Number(raw.institutional_flow).toFixed(4) : "-",

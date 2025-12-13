@@ -29,6 +29,7 @@ import { FiltersScoreCard } from "@/components/stats/FiltersScoreCard";
 import { ZoneAgeAnalysisCard } from "@/components/stats/ZoneAgeAnalysisCard";
 import { StructureAnalysisCard } from "@/components/stats/StructureAnalysisCard";
 import { VolumeAnalysisCard } from "@/components/stats/VolumeAnalysisCard";
+import { V93IntelligenceCard } from "@/components/stats/V93IntelligenceCard";
 import { useTradingStats } from "@/hooks/useTradingStats";
 import { exportToCSV, exportStatsToCSV } from "@/lib/exportStats";
 import { startOfDay, subDays, isAfter, isBefore, format, getDay, startOfMonth, endOfMonth } from "date-fns";
@@ -1675,6 +1676,97 @@ export default function Stats() {
     };
   }, [filteredPositions]);
 
+  // v9.3 Intelligence Analysis
+  const v93Stats = useMemo(() => {
+    if (!filteredPositions) return { volatilityRegime: [], m1Impulse: [], rsVsBtc: [] };
+
+    const volatilityMap = new Map<string, { label: string; trades: number; wins: number; totalPnl: number }>();
+    const impulseMap = new Map<string, { label: string; trades: number; wins: number; totalPnl: number }>();
+    const rsRanges = [
+      { min: -Infinity, max: -0.5, label: 'Słaba (<-0.5)' },
+      { min: -0.5, max: 0, label: 'Lekko słaba (-0.5 do 0)' },
+      { min: 0, max: 0.5, label: 'Lekko silna (0 do 0.5)' },
+      { min: 0.5, max: Infinity, label: 'Silna (>0.5)' },
+    ];
+    const rsMap = new Map<string, { label: string; trades: number; wins: number; totalPnl: number }>();
+
+    filteredPositions.forEach(p => {
+      const alert = Array.isArray(p.alerts) ? p.alerts[0] : p.alerts;
+      const rawData = alert?.raw_data as any;
+      const v93 = rawData?.v93_intelligence;
+      if (!v93) return;
+
+      const pnl = Number(p.realized_pnl || 0);
+      const isWin = pnl > 0;
+
+      // Volatility Regime
+      if (v93.volatility_regime) {
+        const regime = v93.volatility_regime;
+        if (!volatilityMap.has(regime)) {
+          volatilityMap.set(regime, { label: regime, trades: 0, wins: 0, totalPnl: 0 });
+        }
+        const stats = volatilityMap.get(regime)!;
+        stats.trades++;
+        stats.totalPnl += pnl;
+        if (isWin) stats.wins++;
+      }
+
+      // M1 Impulse
+      if (v93.m1_impulse != null) {
+        const label = v93.m1_impulse ? 'With Impulse' : 'No Impulse';
+        if (!impulseMap.has(label)) {
+          impulseMap.set(label, { label, trades: 0, wins: 0, totalPnl: 0 });
+        }
+        const stats = impulseMap.get(label)!;
+        stats.trades++;
+        stats.totalPnl += pnl;
+        if (isWin) stats.wins++;
+      }
+
+      // RS vs BTC
+      if (v93.rs_vs_btc != null) {
+        const rsValue = Number(v93.rs_vs_btc);
+        const range = rsRanges.find(r => rsValue >= r.min && rsValue < r.max);
+        if (range) {
+          if (!rsMap.has(range.label)) {
+            rsMap.set(range.label, { label: range.label, trades: 0, wins: 0, totalPnl: 0 });
+          }
+          const stats = rsMap.get(range.label)!;
+          stats.trades++;
+          stats.totalPnl += pnl;
+          if (isWin) stats.wins++;
+        }
+      }
+    });
+
+    const toStatsArray = (map: Map<string, any>) => 
+      Array.from(map.values()).map(s => ({
+        label: s.label,
+        trades: s.trades,
+        wins: s.wins,
+        winRate: s.trades > 0 ? (s.wins / s.trades) * 100 : 0,
+        avgPnl: s.trades > 0 ? s.totalPnl / s.trades : 0,
+        totalPnl: s.totalPnl,
+      })).sort((a, b) => b.totalPnl - a.totalPnl);
+
+    return {
+      volatilityRegime: toStatsArray(volatilityMap),
+      m1Impulse: toStatsArray(impulseMap),
+      rsVsBtc: rsRanges.map(r => {
+        const stats = rsMap.get(r.label);
+        if (!stats) return null;
+        return {
+          label: stats.label,
+          trades: stats.trades,
+          wins: stats.wins,
+          winRate: stats.trades > 0 ? (stats.wins / stats.trades) * 100 : 0,
+          avgPnl: stats.trades > 0 ? stats.totalPnl / stats.trades : 0,
+          totalPnl: stats.totalPnl,
+        };
+      }).filter(Boolean) as any[],
+    };
+  }, [filteredPositions]);
+
   // Helper: Get time filter label for export filenames
   const getTimeFilterLabel = () => {
     if (timeFilter === "custom" && customRange.from && customRange.to) {
@@ -2429,6 +2521,13 @@ export default function Stats() {
               <VolumeAnalysisCard 
                 volumeClimaxStats={volumeData.climax}
                 volumeRatioStats={volumeData.ratio}
+              />
+
+              {/* v9.3 Intelligence Analysis */}
+              <V93IntelligenceCard 
+                volatilityRegimeStats={v93Stats.volatilityRegime}
+                m1ImpulseStats={v93Stats.m1Impulse}
+                rsVsBtcStats={v93Stats.rsVsBtc}
               />
             </TabsContent>
           </Tabs>
