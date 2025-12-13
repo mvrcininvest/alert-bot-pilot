@@ -16,18 +16,21 @@ import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { FeeCalculator } from "@/components/settings/FeeCalculator";
 import { useTradingStats } from "@/hooks/useTradingStats";
 import { Alert, AlertDescription } from "@/components/ui/alert";
-import { AlertTriangle, Clock, Plus, Trash2, RefreshCw } from "lucide-react";
+import { AlertTriangle, Clock, Plus, Trash2, RefreshCw, Globe, User } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
 
 export default function Settings() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
-  const { user } = useAuth();
+  const { user, isAdmin } = useAuth();
   const [localSettings, setLocalSettings] = useState<any>(null);
   const [newSymbolLeverage, setNewSymbolLeverage] = useState<string>("");
   const [leverageSource, setLeverageSource] = useState<"alert" | "global_max" | "custom">("alert");
   const [accountBalance, setAccountBalance] = useState<number>(100);
   const [isFetchingBalance, setIsFetchingBalance] = useState(false);
+  
+  // Admin mode: 'global' edits settings table, 'personal' edits user_settings table
+  const [settingsMode, setSettingsMode] = useState<"global" | "personal">("global");
   
   // Advanced FeeCalculator parameters
   const [entryPrice, setEntryPrice] = useState<number | undefined>();
@@ -41,7 +44,8 @@ export default function Settings() {
   // Fetch trading statistics
   const { data: tradingStats, isLoading: statsLoading } = useTradingStats();
 
-  const { data: settings, isLoading, error } = useQuery({
+  // Fetch global settings (for 'global' mode)
+  const { data: globalSettings, isLoading: globalLoading, error: globalError } = useQuery({
     queryKey: ["settings"],
     queryFn: async () => {
       const { data, error } = await supabase
@@ -88,9 +92,33 @@ export default function Settings() {
     },
   });
 
+  // Fetch user's personal settings (for 'personal' mode)
+  const { data: personalSettings, isLoading: personalLoading, error: personalError } = useQuery({
+    queryKey: ["user-settings", user?.id],
+    queryFn: async () => {
+      if (!user?.id) return null;
+      
+      const { data, error } = await supabase
+        .from("user_settings")
+        .select("*")
+        .eq("user_id", user.id)
+        .maybeSingle();
+      
+      if (error) throw error;
+      return data;
+    },
+    enabled: !!user?.id && isAdmin,
+  });
+
+  // Determine which settings to use based on mode
+  const settings = settingsMode === "global" ? globalSettings : personalSettings;
+  const isLoading = settingsMode === "global" ? globalLoading : personalLoading;
+  const error = settingsMode === "global" ? globalError : personalError;
+
+  // Update local settings when source settings change
   useEffect(() => {
     if (settings) {
-      console.log("Ładowanie ustawień do lokalnego stanu:", settings);
+      console.log(`Ładowanie ustawień (${settingsMode}) do lokalnego stanu:`, settings);
       setLocalSettings(settings);
       
       // Determine leverage source from settings
@@ -102,23 +130,57 @@ export default function Settings() {
         setLeverageSource("custom");
       }
     }
-  }, [settings]);
+  }, [settings, settingsMode]);
 
-  const updateSettings = useMutation({
+  // Handle mode change - reload settings from appropriate source
+  useEffect(() => {
+    const sourceSettings = settingsMode === "global" ? globalSettings : personalSettings;
+    if (sourceSettings) {
+      setLocalSettings(sourceSettings);
+    }
+  }, [settingsMode, globalSettings, personalSettings]);
+
+  // Mutation for global settings
+  const updateGlobalSettings = useMutation({
     mutationFn: async (updates: any) => {
       const { error } = await supabase
         .from("settings")
         .update(updates)
-        .eq("id", settings?.id);
+        .eq("id", globalSettings?.id);
       
       if (error) throw error;
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["settings"] });
-      toast({ title: "Zapisano", description: "Ustawienia zostały zaktualizowane" });
+      toast({ title: "Zapisano", description: "Ustawienia globalne zostały zaktualizowane" });
     },
     onError: () => {
-      toast({ title: "Błąd", description: "Nie udało się zapisać ustawień", variant: "destructive" });
+      toast({ title: "Błąd", description: "Nie udało się zapisać ustawień globalnych", variant: "destructive" });
+    },
+  });
+
+  // Mutation for personal settings
+  const updatePersonalSettings = useMutation({
+    mutationFn: async (updates: any) => {
+      if (!user?.id) throw new Error("No user ID");
+      
+      // Remove fields that don't exist in user_settings table
+      const { id, monitor_interval_seconds, auto_repair, profile_name, min_signal_strength_enabled, ...cleanUpdates } = updates;
+      
+      const { error } = await supabase
+        .from("user_settings")
+        .update(cleanUpdates)
+        .eq("user_id", user.id);
+      
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["user-settings", user?.id] });
+      toast({ title: "Zapisano", description: "Twoje osobiste ustawienia zostały zaktualizowane" });
+    },
+    onError: (error: any) => {
+      console.error("Error saving personal settings:", error);
+      toast({ title: "Błąd", description: "Nie udało się zapisać osobistych ustawień", variant: "destructive" });
     },
   });
 
@@ -179,8 +241,12 @@ export default function Settings() {
         }
       }
       
-      console.log("Zapisywanie ustawień:", localSettings);
-      updateSettings.mutate(localSettings);
+      console.log(`Zapisywanie ustawień (${settingsMode}):`, localSettings);
+      if (settingsMode === "global") {
+        updateGlobalSettings.mutate(localSettings);
+      } else {
+        updatePersonalSettings.mutate(localSettings);
+      }
     }
   };
 
@@ -360,6 +426,54 @@ export default function Settings() {
         </div>
         <Button onClick={handleSave}>Zapisz Zmiany</Button>
       </div>
+
+      {/* Admin Mode Switcher */}
+      {isAdmin && (
+        <Card className="border-primary/20">
+          <CardContent className="pt-4">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-4">
+                <Label className="text-sm font-medium">Tryb edycji:</Label>
+                <div className="flex gap-2">
+                  <Button 
+                    variant={settingsMode === "global" ? "default" : "outline"}
+                    size="sm"
+                    onClick={() => setSettingsMode("global")}
+                    className="flex items-center gap-2"
+                  >
+                    <Globe className="h-4 w-4" />
+                    Ustawienia globalne
+                  </Button>
+                  <Button 
+                    variant={settingsMode === "personal" ? "default" : "outline"}
+                    size="sm"
+                    onClick={() => setSettingsMode("personal")}
+                    className="flex items-center gap-2"
+                  >
+                    <User className="h-4 w-4" />
+                    Moje ustawienia
+                  </Button>
+                </div>
+              </div>
+            </div>
+            {settingsMode === "global" ? (
+              <Alert className="mt-3 border-orange-500/50 bg-orange-500/10">
+                <AlertTriangle className="h-4 w-4 text-orange-500" />
+                <AlertDescription className="text-orange-200">
+                  Edytujesz ustawienia globalne - zmiany wpłyną na wszystkich użytkowników z trybem "copy_admin"
+                </AlertDescription>
+              </Alert>
+            ) : (
+              <Alert className="mt-3 border-blue-500/50 bg-blue-500/10">
+                <User className="h-4 w-4 text-blue-500" />
+                <AlertDescription className="text-blue-200">
+                  Edytujesz swoje osobiste ustawienia - zmiany dotyczą tylko Twojego konta
+                </AlertDescription>
+              </Alert>
+            )}
+          </CardContent>
+        </Card>
+      )}
 
       <Tabs defaultValue="general" className="space-y-6">
         <TabsList className="grid w-full grid-cols-5">
