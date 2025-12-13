@@ -30,6 +30,7 @@ import { ZoneAgeAnalysisCard } from "@/components/stats/ZoneAgeAnalysisCard";
 import { StructureAnalysisCard } from "@/components/stats/StructureAnalysisCard";
 import { VolumeAnalysisCard } from "@/components/stats/VolumeAnalysisCard";
 import { V93IntelligenceCard } from "@/components/stats/V93IntelligenceCard";
+import { VersionComparisonCard } from "@/components/stats/VersionComparisonCard";
 import { useTradingStats } from "@/hooks/useTradingStats";
 import { exportToCSV, exportStatsToCSV } from "@/lib/exportStats";
 import { startOfDay, subDays, isAfter, isBefore, format, getDay, startOfMonth, endOfMonth } from "date-fns";
@@ -1767,6 +1768,238 @@ export default function Stats() {
     };
   }, [filteredPositions]);
 
+  // ========== VERSION COMPARISON DATA (v9.1 vs v9.3) ==========
+  
+  // Helper to get indicator version from position
+  const getIndicatorVersion = (position: any): string | null => {
+    const alert = Array.isArray(position.alerts) ? position.alerts[0] : position.alerts;
+    const rawData = alert?.raw_data as any;
+    const version = rawData?.indicator_version || rawData?.version || alert?.indicator_version;
+    if (!version) return null;
+    // Normalize version strings
+    if (version.includes('9.3') || version === '9.3') return '9.3';
+    if (version.includes('9.1') || version === '9.1') return '9.1';
+    if (version.includes('9.2') || version === '9.2') return '9.2';
+    return version;
+  };
+
+  // Split positions by version
+  const { v91Positions, v93Positions } = useMemo(() => {
+    if (!filteredPositions) return { v91Positions: [], v93Positions: [] };
+    
+    const v91: typeof filteredPositions = [];
+    const v93: typeof filteredPositions = [];
+    
+    filteredPositions.forEach(p => {
+      const version = getIndicatorVersion(p);
+      if (version === '9.1' || version === '9.2') v91.push(p); // Group 9.1 and 9.2 together
+      else if (version === '9.3') v93.push(p);
+    });
+    
+    return { v91Positions: v91, v93Positions: v93 };
+  }, [filteredPositions]);
+
+  // Calculate stats for a version
+  const calculateVersionStats = (positions: typeof filteredPositions) => {
+    if (!positions || positions.length === 0) return null;
+    
+    const wins = positions.filter(p => Number(p.realized_pnl || 0) > 0);
+    const losses = positions.filter(p => Number(p.realized_pnl || 0) < 0);
+    const totalPnL = positions.reduce((sum, p) => sum + Number(p.realized_pnl || 0), 0);
+    const totalWins = wins.reduce((sum, p) => sum + Number(p.realized_pnl || 0), 0);
+    const totalLosses = Math.abs(losses.reduce((sum, p) => sum + Number(p.realized_pnl || 0), 0));
+    
+    const avgWin = wins.length > 0 ? totalWins / wins.length : 0;
+    const avgLoss = losses.length > 0 ? totalLosses / losses.length : 0;
+    const winRate = positions.length > 0 ? (wins.length / positions.length) * 100 : 0;
+    const expectancy = (winRate / 100 * avgWin) - ((1 - winRate / 100) * avgLoss);
+    
+    // Streaks
+    let currentStreak = 0;
+    let bestStreak = 0;
+    let worstStreak = 0;
+    let lastWasWin = false;
+    
+    positions.forEach(p => {
+      const isWin = Number(p.realized_pnl || 0) > 0;
+      if (isWin === lastWasWin) {
+        currentStreak++;
+      } else {
+        currentStreak = 1;
+        lastWasWin = isWin;
+      }
+      if (isWin && currentStreak > bestStreak) bestStreak = currentStreak;
+      else if (!isWin && currentStreak > worstStreak) worstStreak = currentStreak;
+    });
+    
+    // Avg duration
+    const totalDuration = positions.reduce((sum, p) => {
+      if (!p.created_at || !p.closed_at) return sum;
+      return sum + (new Date(p.closed_at).getTime() - new Date(p.created_at).getTime());
+    }, 0);
+    const avgDuration = positions.length > 0 ? (totalDuration / positions.length) / (1000 * 60) : 0;
+    
+    // Max drawdown
+    let peak = 0;
+    let maxDrawdown = 0;
+    let cumulativePnL = 0;
+    positions.forEach(p => {
+      cumulativePnL += Number(p.realized_pnl || 0);
+      if (cumulativePnL > peak) peak = cumulativePnL;
+      const drawdown = peak - cumulativePnL;
+      if (drawdown > maxDrawdown) maxDrawdown = drawdown;
+    });
+    
+    return {
+      version: '',
+      trades: positions.length,
+      wins: wins.length,
+      losses: losses.length,
+      winRate,
+      totalPnL,
+      avgPnL: totalPnL / positions.length,
+      profitFactor: totalLosses > 0 ? totalWins / totalLosses : 0,
+      bestStreak,
+      worstStreak,
+      avgDuration,
+      maxDrawdown,
+      expectancy,
+    };
+  };
+
+  const v91StatsCalc = useMemo(() => {
+    const stats = calculateVersionStats(v91Positions);
+    if (stats) stats.version = '9.1';
+    return stats;
+  }, [v91Positions]);
+
+  const v93StatsCalc = useMemo(() => {
+    const stats = calculateVersionStats(v93Positions);
+    if (stats) stats.version = '9.3';
+    return stats;
+  }, [v93Positions]);
+
+  // Tier breakdown per version
+  const calculateTierBreakdown = (positions: typeof filteredPositions) => {
+    const tierMap = new Map<string, { tier: string; trades: number; wins: number; totalPnL: number }>();
+    
+    positions.forEach(p => {
+      const alert = Array.isArray(p.alerts) ? p.alerts[0] : p.alerts;
+      const tier = alert?.tier || "Unknown";
+      const pnl = Number(p.realized_pnl || 0);
+      const isWin = pnl > 0;
+      
+      if (!tierMap.has(tier)) {
+        tierMap.set(tier, { tier, trades: 0, wins: 0, totalPnL: 0 });
+      }
+      const stats = tierMap.get(tier)!;
+      stats.trades++;
+      stats.totalPnL += pnl;
+      if (isWin) stats.wins++;
+    });
+    
+    return Array.from(tierMap.values())
+      .map(t => ({
+        tier: t.tier,
+        trades: t.trades,
+        wins: t.wins,
+        winRate: t.trades > 0 ? (t.wins / t.trades) * 100 : 0,
+        totalPnL: t.totalPnL,
+      }))
+      .sort((a, b) => b.totalPnL - a.totalPnL);
+  };
+
+  const v91TierBreakdown = useMemo(() => calculateTierBreakdown(v91Positions), [v91Positions]);
+  const v93TierBreakdown = useMemo(() => calculateTierBreakdown(v93Positions), [v93Positions]);
+
+  // Symbol breakdown per version
+  const calculateSymbolBreakdown = (positions: typeof filteredPositions) => {
+    const symbolMap = new Map<string, { symbol: string; trades: number; wins: number; pnl: number }>();
+    
+    positions.forEach(p => {
+      const symbol = p.symbol;
+      const pnl = Number(p.realized_pnl || 0);
+      const isWin = pnl > 0;
+      
+      if (!symbolMap.has(symbol)) {
+        symbolMap.set(symbol, { symbol, trades: 0, wins: 0, pnl: 0 });
+      }
+      const stats = symbolMap.get(symbol)!;
+      stats.trades++;
+      stats.pnl += pnl;
+      if (isWin) stats.wins++;
+    });
+    
+    return Array.from(symbolMap.values())
+      .map(s => ({
+        symbol: s.symbol,
+        trades: s.trades,
+        wins: s.wins,
+        winRate: s.trades > 0 ? (s.wins / s.trades) * 100 : 0,
+        pnl: s.pnl,
+      }))
+      .sort((a, b) => b.pnl - a.pnl);
+  };
+
+  const v91SymbolBreakdown = useMemo(() => calculateSymbolBreakdown(v91Positions), [v91Positions]);
+  const v93SymbolBreakdown = useMemo(() => calculateSymbolBreakdown(v93Positions), [v93Positions]);
+
+  // Close reason breakdown per version
+  const calculateCloseReasonBreakdown = (positions: typeof filteredPositions) => {
+    const reasonMap = new Map<string, number>();
+    
+    positions.forEach(p => {
+      const reason = determineCloseReason(p);
+      reasonMap.set(reason, (reasonMap.get(reason) || 0) + 1);
+    });
+    
+    const total = positions.length;
+    return Array.from(reasonMap.entries())
+      .map(([reason, count]) => ({
+        reason,
+        count,
+        percentage: total > 0 ? (count / total) * 100 : 0,
+      }))
+      .sort((a, b) => b.count - a.count);
+  };
+
+  const v91CloseReasons = useMemo(() => calculateCloseReasonBreakdown(v91Positions), [v91Positions]);
+  const v93CloseReasons = useMemo(() => calculateCloseReasonBreakdown(v93Positions), [v93Positions]);
+
+  // Combined equity curve for version comparison
+  const versionEquityCurveData = useMemo(() => {
+    if (!filteredPositions || filteredPositions.length === 0) return [];
+    
+    // Get all positions sorted by date with their version
+    const allPositionsWithVersion = filteredPositions
+      .map(p => ({
+        date: p.closed_at!,
+        pnl: Number(p.realized_pnl || 0),
+        version: getIndicatorVersion(p),
+      }))
+      .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+    
+    let v91Cumulative = 0;
+    let v93Cumulative = 0;
+    
+    return allPositionsWithVersion.map((p, index) => {
+      if (p.version === '9.1' || p.version === '9.2') {
+        v91Cumulative += p.pnl;
+      } else if (p.version === '9.3') {
+        v93Cumulative += p.pnl;
+      }
+      
+      return {
+        date: p.date,
+        v91: v91Cumulative,
+        v93: v93Cumulative,
+        displayDate: index % Math.max(1, Math.floor(allPositionsWithVersion.length / 10)) === 0
+          ? new Date(p.date).toLocaleDateString("pl-PL", { day: "2-digit", month: "short" })
+          : "",
+      };
+    });
+  }, [filteredPositions]);
+
   // Helper: Get time filter label for export filenames
   const getTimeFilterLabel = () => {
     if (timeFilter === "custom" && customRange.from && customRange.to) {
@@ -2383,12 +2616,13 @@ export default function Stats() {
 
           {/* Tabs for organized sections */}
           <Tabs defaultValue="overview" className="w-full">
-            <TabsList className="grid w-full grid-cols-5">
+            <TabsList className="grid w-full grid-cols-6">
               <TabsTrigger value="overview">Przegląd</TabsTrigger>
               <TabsTrigger value="strategy">Strategia</TabsTrigger>
               <TabsTrigger value="time">Czas</TabsTrigger>
               <TabsTrigger value="advanced">Zaawansowane</TabsTrigger>
               <TabsTrigger value="insights">Insights</TabsTrigger>
+              <TabsTrigger value="comparison">v9.1 vs v9.3</TabsTrigger>
             </TabsList>
             
             <TabsContent value="overview" className="space-y-6 mt-6">
@@ -2528,6 +2762,21 @@ export default function Stats() {
                 volatilityRegimeStats={v93Stats.volatilityRegime}
                 m1ImpulseStats={v93Stats.m1Impulse}
                 rsVsBtcStats={v93Stats.rsVsBtc}
+              />
+            </TabsContent>
+
+            <TabsContent value="comparison" className="space-y-6 mt-6">
+              {/* Version Comparison */}
+              <VersionComparisonCard 
+                v91Stats={v91StatsCalc}
+                v93Stats={v93StatsCalc}
+                v91TierBreakdown={v91TierBreakdown}
+                v93TierBreakdown={v93TierBreakdown}
+                v91SymbolBreakdown={v91SymbolBreakdown}
+                v93SymbolBreakdown={v93SymbolBreakdown}
+                v91CloseReasons={v91CloseReasons}
+                v93CloseReasons={v93CloseReasons}
+                equityCurveData={versionEquityCurveData}
               />
             </TabsContent>
           </Tabs>
