@@ -14,6 +14,16 @@ import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/useAuth";
 import { cn } from "@/lib/utils";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+// Helper function to clean exchange prefixes and .P suffix from symbols
+const cleanSymbol = (symbol: string | null | undefined): string => {
+  if (!symbol) return '-';
+  // Remove exchange prefix (BITGET:, BYBIT:, etc.)
+  let clean = symbol.includes(':') ? symbol.split(':').pop()! : symbol;
+  // Remove .P suffix
+  if (clean.endsWith('.P')) clean = clean.slice(0, -2);
+  return clean;
+};
+
 export default function Alerts() {
   const [selectedAlert, setSelectedAlert] = useState<any>(null);
   const [showOnlyMyAlerts, setShowOnlyMyAlerts] = useState(true);
@@ -186,7 +196,7 @@ export default function Alerts() {
         // Basic alert data
         alert.id,
         format(new Date(alert.created_at), "dd.MM.yyyy HH:mm"),
-        alert.symbol,
+        cleanSymbol(alert.symbol),
         alert.side,
         Number(alert.entry_price).toFixed(8),
         Number(alert.sl).toFixed(8),
@@ -301,9 +311,10 @@ export default function Alerts() {
       return;
     }
 
-    // Enhance alerts with latency breakdown
+    // Enhance alerts with latency breakdown and clean symbol
     const enhancedAlerts = alerts.map(alert => ({
       ...alert,
+      symbol: cleanSymbol(alert.symbol),
       latency: {
         tv_timestamp: alert.tv_timestamp,
         webhook_received_at: alert.webhook_received_at,
@@ -507,7 +518,7 @@ export default function Alerts() {
                       <TableCell className="text-xs">
                         {format(new Date(alert.created_at), "dd.MM.yyyy HH:mm")}
                       </TableCell>
-                      <TableCell className="font-medium">{alert.symbol}</TableCell>
+                      <TableCell className="font-medium">{cleanSymbol(alert.symbol)}</TableCell>
                       <TableCell>
                         <Badge variant={alert.side === "BUY" ? "default" : "destructive"}>
                           {alert.side}
