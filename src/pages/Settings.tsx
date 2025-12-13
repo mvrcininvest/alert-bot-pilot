@@ -3126,8 +3126,6 @@ export default function Settings() {
                   value={
                     !localSettings.indicator_version_filter || localSettings.indicator_version_filter.length === 0
                       ? 'all'
-                      : localSettings.indicator_version_filter.length === 2
-                      ? 'both'
                       : localSettings.indicator_version_filter.includes('9.1')
                       ? '9.1'
                       : '9.3'
@@ -3135,8 +3133,6 @@ export default function Settings() {
                   onValueChange={(value) => {
                     if (value === 'all') {
                       updateLocal("indicator_version_filter", null);
-                    } else if (value === 'both') {
-                      updateLocal("indicator_version_filter", ['9.1', '9.3']);
                     } else {
                       updateLocal("indicator_version_filter", [value]);
                     }
@@ -3149,7 +3145,6 @@ export default function Settings() {
                     <SelectItem value="all">Wszystkie wersje</SelectItem>
                     <SelectItem value="9.1">Tylko v9.1</SelectItem>
                     <SelectItem value="9.3">Tylko v9.3</SelectItem>
-                    <SelectItem value="both">v9.1 i v9.3</SelectItem>
                   </SelectContent>
                 </Select>
                 <p className="text-xs text-muted-foreground">
