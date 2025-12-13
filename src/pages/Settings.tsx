@@ -16,7 +16,7 @@ import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { FeeCalculator } from "@/components/settings/FeeCalculator";
 import { useTradingStats } from "@/hooks/useTradingStats";
 import { Alert, AlertDescription } from "@/components/ui/alert";
-import { AlertTriangle, Clock, Plus, Trash2, RefreshCw, Globe, User } from "lucide-react";
+import { AlertTriangle, Clock, Plus, Trash2, RefreshCw, Globe, User, Copy, Settings2 } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
 
 export default function Settings() {
@@ -471,6 +471,135 @@ export default function Settings() {
                 </AlertDescription>
               </Alert>
             )}
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Personal Settings Mode Switcher - copy_admin vs custom */}
+      {isAdmin && settingsMode === "personal" && localSettings && (
+        <Card className="border-blue-500/30 bg-blue-500/5">
+          <CardHeader className="pb-3">
+            <CardTitle className="text-lg flex items-center gap-2">
+              <Settings2 className="h-5 w-5" />
+              Tryby Ustawień
+            </CardTitle>
+            <CardDescription>
+              Wybierz które ustawienia mają być kopiowane z globalnych, a które ustawione indywidualnie
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            {/* Money Management Mode */}
+            <div className="flex items-center justify-between p-3 rounded-lg border bg-card">
+              <div className="space-y-1">
+                <div className="flex items-center gap-2">
+                  <Label className="font-medium">Money Management</Label>
+                  <Badge variant={localSettings.money_mode === "custom" ? "default" : "secondary"}>
+                    {localSettings.money_mode === "custom" ? "Custom" : "Copy Admin"}
+                  </Badge>
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  Margin, leverage, wielkość pozycji, limity strat
+                </p>
+              </div>
+              <div className="flex gap-2">
+                <Button
+                  variant={localSettings.money_mode === "copy_admin" ? "default" : "outline"}
+                  size="sm"
+                  onClick={() => updateLocal("money_mode", "copy_admin")}
+                  className="flex items-center gap-1"
+                >
+                  <Copy className="h-3 w-3" />
+                  Copy Admin
+                </Button>
+                <Button
+                  variant={localSettings.money_mode === "custom" ? "default" : "outline"}
+                  size="sm"
+                  onClick={() => updateLocal("money_mode", "custom")}
+                  className="flex items-center gap-1"
+                >
+                  <Settings2 className="h-3 w-3" />
+                  Custom
+                </Button>
+              </div>
+            </div>
+
+            {/* SL/TP Mode */}
+            <div className="flex items-center justify-between p-3 rounded-lg border bg-card">
+              <div className="space-y-1">
+                <div className="flex items-center gap-2">
+                  <Label className="font-medium">Stop Loss / Take Profit</Label>
+                  <Badge variant={localSettings.sltp_mode === "custom" ? "default" : "secondary"}>
+                    {localSettings.sltp_mode === "custom" ? "Custom" : "Copy Admin"}
+                  </Badge>
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  Strategia TP, poziomy TP, trailing stop, breakeven
+                </p>
+              </div>
+              <div className="flex gap-2">
+                <Button
+                  variant={localSettings.sltp_mode === "copy_admin" ? "default" : "outline"}
+                  size="sm"
+                  onClick={() => updateLocal("sltp_mode", "copy_admin")}
+                  className="flex items-center gap-1"
+                >
+                  <Copy className="h-3 w-3" />
+                  Copy Admin
+                </Button>
+                <Button
+                  variant={localSettings.sltp_mode === "custom" ? "default" : "outline"}
+                  size="sm"
+                  onClick={() => updateLocal("sltp_mode", "custom")}
+                  className="flex items-center gap-1"
+                >
+                  <Settings2 className="h-3 w-3" />
+                  Custom
+                </Button>
+              </div>
+            </div>
+
+            {/* Tier Filtering Mode */}
+            <div className="flex items-center justify-between p-3 rounded-lg border bg-card">
+              <div className="space-y-1">
+                <div className="flex items-center gap-2">
+                  <Label className="font-medium">Filtrowanie Alertów</Label>
+                  <Badge variant={localSettings.tier_mode === "custom" ? "default" : "secondary"}>
+                    {localSettings.tier_mode === "custom" ? "Custom" : "Copy Admin"}
+                  </Badge>
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  Tiery, sesje, wersje indikatora, siła sygnału
+                </p>
+              </div>
+              <div className="flex gap-2">
+                <Button
+                  variant={localSettings.tier_mode === "copy_admin" ? "default" : "outline"}
+                  size="sm"
+                  onClick={() => updateLocal("tier_mode", "copy_admin")}
+                  className="flex items-center gap-1"
+                >
+                  <Copy className="h-3 w-3" />
+                  Copy Admin
+                </Button>
+                <Button
+                  variant={localSettings.tier_mode === "custom" ? "default" : "outline"}
+                  size="sm"
+                  onClick={() => updateLocal("tier_mode", "custom")}
+                  className="flex items-center gap-1"
+                >
+                  <Settings2 className="h-3 w-3" />
+                  Custom
+                </Button>
+              </div>
+            </div>
+
+            {/* Info about modes */}
+            <Alert className="border-muted">
+              <AlertDescription className="text-xs text-muted-foreground">
+                <strong>Copy Admin:</strong> Bot używa ustawień globalnych (jak inni użytkownicy z tym trybem)<br/>
+                <strong>Custom:</strong> Bot używa wartości ustawionych poniżej w poszczególnych sekcjach
+              </AlertDescription>
+            </Alert>
           </CardContent>
         </Card>
       )}
