@@ -578,6 +578,7 @@ export type Database = {
           fee_aware_breakeven: boolean | null
           filter_by_tier: boolean | null
           id: string
+          indicator_version_filter: string[] | null
           loss_limit_type: string | null
           max_loss_per_trade: number | null
           max_margin_per_trade: number | null
@@ -656,6 +657,7 @@ export type Database = {
           fee_aware_breakeven?: boolean | null
           filter_by_tier?: boolean | null
           id?: string
+          indicator_version_filter?: string[] | null
           loss_limit_type?: string | null
           max_loss_per_trade?: number | null
           max_margin_per_trade?: number | null
@@ -734,6 +736,7 @@ export type Database = {
           fee_aware_breakeven?: boolean | null
           filter_by_tier?: boolean | null
           id?: string
+          indicator_version_filter?: string[] | null
           loss_limit_type?: string | null
           max_loss_per_trade?: number | null
           max_margin_per_trade?: number | null
