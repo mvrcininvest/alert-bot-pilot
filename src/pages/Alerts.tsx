@@ -13,11 +13,12 @@ import { useState, useEffect, useRef } from "react";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/useAuth";
 import { cn } from "@/lib/utils";
-
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 export default function Alerts() {
   const [selectedAlert, setSelectedAlert] = useState<any>(null);
   const [showOnlyMyAlerts, setShowOnlyMyAlerts] = useState(true);
   const [showErrors, setShowErrors] = useState(false);
+  const [versionFilter, setVersionFilter] = useState<string>("all");
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const { isAdmin, user } = useAuth();
@@ -27,7 +28,7 @@ export default function Alerts() {
   const [tableWidth, setTableWidth] = useState(1800);
   
   const { data: alerts, isLoading } = useQuery({
-    queryKey: ["alerts", showOnlyMyAlerts, showErrors, user?.id],
+    queryKey: ["alerts", showOnlyMyAlerts, showErrors, versionFilter, user?.id],
     queryFn: async () => {
       let query = supabase
         .from("alerts")
@@ -41,6 +42,11 @@ export default function Alerts() {
       // Hide error status alerts unless showErrors is enabled
       if (!showErrors) {
         query = query.neq("status", "error");
+      }
+      
+      // Filter by indicator version
+      if (versionFilter !== "all") {
+        query = query.eq("indicator_version", versionFilter);
       }
       
       query = query.order("created_at", { ascending: false });
@@ -331,6 +337,16 @@ export default function Alerts() {
           </p>
         </div>
         <div className="flex items-center gap-2">
+          <Select value={versionFilter} onValueChange={setVersionFilter}>
+            <SelectTrigger className="w-[140px]">
+              <SelectValue placeholder="Wersja" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">Wszystkie</SelectItem>
+              <SelectItem value="9.1">v9.1</SelectItem>
+              <SelectItem value="9.3">v9.3</SelectItem>
+            </SelectContent>
+          </Select>
           {isAdmin && (
             <Button
               variant={showOnlyMyAlerts ? "default" : "outline"}
